@@ -1811,3 +1811,66 @@
   transition: width var(--dur-base) var(--ease-standard);
 }
 
+
+/* ============= ATTENTION PILL (ported from prototype app-mobile.css) ============= */
+.attention-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 6px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-card);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard),
+              border-color var(--dur-fast) var(--ease-standard);
+}
+.attention-pill:hover { background: var(--bg-subtle); }
+.attention-pill.active {
+  border-color: var(--forest);
+  background: rgba(60,213,103,0.08);
+}
+.attention-pill-label { font-size: 12px; }
+.attention-pill-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  background: var(--bg-muted);
+  color: var(--fg);
+}
+.attention-pill.warn {
+  border-color: rgba(255,182,39,0.5);
+  background: rgba(255,182,39,0.08);
+}
+.attention-pill.warn .attention-pill-count {
+  background: rgba(255,182,39,0.25);
+  color: #8A5500;
+}
+.attention-pill.urgent {
+  border-color: rgba(197,48,48,0.5);
+  background: rgba(197,48,48,0.06);
+  color: #C53030;
+}
+.attention-pill.urgent .attention-pill-count {
+  background: #C53030;
+  color: var(--off-white);
+  animation: attn-pulse 1.6s ease-in-out infinite;
+}
+.attention-pill.ok {
+  color: #1A6F2E;
+  border-color: rgba(60,213,103,0.4);
+  background: rgba(60,213,103,0.08);
+}
+@keyframes attn-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(197,48,48,0.5); }
+  50%      { box-shadow: 0 0 0 4px rgba(197,48,48,0); }
+}
