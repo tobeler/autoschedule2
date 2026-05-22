@@ -7,7 +7,8 @@ export type IconName =
   | 'phone' | 'check' | 'x' | 'arrow_right' | 'drag' | 'bell' | 'sparkle'
   | 'tool' | 'bolt' | 'home' | 'briefcase' | 'timer' | 'settings_2'
   | 'bar_chart' | 'plug' | 'droplet' | 'flame' | 'info' | 'layers'
-  | 'hubspot' | 'refresh' | 'expand' | 'grid' | 'more' | 'alert_circle';
+  | 'hubspot' | 'refresh' | 'expand' | 'grid' | 'more' | 'alert_circle'
+  | 'external_link' | 'zap';
 
 interface IconProps {
   name: IconName;
@@ -61,6 +62,8 @@ const PATHS: Record<IconName, ReactElement> = {
   grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
   more: <><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" /></>,
   alert_circle: <><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16v.01" /></>,
+  external_link: <><path d="M14 4h6v6M10 14L20 4M19 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6" /></>,
+  zap: <><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" /></>,
 };
 
 export function Icon({ name, size = 18, stroke = 'currentColor', strokeWidth = 1.75, style, className }: IconProps) {

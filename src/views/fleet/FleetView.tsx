@@ -1,21 +1,34 @@
 // =============================================================
 // Fleet view — trucks/vans table with utilization bars, today's
 // jobs, in-shop/available status and assigned crew.
+//
+// Phase 16 adds: "+ Add vehicle" button → AddTruckModal, per-row
+// menu (Edit / Delete) with referential delete-guard.
 // =============================================================
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
 import { JobTypeTag } from '../../components/JobTypeTag';
 import { PageHeader } from '../../components/PageHeader';
+import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import { useStore } from '../../store';
 import { TODAY, dateKey, fmtTime } from '../../data/helpers';
 import { getCrew } from '../../data/selectors';
 import type { Truck } from '../../types';
+import { AddTruckModal } from './AddTruckModal';
+import { EditTruckModal } from './EditTruckModal';
 
 export function FleetView() {
   const trucks = useStore((s) => s.trucks);
   const crews = useStore((s) => s.crews);
   const jobs = useStore((s) => s.jobs);
+  const removeTruck = useStore((s) => s.removeTruck);
+  const pushToast = useStore((s) => s.pushToast);
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [editTruck, setEditTruck] = useState<Truck | null>(null);
+  const [deleteTruck, setDeleteTruck] = useState<Truck | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const todayDk = dateKey(TODAY);
 
@@ -44,6 +57,21 @@ export function FleetView() {
     return Math.round(vals.reduce((s, v) => s + v, 0) / vals.length);
   }, [utilization]);
 
+  // Referential check: a truck can't be deleted while it's on a non-complete job.
+  function activeJobsForTruck(truckId: string) {
+    return jobs.filter(
+      (j) => j.truckId === truckId && j.status !== 'complete',
+    );
+  }
+
+  function confirmDelete(truck: Truck) {
+    const blockers = activeJobsForTruck(truck.id);
+    if (blockers.length > 0) return; // button is disabled
+    removeTruck(truck.id);
+    pushToast('Deleted ' + truck.name);
+    setDeleteTruck(null);
+  }
+
   return (
     <>
       <PageHeader
@@ -63,7 +91,10 @@ export function FleetView() {
         <button className="btn btn-outline btn-sm">
           <Icon name="grid" size={14} /> Map view
         </button>
-        <button className="btn btn-primary btn-sm">
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => setShowAdd(true)}
+        >
           <Icon name="plus" size={14} /> Add vehicle
         </button>
       </PageHeader>
@@ -207,8 +238,27 @@ export function FleetView() {
                         <span className="badge badge-onsite">Active</span>
                       )}
                     </td>
-                    <td>
-                      <IconButton icon="more" label="Actions" />
+                    <td style={{ position: 'relative' }}>
+                      <IconButton
+                        icon="more"
+                        label="Actions"
+                        onClick={() =>
+                          setOpenMenuId(openMenuId === t.id ? null : t.id)
+                        }
+                      />
+                      {openMenuId === t.id && (
+                        <RowMenu
+                          onEdit={() => {
+                            setEditTruck(t);
+                            setOpenMenuId(null);
+                          }}
+                          onDelete={() => {
+                            setDeleteTruck(t);
+                            setOpenMenuId(null);
+                          }}
+                          onClose={() => setOpenMenuId(null)}
+                        />
+                      )}
                     </td>
                   </tr>
                 );
@@ -217,7 +267,134 @@ export function FleetView() {
           </table>
         </div>
       </div>
+
+      {showAdd && <AddTruckModal onClose={() => setShowAdd(false)} />}
+      {editTruck && (
+        <EditTruckModal
+          truck={editTruck}
+          onClose={() => setEditTruck(null)}
+        />
+      )}
+      {deleteTruck && (
+        <ConfirmDeleteModal
+          entityLabel={deleteTruck.name}
+          body={(() => {
+            const active = activeJobsForTruck(deleteTruck.id);
+            if (active.length > 0) {
+              return (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#781E1E' }}>
+                    {deleteTruck.name} is on {active.length} active job
+                    {active.length === 1 ? '' : 's'} — cancel or reassign first.
+                  </div>
+                  <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
+                    {active.slice(0, 5).map((j) => (
+                      <li key={j.id} className="mono">
+                        {j.id} · {j.date ?? 'unscheduled'} · {j.status}
+                      </li>
+                    ))}
+                    {active.length > 5 && (
+                      <li className="muted">+{active.length - 5} more…</li>
+                    )}
+                  </ul>
+                </div>
+              );
+            }
+            return (
+              <div className="muted small">
+                Vehicle records are removed from the fleet table and any crews
+                referencing this truck will be cleared.
+              </div>
+            );
+          })()}
+          blocked={activeJobsForTruck(deleteTruck.id).length > 0}
+          confirmText={'Delete ' + deleteTruck.name}
+          onCancel={() => setDeleteTruck(null)}
+          onConfirm={() => confirmDelete(deleteTruck)}
+        />
+      )}
     </>
+  );
+}
+
+function RowMenu({
+  onEdit,
+  onDelete,
+  onClose,
+}: {
+  onEdit: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 50,
+        }}
+      />
+      <div
+        role="menu"
+        style={{
+          position: 'absolute',
+          right: 8,
+          top: 36,
+          minWidth: 140,
+          background: 'var(--surface-card)',
+          border: '1px solid var(--border)',
+          borderRadius: 8,
+          boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.1))',
+          padding: 4,
+          zIndex: 51,
+        }}
+      >
+        <MenuItem onClick={onEdit} icon="settings">
+          Edit
+        </MenuItem>
+        <MenuItem onClick={onDelete} icon="x" danger>
+          Delete
+        </MenuItem>
+      </div>
+    </>
+  );
+}
+
+function MenuItem({
+  onClick,
+  icon,
+  danger,
+  children,
+}: {
+  onClick: () => void;
+  icon: 'settings' | 'x';
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '6px 10px',
+        background: 'transparent',
+        border: 'none',
+        textAlign: 'left',
+        cursor: 'pointer',
+        fontSize: 12,
+        borderRadius: 6,
+        color: danger ? '#C53030' : 'var(--fg)',
+      }}
+    >
+      <Icon name={icon} size={12} />
+      <span>{children}</span>
+    </button>
   );
 }
 

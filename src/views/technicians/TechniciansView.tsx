@@ -17,9 +17,11 @@ import {
 } from '../../data/helpers';
 import { getCrew, roleLabel } from '../../data/selectors';
 import { ROLES } from '../../data/seed';
-import type { Crew, Person, RoleKey } from '../../types';
+import type { Crew, Person, RoleKey, TimeOff, TimeOffType } from '../../types';
 import { SkillsMatrix } from '../crews/SkillsMatrix';
 import { AddTechnicianModal } from './AddTechnicianModal';
+import { EditTechnicianModal } from './EditTechnicianModal';
+import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 
 type SortKey =
   | 'name'
@@ -71,6 +73,21 @@ export function TechniciansView() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [showAdd, setShowAdd] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
+  const [editPerson, setEditPerson] = useState<Person | null>(null);
+  const [deletePerson, setDeletePerson] = useState<Person | null>(null);
+  const [timeOffPerson, setTimeOffPerson] = useState<Person | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const jobsLive = useStore((s) => s.jobs);
+  const removePersonAction = useStore((s) => s.removePerson);
+  const addTimeOff = useStore((s) => s.addTimeOff);
+  const pushToast = useStore((s) => s.pushToast);
+
+  function activeJobsForPerson(id: string) {
+    return jobsLive.filter(
+      (j) =>
+        j.status !== 'complete' && j.slots.some((s) => s.assignedTo === id),
+    );
+  }
 
   // Compute weekly utilization + pair-with leads from the live jobs grid
   const todayDk = dateKey(TODAY);
@@ -450,8 +467,33 @@ export function TechniciansView() {
                         {meta.label}
                       </span>
                     </td>
-                    <td>
-                      <IconButton icon="more" label="More" />
+                    <td style={{ position: 'relative' }}>
+                      <IconButton
+                        icon="more"
+                        label="More"
+                        onClick={() =>
+                          setOpenMenuId(
+                            openMenuId === r.person.id ? null : r.person.id,
+                          )
+                        }
+                      />
+                      {openMenuId === r.person.id && (
+                        <TechRowMenu
+                          onEdit={() => {
+                            setEditPerson(r.person);
+                            setOpenMenuId(null);
+                          }}
+                          onAddTimeOff={() => {
+                            setTimeOffPerson(r.person);
+                            setOpenMenuId(null);
+                          }}
+                          onDelete={() => {
+                            setDeletePerson(r.person);
+                            setOpenMenuId(null);
+                          }}
+                          onClose={() => setOpenMenuId(null)}
+                        />
+                      )}
                     </td>
                   </tr>
                 );
@@ -482,7 +524,257 @@ export function TechniciansView() {
 
       {showAdd && <AddTechnicianModal onClose={() => setShowAdd(false)} />}
       {showSkills && <SkillsMatrixDrawer onClose={() => setShowSkills(false)} />}
+      {editPerson && (
+        <EditTechnicianModal
+          person={editPerson}
+          onClose={() => setEditPerson(null)}
+        />
+      )}
+      {timeOffPerson && (
+        <QuickAddTimeOffModal
+          person={timeOffPerson}
+          onClose={() => setTimeOffPerson(null)}
+          onSave={(t) => {
+            addTimeOff(t);
+            pushToast('Added time off for ' + timeOffPerson.name);
+            setTimeOffPerson(null);
+          }}
+        />
+      )}
+      {deletePerson && (
+        <ConfirmDeleteModal
+          entityLabel={deletePerson.name}
+          body={(() => {
+            const blockers = activeJobsForPerson(deletePerson.id);
+            if (blockers.length > 0) {
+              return (
+                <div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: '#781E1E',
+                    }}
+                  >
+                    {deletePerson.name} is on {blockers.length} active job
+                    {blockers.length === 1 ? '' : 's'} — cancel or reassign first.
+                  </div>
+                  <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
+                    {blockers.slice(0, 5).map((j) => (
+                      <li key={j.id} className="mono">
+                        {j.id} · {j.date ?? 'unscheduled'} · {j.status}
+                      </li>
+                    ))}
+                    {blockers.length > 5 && (
+                      <li className="muted">+{blockers.length - 5} more…</li>
+                    )}
+                  </ul>
+                </div>
+              );
+            }
+            return (
+              <div className="muted small">
+                Removes this technician from crews. Past job slots they filled
+                remain in history.
+              </div>
+            );
+          })()}
+          blocked={activeJobsForPerson(deletePerson.id).length > 0}
+          confirmText={'Delete ' + deletePerson.name}
+          onCancel={() => setDeletePerson(null)}
+          onConfirm={() => {
+            removePersonAction(deletePerson.id);
+            pushToast('Deleted ' + deletePerson.name);
+            setDeletePerson(null);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function TechRowMenu({
+  onEdit,
+  onAddTimeOff,
+  onDelete,
+  onClose,
+}: {
+  onEdit: () => void;
+  onAddTimeOff: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, zIndex: 50 }}
+      />
+      <div
+        role="menu"
+        style={{
+          position: 'absolute',
+          right: 8,
+          top: 36,
+          minWidth: 160,
+          background: 'var(--surface-card)',
+          border: '1px solid var(--border)',
+          borderRadius: 8,
+          boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.1))',
+          padding: 4,
+          zIndex: 51,
+        }}
+      >
+        <TechMenuItem onClick={onEdit} icon="settings">
+          Edit
+        </TechMenuItem>
+        <TechMenuItem onClick={onAddTimeOff} icon="clock">
+          Add time off
+        </TechMenuItem>
+        <TechMenuItem onClick={onDelete} icon="x" danger>
+          Delete
+        </TechMenuItem>
+      </div>
+    </>
+  );
+}
+
+function TechMenuItem({
+  onClick,
+  icon,
+  danger,
+  children,
+}: {
+  onClick: () => void;
+  icon: 'settings' | 'clock' | 'x';
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '6px 10px',
+        background: 'transparent',
+        border: 'none',
+        textAlign: 'left',
+        cursor: 'pointer',
+        fontSize: 12,
+        borderRadius: 6,
+        color: danger ? '#C53030' : 'var(--fg)',
+      }}
+    >
+      <Icon name={icon} size={12} />
+      <span>{children}</span>
+    </button>
+  );
+}
+
+const TIME_OFF_TYPES: TimeOffType[] = ['pto', 'sick', 'vacation', 'training'];
+
+function QuickAddTimeOffModal({
+  person,
+  onClose,
+  onSave,
+}: {
+  person: Person;
+  onClose: () => void;
+  onSave: (t: TimeOff) => void;
+}) {
+  const [date, setDate] = useState<string>(dateKey(TODAY));
+  const [type, setType] = useState<TimeOffType>('pto');
+  const [label, setLabel] = useState('');
+
+  const canSave = date.length === 10;
+
+  function save() {
+    if (!canSave) return;
+    const t: TimeOff = {
+      id: 'to' + Date.now().toString(36),
+      personId: person.id,
+      date,
+      type,
+      label: label.trim() || type.toUpperCase(),
+    };
+    onSave(t);
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 440 }}
+        role="dialog"
+        aria-label="Add time off"
+      >
+        <div className="modal-header">
+          <Icon name="clock" size={18} />
+          <div>
+            <div className="eyebrow-sm">{person.name}</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Add time off</div>
+          </div>
+          <div className="topbar-spacer" />
+          <IconButton icon="x" label="Close" onClick={onClose} />
+        </div>
+
+        <div className="modal-body">
+          <div className="modal-form-grid">
+            <div className="field">
+              <label className="label">Date</label>
+              <input
+                className="input"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="field">
+              <label className="label">Type</label>
+              <select
+                className="select"
+                value={type}
+                onChange={(e) => setType(e.target.value as TimeOffType)}
+              >
+                {TIME_OFF_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field" style={{ gridColumn: '1 / -1' }}>
+              <label className="label">Label (optional)</label>
+              <input
+                className="input"
+                placeholder="Reason or note"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={save}
+            disabled={!canSave}
+          >
+            <Icon name="check" size={14} /> Add time off
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

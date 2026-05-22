@@ -9,6 +9,7 @@
 //     into another crew's job
 // =============================================================
 import { Fragment } from 'react';
+import type { DragEvent } from 'react';
 import type { Crew, Job, JobSlot, Person, Truck } from '../../types';
 import { Icon } from '../../components/Icon';
 import { ROLES } from '../../data/seed';
@@ -68,10 +69,64 @@ export function WeekCalendar({
   const allTrucks = useStore((s) => s.trucks);
   const allPeople = useStore((s) => s.people);
   const allCustomers = useStore((s) => s.customers);
+  const allJobs = useStore((s) => s.jobs);
+  const moveJob = useStore((s) => s.moveJob);
+  const selectJob = useStore((s) => s.selectJob);
+  const pushToast = useStore((s) => s.pushToast);
 
   const days = Array.from({ length: 5 }).map((_, i) => addDays(startDate, i));
   const weekKeys = days.map(dateKey);
   const todayKey = dateKey(TODAY);
+
+  // Resolve a (crewId, truckId) target for a row given the active groupBy.
+  // crew rows → row id is the crew id (truckId comes from the crew's default).
+  // truck rows → row id is the truck id (crewId comes from the truck's assignment).
+  // tech rows → row id is the person id (crewId from defaultCrew, truck from that crew).
+  function rowAssignment(row: WeekRow): { crewId: string | null; truckId: string | null } {
+    if (row.kind === 'crew') {
+      const crew = getCrew(allCrews, row.id);
+      return { crewId: row.id, truckId: crew?.truck ?? null };
+    }
+    if (row.kind === 'truck') {
+      const truck = allTrucks.find((t) => t.id === row.id);
+      return { crewId: truck?.assignedCrew ?? null, truckId: row.id };
+    }
+    // tech
+    const person = getPerson(allPeople, row.id);
+    const crew = getCrew(allCrews, person?.defaultCrew);
+    return { crewId: crew?.id ?? null, truckId: crew?.truck ?? null };
+  }
+
+  function handleCellDrop(
+    e: DragEvent<HTMLDivElement>,
+    row: WeekRow,
+    dk: string,
+  ) {
+    const jobId = e.dataTransfer.getData('text/job-id');
+    if (!jobId) return;
+    const { crewId, truckId } = rowAssignment(row);
+    const prevJob = allJobs.find((j) => j.id === jobId);
+    const wasUnscheduled = prevJob?.status === 'unscheduled';
+    const previouslyFilledCount =
+      prevJob?.slots.filter((s) => s.assignedTo).length ?? 0;
+    moveJob(jobId, { date: dk, startHour: 8, crewId, truckId });
+    if (wasUnscheduled) {
+      const updated = useStore.getState().jobs.find((j) => j.id === jobId);
+      const newlyFilledCount =
+        (updated?.slots.filter((s) => s.assignedTo).length ?? 0) -
+        previouslyFilledCount;
+      selectJob(jobId, { initialTab: 'crew' });
+      if (newlyFilledCount > 0) {
+        pushToast(
+          `Scheduled ${jobId} · auto-filled ${newlyFilledCount} slot${newlyFilledCount === 1 ? '' : 's'} — review crew.`,
+        );
+      } else {
+        pushToast(`Scheduled ${jobId} — review crew.`);
+      }
+    } else {
+      pushToast('Scheduled ' + jobId);
+    }
+  }
 
   let rows: WeekRow[];
   if (groupBy === 'truck') {
@@ -240,6 +295,22 @@ export function WeekCalendar({
               return (
                 <div
                   key={dk + row.id}
+                  className="week-day-cell"
+                  onDragOver={(e) => {
+                    if (!e.dataTransfer.types.includes('text/job-id')) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    e.currentTarget.classList.add('calendar-drop-target');
+                  }}
+                  onDragLeave={(e) => {
+                    const related = e.relatedTarget as Node | null;
+                    if (related && e.currentTarget.contains(related)) return;
+                    e.currentTarget.classList.remove('calendar-drop-target');
+                  }}
+                  onDrop={(e) => {
+                    e.currentTarget.classList.remove('calendar-drop-target');
+                    handleCellDrop(e, row, dk);
+                  }}
                   style={{
                     background: 'var(--surface-card)',
                     padding: 6,

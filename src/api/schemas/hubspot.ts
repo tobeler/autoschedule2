@@ -61,3 +61,26 @@ export const HubspotPushResultSchema = z
     hubspotObjectId: z.string().optional(),
   })
   .openapi('HubspotPushResult');
+
+/** Demo-mode sync response — returns parsed entities instead of DB write counts. */
+export const HubspotSyncDemoResultSchema = z
+  .object({
+    ok: z.boolean(),
+    demo: z.literal(true),
+    customers: z.array(z.unknown()),
+    projects: z.array(z.unknown()),
+    regions: z.array(z.unknown()),
+    lastSyncedAt: z.string(),
+    errors: z.array(z.string()),
+  })
+  .openapi('HubspotSyncDemoResult');
+
+export const HubspotPingResultSchema = z
+  .object({
+    ok: z.boolean(),
+    portalId: z.number().int(),
+    accountType: z.string(),
+    timeZone: z.string(),
+    currency: z.string(),
+  })
+  .openapi('HubspotPingResult');

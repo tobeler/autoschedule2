@@ -13,6 +13,7 @@ import {
   type FsmFieldDef,
 } from '../../integrations/hubspot/field-map-defaults';
 import schemaSnapshotData from '../../integrations/hubspot/schema-snapshot.json';
+import { client } from '../../api/client';
 
 // ---------- Schema snapshot (typed) ------------------------------------------
 interface SnapshotProperty {
@@ -171,8 +172,32 @@ export function HubspotFieldMapping() {
     pushToast('Field mapping reset to Jetson defaults');
   }
   function commitSave() {
+    // Optimistic local update first.
+    const prev = stored;
     save(mapping);
     pushToast('HubSpot field mapping saved');
+    // Write-through to the API per-entity. Failures roll back to the
+    // previous saved snapshot and surface a toast — the dispatcher
+    // shouldn't believe a mapping is persisted when it isn't.
+    void (async () => {
+      try {
+        await Promise.all(
+          mapping.map((e) =>
+            client.hubspot.putMapping(e.entity, {
+              fields: e.fields.map((f) => ({
+                appField: f.appField,
+                hsField: f.hsField,
+                direction: f.direction,
+              })),
+            }),
+          ),
+        );
+      } catch (err) {
+        save(prev);
+        const detail = err instanceof Error ? err.message : 'unknown error';
+        pushToast('Mapping save failed — restored (' + detail + ')');
+      }
+    })();
   }
   function testSync() {
     setSyncedJustNow(true);

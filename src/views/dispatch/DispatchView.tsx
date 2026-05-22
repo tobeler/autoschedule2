@@ -67,7 +67,11 @@ export function DispatchView() {
   const unsched = useMemo(() => unscheduledJobs(jobs), [jobs]);
 
   const dayMode = range === 'day' && layout === 'calendar';
-  const railVisible = dayMode && showRail;
+  // Phase 15.1b — surface the Unscheduled rail (and its collapsed strip)
+  // whenever we're in any calendar range, so jobs can be dragged onto Week
+  // and Month cells too. Other layouts (kanban / gantt / map) still hide it.
+  const calendarMode = layout === 'calendar';
+  const railVisible = calendarMode && showRail;
 
   return (
     <>
@@ -106,7 +110,7 @@ export function DispatchView() {
             onCollapse={() => setShowRail(false)}
           />
         )}
-        {!railVisible && dayMode && (
+        {!railVisible && calendarMode && (
           <CollapsedRailStub
             count={unsched.length}
             onExpand={() => setShowRail(true)}

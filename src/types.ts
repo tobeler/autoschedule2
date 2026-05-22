@@ -126,6 +126,10 @@ export interface Project {
   primaryCrew: string | null;
   description?: string;
   designNotes?: string;
+  /** HubSpot native Project record id (objectTypeId 0-970). Drives "Open in HubSpot" affordance. */
+  hubspotProjectId?: string | null;
+  /** Origin of the record, used to distinguish live native projects from legacy installations. */
+  source?: 'native_project' | 'legacy_installation' | 'deal_fallback';
 }
 
 export interface SubRegion {

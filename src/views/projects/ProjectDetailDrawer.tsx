@@ -19,13 +19,21 @@ import {
 } from '../../data/selectors';
 import type { Job, Project } from '../../types';
 import { PROJECT_STATUS_META, ProjectStatusBadge } from './ProjectsView';
+import { hubspotProjectUrl, hubspotContactUrl } from '../../integrations/hubspot/urls';
 
 interface ProjectDetailDrawerProps {
   project: Project;
   onClose: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
-export function ProjectDetailDrawer({ project, onClose }: ProjectDetailDrawerProps) {
+export function ProjectDetailDrawer({
+  project,
+  onClose,
+  onEdit,
+  onDelete,
+}: ProjectDetailDrawerProps) {
   const customers = useStore((s) => s.customers);
   const crews = useStore((s) => s.crews);
   const allJobs = useStore((s) => s.jobs);
@@ -81,10 +89,27 @@ export function ProjectDetailDrawer({ project, onClose }: ProjectDetailDrawerPro
                 {project.id}
               </div>
               <div
-                className="h4"
-                style={{ fontSize: 18, fontFamily: 'var(--font-subhead)' }}
+                className="row"
+                style={{ gap: 6, alignItems: 'center' }}
               >
-                {project.name}
+                <div
+                  className="h4"
+                  style={{ fontSize: 18, fontFamily: 'var(--font-subhead)' }}
+                >
+                  {project.name}
+                </div>
+                {project.hubspotProjectId && (
+                  <a
+                    href={hubspotProjectUrl(project.hubspotProjectId)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hs-open-link"
+                    title="Open project in HubSpot"
+                    aria-label="Open project in HubSpot"
+                  >
+                    <Icon name="external_link" size={13} stroke="var(--fg-muted)" />
+                  </a>
+                )}
               </div>
             </div>
             <ProjectStatusBadge status={project.status} />
@@ -155,7 +180,21 @@ export function ProjectDetailDrawer({ project, onClose }: ProjectDetailDrawerPro
                 size="lg"
               />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{customer?.name}</div>
+                <div className="row" style={{ gap: 6 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{customer?.name}</div>
+                  {customer?.hubspot && (
+                    <a
+                      href={hubspotContactUrl(customer.hubspot)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hs-open-link"
+                      title="Open contact in HubSpot"
+                      aria-label="Open contact in HubSpot"
+                    >
+                      <Icon name="external_link" size={12} stroke="var(--fg-muted)" />
+                    </a>
+                  )}
+                </div>
                 <div className="muted small">{customer?.address}</div>
                 <div className="muted small">{customer?.phone}</div>
               </div>
@@ -301,6 +340,28 @@ export function ProjectDetailDrawer({ project, onClose }: ProjectDetailDrawerPro
           <button className="btn btn-outline btn-sm" onClick={onClose}>
             Close
           </button>
+          {onEdit && (
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => {
+                onEdit();
+                onClose();
+              }}
+            >
+              <Icon name="settings" size={12} /> Edit project
+            </button>
+          )}
+          {onDelete && (
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={() => {
+                onDelete();
+                onClose();
+              }}
+            >
+              <Icon name="x" size={12} /> Delete project
+            </button>
+          )}
           <button className="btn btn-dark btn-sm">
             <Icon name="hubspot" size={12} /> Open deal in HubSpot
           </button>

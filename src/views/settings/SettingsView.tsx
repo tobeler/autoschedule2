@@ -9,6 +9,8 @@ import { RolesAndSkills } from './RolesAndSkills';
 import { HoursAndHolidays } from './HoursAndHolidays';
 import { PermissionsMatrix } from './PermissionsMatrix';
 import { FormBuilder } from './FormBuilder';
+import { TimeOffEditor } from './TimeOffEditor';
+import { RegionsEditor } from './RegionsEditor';
 
 type Section =
   | 'templates'
@@ -17,7 +19,9 @@ type Section =
   | 'integrations'
   | 'roles'
   | 'hours'
-  | 'permissions';
+  | 'permissions'
+  | 'timeoff'
+  | 'regions';
 
 interface NavEntry {
   id: Section;
@@ -34,6 +38,8 @@ const NAV: NavEntry[] = [
   { id: 'integrations', label: 'Integrations',     icon: 'plug', adminOnly: true },
   { id: 'roles',        label: 'Roles & skills',   icon: 'users' },
   { id: 'hours',        label: 'Hours & holidays', icon: 'clock' },
+  { id: 'timeoff',      label: 'Time off',         icon: 'clock' },
+  { id: 'regions',      label: 'Regions',          icon: 'map_pin' },
   { id: 'permissions',  label: 'Permissions',      icon: 'settings', adminOnly: true },
 ];
 
@@ -131,6 +137,8 @@ export function SettingsView() {
               {section === 'integrations' && <IntegrationsPanel />}
               {section === 'roles'        && <RolesAndSkills />}
               {section === 'hours'        && <HoursAndHolidays />}
+              {section === 'timeoff'      && <TimeOffEditor />}
+              {section === 'regions'      && <RegionsEditor />}
               {section === 'permissions'  && <PermissionsMatrix />}
             </>
           )}

@@ -20,7 +20,13 @@ import {
   projects,
   regions,
 } from '@/db/schema';
-import type { Job } from '../../types';
+import type {
+  Customer as AppCustomer,
+  Job,
+  Project as AppProject,
+  ProjectStatus as AppProjectStatus,
+  Region as AppRegion,
+} from '../../types';
 
 import {
   createOrUpdateJob,
@@ -151,6 +157,130 @@ function makeRegionShort(name: string): string {
 interface SyncOptions {
   /** Limit the per-record-type fetch (mainly for unit tests). */
   limit?: number;
+}
+
+// ---------- Pure parsers (HubSpot JSON → app entities) ---------------------
+//
+// These functions accept a single HubSpot record (already fetched) and
+// return our typed app entity. They have NO DB dependency, so they can run
+// in the laptop demo path where DATABASE_URL is unset. The DB-mode sync
+// below uses them to derive the values it persists.
+
+/** Convert a HubSpot Contact into our app's Customer. */
+export function parseContactToCustomer(hsContact: HubspotContact): AppCustomer {
+  return {
+    id: customerIdForContact(hsContact.id),
+    name: safeName(hsContact),
+    address: safeAddress(hsContact),
+    phone: hsContact.properties.phone ?? '',
+    hubspot: hsContact.id,
+  };
+}
+
+function numOrNull(s: string | null | undefined): number | null {
+  if (s === null || s === undefined || s === '') return null;
+  const n = Number(s);
+  if (Number.isNaN(n)) return null;
+  return n;
+}
+
+/** Convert a HubSpot native Project (objectTypeId 0-970) into our app's Project. */
+export function parseProjectToProject(
+  hsProject: HubspotProject,
+  opts: { customerId: string | null } = { customerId: null },
+): AppProject {
+  const p = hsProject.properties;
+  const desc = [p.hs_description, p.system_design_notes]
+    .filter((s): s is string => Boolean(s && s.length))
+    .join('\n\n');
+  return {
+    id: projectIdForHubspotProject(hsProject.id),
+    customer: opts.customerId ?? '',
+    name: p.hs_name ?? 'Project ' + hsProject.id,
+    type: p.hs_type ?? 'Retrofit',
+    status: pipelineStageToStatus(p.hs_pipeline_stage) as AppProjectStatus,
+    soldDate: p.hs_start_date ?? null,
+    targetCompletion: p.hs_target_due_date ?? null,
+    value: numOrNull(p.hs_total_cost),
+    hubspotDealId: null,
+    primaryCrew: null,
+    description: desc.length ? desc : undefined,
+    designNotes: p.system_design_notes ?? undefined,
+    hubspotProjectId: hsProject.id,
+    source: 'native_project',
+  };
+}
+
+/** Convert a legacy HubSpot Installation into a Project stub (read-only history). */
+export function parseInstallationToProject(
+  hsInstallation: HubspotInstallation,
+  opts: { customerId?: string | null } = {},
+): AppProject {
+  const addressParts = [
+    hsInstallation.properties.full_address,
+    hsInstallation.properties.address_city,
+    hsInstallation.properties.state_province_region,
+    hsInstallation.properties.address_zip,
+  ].filter((s): s is string => Boolean(s && s.length));
+  return {
+    id: projectIdForLegacyInstallation(hsInstallation.id),
+    customer: opts.customerId ?? 'hs-legacy-cust-' + hsInstallation.id,
+    name: 'Legacy install ' + hsInstallation.id,
+    type: 'Retrofit',
+    status: 'complete',
+    soldDate: null,
+    targetCompletion: hsInstallation.properties.entered_complete_stage_date ?? null,
+    value: null,
+    hubspotDealId: null,
+    primaryCrew: null,
+    description: addressParts.length
+      ? 'Imported from legacy Installations object. ' + addressParts.join(', ')
+      : 'Imported from legacy Installations object.',
+    hubspotProjectId: null,
+    source: 'legacy_installation',
+  };
+}
+
+/**
+ * Convert a Closed Won HubSpot Deal into a Project stub. Used as a fallback
+ * when no native Project record exists for the deal's contact.
+ */
+export function parseDealToProject(
+  hsDeal: HubspotDeal,
+  opts: { customerId?: string | null } = {},
+): AppProject {
+  const p = hsDeal.properties;
+  return {
+    id: 'hs-d-' + hsDeal.id,
+    customer: opts.customerId ?? '',
+    name: p.dealname ?? 'Deal ' + hsDeal.id,
+    type: p.project_type ?? 'Retrofit',
+    status: dealStageToStatus(p.dealstage) as AppProjectStatus,
+    soldDate: p.closedate ? p.closedate.slice(0, 10) : null,
+    targetCompletion: null,
+    value: numOrNull(p.amount),
+    hubspotDealId: hsDeal.id,
+    primaryCrew: null,
+    description: p.scheduling_instructions ?? undefined,
+    designNotes: p.installation_notes ?? undefined,
+    hubspotProjectId: null,
+    source: 'deal_fallback',
+  };
+}
+
+/** Convert a HubSpot Service Area record into our app's Region (flat, one-per-SA). */
+export function parseServiceAreaToRegion(hsServiceArea: HubspotServiceArea): AppRegion {
+  const p = hsServiceArea.properties;
+  const name = p.name ?? 'Service area ' + hsServiceArea.id;
+  const short = makeRegionShort(p.service_area_code ?? p.name ?? hsServiceArea.id);
+  // Headcount + crews aren't carried by the HubSpot record; the dispatcher
+  // computes them from the live people/crews tables. Demo defaults to 0.
+  return {
+    id: 'hs-sa-' + hsServiceArea.id,
+    name,
+    short,
+    subs: [],
+  };
 }
 
 /**
@@ -494,6 +624,187 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
 
   result.finishedAt = new Date().toISOString();
   return result;
+}
+
+// ---------- Stateless demo-mode pull ----------------------------------------
+//
+// Used by the API route when DATABASE_URL is unset. Pulls the same
+// HubSpot records the DB-mode sync does, but returns the parsed app
+// entities directly instead of writing to Postgres.
+
+export interface DemoPullResult {
+  ok: boolean;
+  startedAt: string;
+  finishedAt: string;
+  customers: AppCustomer[];
+  projects: AppProject[];
+  regions: AppRegion[];
+  errors: string[];
+  notes: string[];
+}
+
+export async function pullHubspotForDemo(opts: SyncOptions = {}): Promise<DemoPullResult> {
+  const out: DemoPullResult = {
+    ok: false,
+    startedAt: new Date().toISOString(),
+    finishedAt: '',
+    customers: [],
+    projects: [],
+    regions: [],
+    errors: [],
+    notes: [],
+  };
+
+  if (!isHubspotConfigured()) {
+    out.errors.push('HubSpot not configured. Set HUBSPOT_TOKEN.');
+    out.finishedAt = new Date().toISOString();
+    return out;
+  }
+
+  let serviceAreaRecords: HubspotServiceArea[] = [];
+  let projectRecords: HubspotProject[] = [];
+  let dealRecords: HubspotDeal[] = [];
+  let installationRecords: HubspotInstallation[] = [];
+  const contactIds = new Set<string>();
+  const contactsByProject = new Map<string, string[]>();
+  const contactsByDeal = new Map<string, string[]>();
+  let contactRecords: HubspotContact[] = [];
+
+  try {
+    serviceAreaRecords = await listServiceAreas();
+  } catch (err) {
+    out.errors.push('Service areas: ' + describeError(err));
+  }
+
+  try {
+    projectRecords = await searchProjects({ limit: opts.limit });
+  } catch (err) {
+    out.errors.push('Projects: ' + describeError(err));
+  }
+
+  for (const proj of projectRecords) {
+    try {
+      const ids = await getProjectContactIds(proj.id);
+      contactsByProject.set(proj.id, ids);
+      ids.forEach((id) => contactIds.add(id));
+    } catch (err) {
+      out.errors.push('Project ' + proj.id + ' contacts: ' + describeError(err));
+    }
+  }
+
+  try {
+    for (const stage of CLOSED_WON_STAGES) {
+      const page = await searchDeals({ pipeline: 'default', stage, limit: opts.limit });
+      dealRecords.push(...page);
+    }
+  } catch (err) {
+    out.errors.push('Deals: ' + describeError(err));
+  }
+
+  for (const deal of dealRecords) {
+    try {
+      const ids = await getDealContactIds(deal.id);
+      contactsByDeal.set(deal.id, ids);
+      ids.forEach((id) => contactIds.add(id));
+    } catch (err) {
+      out.errors.push('Deal ' + deal.id + ' contacts: ' + describeError(err));
+    }
+  }
+
+  try {
+    const ids = Array.from(contactIds);
+    for (let i = 0; i < ids.length; i += 50) {
+      const slice = ids.slice(i, i + 50);
+      const page = await searchContacts({ ids: slice });
+      contactRecords.push(...page);
+    }
+  } catch (err) {
+    out.errors.push('Contacts batch: ' + describeError(err));
+  }
+
+  try {
+    installationRecords = await searchInstallations({ limit: opts.limit });
+  } catch (err) {
+    out.errors.push('Installations: ' + describeError(err));
+  }
+
+  // -------- Parse phase (pure, no DB) ---------------------------------------
+
+  out.customers = contactRecords.map((c) => parseContactToCustomer(c));
+  out.regions = serviceAreaRecords.map((sa) => parseServiceAreaToRegion(sa));
+
+  // Track which customer keys map to which contact id so projects can be
+  // attached to the right customer. The customer.id we emit is deterministic.
+  const customerIdByContactId = new Map<string, string>();
+  for (const c of out.customers) customerIdByContactId.set(c.hubspot, c.id);
+
+  // Native projects (PRIMARY).
+  const projectsOut: AppProject[] = [];
+  const customersWithNativeProject = new Set<string>();
+  for (const proj of projectRecords) {
+    const projContacts = contactsByProject.get(proj.id) ?? [];
+    const customerId = projContacts.length
+      ? customerIdByContactId.get(projContacts[0]) ?? null
+      : null;
+    if (!customerId) {
+      out.notes.push('Project ' + proj.id + ' skipped: no associated contact');
+      continue;
+    }
+    customersWithNativeProject.add(customerId);
+    // Attach the first matching Closed Won deal id for sales_context.
+    const matchedDeal = dealRecords.find((d) => {
+      const dc = contactsByDeal.get(d.id) ?? [];
+      return dc.some((cid) => projContacts.includes(cid));
+    });
+    const parsed = parseProjectToProject(proj, { customerId });
+    if (matchedDeal) parsed.hubspotDealId = matchedDeal.id;
+    projectsOut.push(parsed);
+  }
+
+  // Closed Won deals → fallback projects for contacts with no native project.
+  for (const deal of dealRecords) {
+    const dealContacts = contactsByDeal.get(deal.id) ?? [];
+    const customerId = dealContacts.length
+      ? customerIdByContactId.get(dealContacts[0]) ?? null
+      : null;
+    if (!customerId) {
+      out.notes.push('Deal ' + deal.id + ' could not be joined to a customer');
+      continue;
+    }
+    if (customersWithNativeProject.has(customerId)) continue;
+    projectsOut.push(parseDealToProject(deal, { customerId }));
+  }
+
+  // Legacy installations (read-only history) for installs without a native peer.
+  const activeProjectIds = new Set(projectRecords.map((p) => p.id));
+  for (const inst of installationRecords) {
+    const relProj = inst.properties.related_project_id ?? null;
+    if (relProj && activeProjectIds.has(relProj)) continue;
+    // For the demo response we synthesize a stand-in customer (the legacy
+    // install doesn't expose the contact id directly here).
+    const standInCustomerId = 'hs-legacy-cust-' + inst.id;
+    if (!out.customers.some((c) => c.id === standInCustomerId)) {
+      const addressParts = [
+        inst.properties.full_address,
+        inst.properties.address_city,
+        inst.properties.state_province_region,
+        inst.properties.address_zip,
+      ].filter((s): s is string => Boolean(s && s.length));
+      out.customers.push({
+        id: standInCustomerId,
+        name: 'Legacy install ' + inst.id,
+        address: addressParts.join(', '),
+        phone: '',
+        hubspot: '',
+      });
+    }
+    projectsOut.push(parseInstallationToProject(inst, { customerId: standInCustomerId }));
+  }
+
+  out.projects = projectsOut;
+  out.ok = out.errors.length === 0;
+  out.finishedAt = new Date().toISOString();
+  return out;
 }
 
 // ---------- Targeted single-record pulls (used by webhook receiver) ---------

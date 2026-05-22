@@ -304,6 +304,67 @@ export function crewToDTOCreate(c: Crew): Partial<CrewDTO> {
   return { ...crewToDTOPatch(c), id: c.id };
 }
 
+export function truckToDTOPatch(t: Truck): Partial<TruckDTO> {
+  return {
+    name: t.name,
+    plate: t.plate,
+    kind: t.kind,
+    capacity: t.capacity,
+    assignedCrew: t.assignedCrew,
+    vin: t.vin,
+    status: t.status,
+  };
+}
+
+export function truckToDTOCreate(t: Truck): Partial<TruckDTO> {
+  return { ...truckToDTOPatch(t), id: t.id };
+}
+
+export function projectToDTOPatch(p: Project): Partial<ProjectDTO> {
+  return {
+    customer: p.customer,
+    name: p.name,
+    type: p.type,
+    status: p.status,
+    soldDate: p.soldDate,
+    targetCompletion: p.targetCompletion,
+    value: p.value,
+    hubspotDealId: p.hubspotDealId,
+    primaryCrew: p.primaryCrew,
+    description: p.description,
+    designNotes: p.designNotes,
+  };
+}
+
+export function projectToDTOCreate(p: Project): Partial<ProjectDTO> {
+  return { ...projectToDTOPatch(p), id: p.id };
+}
+
+export function timeOffToDTOPatch(t: TimeOff): Partial<TimeOffDTO> {
+  return {
+    personId: t.personId,
+    date: t.date,
+    type: t.type,
+    label: t.label,
+  };
+}
+
+export function timeOffToDTOCreate(t: TimeOff): Partial<TimeOffDTO> {
+  return { ...timeOffToDTOPatch(t), id: t.id };
+}
+
+export function regionToDTOPatch(r: Region): Partial<RegionDTO> {
+  return {
+    name: r.name,
+    short: r.short,
+    subs: r.subs,
+  };
+}
+
+export function regionToDTOCreate(r: Region): Partial<RegionDTO> {
+  return { ...regionToDTOPatch(r), id: r.id };
+}
+
 export function templateToDTOPatch(tpl: JobTemplate): Partial<JobTemplateDTO> {
   return {
     label: tpl.label,

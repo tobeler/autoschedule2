@@ -8,8 +8,9 @@ import { useMemo, useState } from 'react';
 import { Avatar } from '../../components/Avatar';
 import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
+import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import { useStore } from '../../store';
-import { roleLabel } from '../../data/selectors';
+import { roleLabel, getPerson } from '../../data/selectors';
 import type { Crew, Person, RoleKey } from '../../types';
 
 interface AddMemberPickerProps {
@@ -34,6 +35,29 @@ export function AddMemberPicker({ crew, onClose }: AddMemberPickerProps) {
   const pushToast = useStore((s) => s.pushToast);
 
   const [query, setQuery] = useState('');
+  const [removeConfirm, setRemoveConfirm] = useState<Person | null>(null);
+
+  const currentMembers = useMemo(
+    () =>
+      crew.members
+        .map((id) => getPerson(people, id))
+        .filter((p): p is Person => !!p),
+    [crew.members, people],
+  );
+
+  function removeMember(p: Person) {
+    if (p.id === crew.lead) return; // lead can't be removed from picker
+    const next: Crew = {
+      ...crew,
+      members: crew.members.filter((m) => m !== p.id),
+    };
+    updateCrew(next);
+    if (p.defaultCrew === crew.id) {
+      updatePerson({ ...p, defaultCrew: '' });
+    }
+    pushToast('Removed ' + p.name + ' from ' + crew.name);
+    setRemoveConfirm(null);
+  }
 
   const compatible = CREW_TYPE_ROLES[crew.type] || [];
 
@@ -83,6 +107,67 @@ export function AddMemberPicker({ crew, onClose }: AddMemberPickerProps) {
         </div>
 
         <div className="modal-body">
+          {currentMembers.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div
+                className="eyebrow-sm"
+                style={{ marginBottom: 6, color: 'var(--fg-muted)' }}
+              >
+                Current members ({currentMembers.length})
+              </div>
+              <div
+                className="row"
+                style={{ gap: 4, flexWrap: 'wrap' }}
+              >
+                {currentMembers.map((m) => {
+                  const isLead = m.id === crew.lead;
+                  return (
+                    <span
+                      key={m.id}
+                      className="row"
+                      style={{
+                        gap: 6,
+                        padding: '4px 8px',
+                        background: isLead
+                          ? 'var(--jetson-green)'
+                          : 'var(--bg-subtle)',
+                        color: isLead ? 'var(--forest)' : 'var(--fg)',
+                        borderRadius: 999,
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      <Avatar person={m} size="xs" />
+                      <span>{m.name}</span>
+                      {isLead && (
+                        <span style={{ fontSize: 9, opacity: 0.7 }}>
+                          LEAD
+                        </span>
+                      )}
+                      {!isLead && (
+                        <button
+                          type="button"
+                          onClick={() => setRemoveConfirm(m)}
+                          title={'Remove ' + m.name}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            color: 'inherit',
+                          }}
+                        >
+                          <Icon name="x" size={11} />
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="search" style={{ marginBottom: 12 }}>
             <Icon name="search" size={14} />
             <input
@@ -166,6 +251,22 @@ export function AddMemberPicker({ crew, onClose }: AddMemberPickerProps) {
           </button>
         </div>
       </div>
+      {removeConfirm && (
+        <ConfirmDeleteModal
+          entityLabel={removeConfirm.name}
+          confirmText={'Remove from ' + crew.name}
+          body={
+            <div className="muted small">
+              Removes {removeConfirm.name} from {crew.name}.
+              {removeConfirm.defaultCrew === crew.id && (
+                <> Their default crew will be cleared.</>
+              )}
+            </div>
+          }
+          onCancel={() => setRemoveConfirm(null)}
+          onConfirm={() => removeMember(removeConfirm)}
+        />
+      )}
     </div>
   );
 }

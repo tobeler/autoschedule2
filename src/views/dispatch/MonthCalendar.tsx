@@ -7,10 +7,11 @@
 //   ≤2h → low, 2–5h → med, 5–8h → high, 8–10h → full, >10h → over.
 // =============================================================
 import { Fragment } from 'react';
+import type { DragEvent } from 'react';
 import type { Job, Person } from '../../types';
 import { addDays, dateKey, fmtTime, TODAY } from '../../data/helpers';
 import { JOB_TYPES, ROLES } from '../../data/seed';
-import { getCrew, getCustomer } from '../../data/selectors';
+import { getCrew, getCustomer, getPerson } from '../../data/selectors';
 import { Avatar } from '../../components/Avatar';
 import { useStore } from '../../store';
 
@@ -44,7 +45,65 @@ export function MonthCalendar({
   const allCrews = useStore((s) => s.crews);
   const allPeople = useStore((s) => s.people);
   const allCustomers = useStore((s) => s.customers);
+  const allJobs = useStore((s) => s.jobs);
+  const moveJob = useStore((s) => s.moveJob);
+  const selectJob = useStore((s) => s.selectJob);
+  const pushToast = useStore((s) => s.pushToast);
   const todayKey = dateKey(TODAY);
+
+  // Drop handler shared by both the per-tech strip and the 6×7 grid.
+  // `personId` is set in tech-strip mode (resolves crewId via defaultCrew).
+  // In the 6×7 grid we can't resolve a crew from the cell alone, so we drop
+  // with crewId=null and let dispatch pick one via the auto-opened drawer.
+  function dropOnDay(
+    e: DragEvent<HTMLDivElement>,
+    dk: string,
+    personId: string | null,
+  ) {
+    e.currentTarget.classList.remove('calendar-drop-target');
+    const jobId = e.dataTransfer.getData('text/job-id');
+    if (!jobId) return;
+    let crewId: string | null = null;
+    let truckId: string | null = null;
+    if (personId) {
+      const person = getPerson(allPeople, personId);
+      const crew = getCrew(allCrews, person?.defaultCrew);
+      crewId = crew?.id ?? null;
+      truckId = crew?.truck ?? null;
+    }
+    const prevJob = allJobs.find((j) => j.id === jobId);
+    const wasUnscheduled = prevJob?.status === 'unscheduled';
+    const previouslyFilledCount =
+      prevJob?.slots.filter((s) => s.assignedTo).length ?? 0;
+    moveJob(jobId, { date: dk, startHour: 8, crewId, truckId });
+    if (wasUnscheduled) {
+      const updated = useStore.getState().jobs.find((j) => j.id === jobId);
+      const newlyFilledCount =
+        (updated?.slots.filter((s) => s.assignedTo).length ?? 0) -
+        previouslyFilledCount;
+      selectJob(jobId, { initialTab: 'crew' });
+      if (newlyFilledCount > 0) {
+        pushToast(
+          `Scheduled ${jobId} · auto-filled ${newlyFilledCount} slot${newlyFilledCount === 1 ? '' : 's'} — review crew.`,
+        );
+      } else {
+        pushToast(`Scheduled ${jobId} — review crew.`);
+      }
+    } else {
+      pushToast('Scheduled ' + jobId);
+    }
+  }
+  function onDayDragOver(e: DragEvent<HTMLDivElement>) {
+    if (!e.dataTransfer.types.includes('text/job-id')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('calendar-drop-target');
+  }
+  function onDayDragLeave(e: DragEvent<HTMLDivElement>) {
+    const related = e.relatedTarget as Node | null;
+    if (related && e.currentTarget.contains(related)) return;
+    e.currentTarget.classList.remove('calendar-drop-target');
+  }
 
   // ===== Per-person horizontal strip (Tech mode) =====
   if (groupBy === 'tech') {
@@ -259,6 +318,9 @@ export function MonthCalendar({
                       onClick={() =>
                         dayJobs.length === 1 && onJobClick(dayJobs[0])
                       }
+                      onDragOver={onDayDragOver}
+                      onDragLeave={onDayDragLeave}
+                      onDrop={(e) => dropOnDay(e, dk, p.id)}
                       title={tooltip}
                       style={{
                         position: 'relative',
@@ -444,6 +506,9 @@ export function MonthCalendar({
           return (
             <div
               key={i}
+              onDragOver={inMonth ? onDayDragOver : undefined}
+              onDragLeave={inMonth ? onDayDragLeave : undefined}
+              onDrop={inMonth ? (e) => dropOnDay(e, dk, null) : undefined}
               style={{
                 background: inMonth
                   ? 'var(--surface-card)'

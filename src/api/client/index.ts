@@ -22,6 +22,7 @@ import type {
 import type { ChecklistResponseDTO, ChecklistDTO } from '../schemas/checklist';
 import type { CrewDTO } from '../schemas/crew';
 import type { CustomerDTO } from '../schemas/customer';
+import type { Customer, Project, Region } from '../../types';
 import type { JobDTO } from '../schemas/job';
 import type { JobSlotDTO } from '../schemas/slot';
 import type { PersonDTO } from '../schemas/person';
@@ -38,6 +39,32 @@ export interface ClientOptions {
   fetch?: typeof fetch;
   apiKey?: string;
 }
+
+/** Union of the two shapes /hubspot/sync may return depending on DATABASE_URL. */
+export type HubspotSyncResponse =
+  | {
+      ok: boolean;
+      // DB-mode shape:
+      contacts: number;
+      deals: number;
+      projects: number;
+      serviceAreas: number;
+      installations: number;
+      startedAt: string;
+      finishedAt: string;
+      errors: string[];
+      demo?: false;
+    }
+  | {
+      ok: boolean;
+      // Demo-mode shape:
+      demo: true;
+      customers: Customer[];
+      projects: Project[];
+      regions: Region[];
+      lastSyncedAt: string;
+      errors: string[];
+    };
 
 export interface PagedResponse<T> {
   data: T[];
@@ -318,17 +345,15 @@ export function createApiClient(opts: ClientOptions = {}) {
 
     hubspot: {
       sync: () =>
+        request<HubspotSyncResponse>('POST', '/hubspot/sync'),
+      ping: () =>
         request<{
           ok: boolean;
-          contacts: number;
-          deals: number;
-          projects: number;
-          serviceAreas: number;
-          installations: number;
-          startedAt: string;
-          finishedAt: string;
-          errors: string[];
-        }>('POST', '/hubspot/sync'),
+          portalId: number;
+          accountType: string;
+          timeZone: string;
+          currency: string;
+        }>('POST', '/hubspot/ping'),
       pushJob: (id: string) =>
         request<{ ok: boolean; message: string; hubspotObjectId?: string }>(
           'POST',

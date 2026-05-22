@@ -54,6 +54,14 @@ import {
   crewToDTOPatch,
   crewToDTOCreate,
   templateToDTOPatch,
+  truckToDTOPatch,
+  truckToDTOCreate,
+  projectToDTOPatch,
+  projectToDTOCreate,
+  timeOffToDTOPatch,
+  timeOffToDTOCreate,
+  regionToDTOPatch,
+  regionToDTOCreate,
 } from './api/storeMappers';
 import { autoFillSlots } from './lib/assignment';
 
@@ -149,6 +157,21 @@ interface State {
   addCrew: (c: Crew) => void;
   updateCrew: (c: Crew) => void;
   removeCrew: (id: string) => void;
+  // Phase 16 — full CRUD coverage
+  addTruck: (t: Truck) => void;
+  updateTruck: (t: Truck) => void;
+  removeTruck: (id: string) => void;
+  addProject: (p: Project) => void;
+  updateProject: (p: Project) => void;
+  removeProject: (id: string) => void;
+  addTimeOff: (t: TimeOff) => void;
+  updateTimeOff: (t: TimeOff) => void;
+  removeTimeOff: (id: string) => void;
+  addRegion: (r: Region) => void;
+  updateRegion: (r: Region) => void;
+  removeRegion: (id: string) => void;
+  addTemplate: (key: string, tpl: JobTemplate) => void;
+  removeTemplate: (key: string) => void;
   resizeJob: (id: string, hours: number) => void;
   setJobStatus: (id: string, status: JobStatus) => void;
   moveJob: (
@@ -394,12 +417,195 @@ export const useStore = create<State>()(
 
       removeCrew: (id) => {
         const prev = get().crews;
-        set({ crews: prev.filter((x) => x.id !== id) });
+        const prevPeople = get().people;
+        // Members of the deleted crew lose their defaultCrew (not cascade-deleted)
+        const nextPeople = prevPeople.map((p) =>
+          p.defaultCrew === id ? { ...p, defaultCrew: '' } : p,
+        );
+        set({ crews: prev.filter((x) => x.id !== id), people: nextPeople });
         if (get().apiMode) {
           client.crews.remove(id).catch((err) => {
-            set({ crews: prev });
+            set({ crews: prev, people: prevPeople });
             get().pushToast('Could not remove crew — restored');
             logApiError('removeCrew', err);
+          });
+        }
+      },
+
+      // ---- Trucks ----
+      addTruck: (t) => {
+        const prev = get().trucks;
+        set({ trucks: [...prev, t] });
+        if (get().apiMode) {
+          client.trucks.create(truckToDTOCreate(t)).catch((err) => {
+            set({ trucks: prev });
+            get().pushToast('Could not add truck — undone');
+            logApiError('addTruck', err);
+          });
+        }
+      },
+      updateTruck: (t) => {
+        const prev = get().trucks;
+        set({ trucks: prev.map((x) => (x.id === t.id ? t : x)) });
+        if (get().apiMode) {
+          client.trucks.update(t.id, truckToDTOPatch(t)).catch((err) => {
+            set({ trucks: prev });
+            get().pushToast('Update failed — restored');
+            logApiError('updateTruck', err);
+          });
+        }
+      },
+      removeTruck: (id) => {
+        const prev = get().trucks;
+        const prevCrews = get().crews;
+        // Crews referencing this truck have their truck cleared.
+        const nextCrews = prevCrews.map((c) =>
+          c.truck === id ? { ...c, truck: null } : c,
+        );
+        set({ trucks: prev.filter((t) => t.id !== id), crews: nextCrews });
+        if (get().apiMode) {
+          client.trucks.remove(id).catch((err) => {
+            set({ trucks: prev, crews: prevCrews });
+            get().pushToast('Could not remove truck — restored');
+            logApiError('removeTruck', err);
+          });
+        }
+      },
+
+      // ---- Projects ----
+      addProject: (p) => {
+        const prev = get().projects;
+        set({ projects: [...prev, p] });
+        if (get().apiMode) {
+          client.projects.create(projectToDTOCreate(p)).catch((err) => {
+            set({ projects: prev });
+            get().pushToast('Could not add project — undone');
+            logApiError('addProject', err);
+          });
+        }
+      },
+      updateProject: (p) => {
+        const prev = get().projects;
+        set({ projects: prev.map((x) => (x.id === p.id ? p : x)) });
+        if (get().apiMode) {
+          client.projects.update(p.id, projectToDTOPatch(p)).catch((err) => {
+            set({ projects: prev });
+            get().pushToast('Update failed — restored');
+            logApiError('updateProject', err);
+          });
+        }
+      },
+      removeProject: (id) => {
+        const prev = get().projects;
+        const prevJobs = get().jobs;
+        // Jobs lose their projectId (kept, not cascade-deleted).
+        const nextJobs = prevJobs.map((j) =>
+          j.projectId === id ? { ...j, projectId: null } : j,
+        );
+        set({ projects: prev.filter((p) => p.id !== id), jobs: nextJobs });
+        if (get().apiMode) {
+          client.projects.remove(id).catch((err) => {
+            set({ projects: prev, jobs: prevJobs });
+            get().pushToast('Could not remove project — restored');
+            logApiError('removeProject', err);
+          });
+        }
+      },
+
+      // ---- Time off ----
+      addTimeOff: (t) => {
+        const prev = get().timeOff;
+        set({ timeOff: [...prev, t] });
+        if (get().apiMode) {
+          client.timeOff.create(timeOffToDTOCreate(t)).catch((err) => {
+            set({ timeOff: prev });
+            get().pushToast('Could not add time off — undone');
+            logApiError('addTimeOff', err);
+          });
+        }
+      },
+      updateTimeOff: (t) => {
+        const prev = get().timeOff;
+        set({ timeOff: prev.map((x) => (x.id === t.id ? t : x)) });
+        if (get().apiMode) {
+          client.timeOff.update(t.id, timeOffToDTOPatch(t)).catch((err) => {
+            set({ timeOff: prev });
+            get().pushToast('Update failed — restored');
+            logApiError('updateTimeOff', err);
+          });
+        }
+      },
+      removeTimeOff: (id) => {
+        const prev = get().timeOff;
+        set({ timeOff: prev.filter((t) => t.id !== id) });
+        if (get().apiMode) {
+          client.timeOff.remove(id).catch((err) => {
+            set({ timeOff: prev });
+            get().pushToast('Could not remove time off — restored');
+            logApiError('removeTimeOff', err);
+          });
+        }
+      },
+
+      // ---- Regions ----
+      addRegion: (r) => {
+        const prev = get().regions;
+        set({ regions: [...prev, r] });
+        if (get().apiMode) {
+          client.regions.create(regionToDTOCreate(r)).catch((err) => {
+            set({ regions: prev });
+            get().pushToast('Could not add region — undone');
+            logApiError('addRegion', err);
+          });
+        }
+      },
+      updateRegion: (r) => {
+        const prev = get().regions;
+        set({ regions: prev.map((x) => (x.id === r.id ? r : x)) });
+        if (get().apiMode) {
+          client.regions.update(r.id, regionToDTOPatch(r)).catch((err) => {
+            set({ regions: prev });
+            get().pushToast('Update failed — restored');
+            logApiError('updateRegion', err);
+          });
+        }
+      },
+      removeRegion: (id) => {
+        const prev = get().regions;
+        set({ regions: prev.filter((r) => r.id !== id) });
+        if (get().apiMode) {
+          client.regions.remove(id).catch((err) => {
+            set({ regions: prev });
+            get().pushToast('Could not remove region — restored');
+            logApiError('removeRegion', err);
+          });
+        }
+      },
+
+      // ---- Templates ----
+      addTemplate: (key, tpl) => {
+        const prev = get().templates;
+        set({ templates: { ...prev, [key]: tpl } });
+        if (get().apiMode) {
+          client.templates
+            .create({ id: key, ...templateToDTOPatch(tpl) })
+            .catch((err) => {
+              set({ templates: prev });
+              get().pushToast('Could not add template — undone');
+              logApiError('addTemplate', err);
+            });
+        }
+      },
+      removeTemplate: (key) => {
+        const prev = get().templates;
+        const next = { ...prev };
+        delete next[key];
+        set({ templates: next });
+        if (get().apiMode) {
+          client.templates.remove(key).catch((err) => {
+            set({ templates: prev });
+            get().pushToast('Could not remove template — restored');
+            logApiError('removeTemplate', err);
           });
         }
       },

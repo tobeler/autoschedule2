@@ -52,6 +52,24 @@ export function isHubspotConfigured(): boolean {
   return Boolean(process.env.HUBSPOT_TOKEN && process.env.HUBSPOT_TOKEN.length);
 }
 
+/** Account-level info returned by GET /account-info/v3/details. */
+export interface HubspotAccountDetails {
+  portalId: number;
+  accountType: string;
+  timeZone: string;
+  companyCurrency: string;
+  additionalCurrencies?: string[];
+  utcOffset?: string;
+  uiDomain?: string;
+  dataHostingLocation?: string;
+}
+
+/** Cheap token-validity probe. Throws HubspotConfigError if unset,
+ *  HubspotApiError (401) on a bad token. */
+export function getAccountDetails(): Promise<HubspotAccountDetails> {
+  return hs<HubspotAccountDetails>('/account-info/v3/details');
+}
+
 async function hs<T>(path: string, init?: RequestInit): Promise<T> {
   const token = readToken();
   const res = await fetch(HS_BASE + path, {

@@ -20,9 +20,11 @@ import { hubspotMappings } from '@/db/schema';
 import {
   HubspotApiError,
   HubspotConfigError,
+  getAccountDetails,
   isHubspotConfigured,
 } from '@/integrations/hubspot/client';
 import {
+  pullHubspotForDemo,
   pushJobToHubspot,
   pushProjectToHubspot,
   syncFromHubspot,
@@ -34,7 +36,9 @@ import {
   HubspotEntityMappingSchema,
   HubspotEntityParamSchema,
   HubspotMappingPutSchema,
+  HubspotPingResultSchema,
   HubspotPushResultSchema,
+  HubspotSyncDemoResultSchema,
   HubspotSyncResultSchema,
 } from '../schemas/hubspot';
 import type { ApiEnv } from '../middleware/auth';
@@ -45,7 +49,25 @@ const syncRoute = createRoute({
   tags: ['hubspot'],
   summary: 'Pull HubSpot service areas, contacts, projects, deals, and legacy installations into our DB.',
   responses: {
-    200: jsonContent(HubspotSyncResultSchema, 'Sync result'),
+    200: {
+      description: 'Sync result. Shape depends on DATABASE_URL: DB mode returns row counts, demo mode returns parsed entities.',
+      content: {
+        'application/json': {
+          schema: z.union([HubspotSyncResultSchema, HubspotSyncDemoResultSchema]),
+        },
+      },
+    },
+    ...ProblemResponses,
+  },
+});
+
+const pingRoute = createRoute({
+  method: 'post',
+  path: '/hubspot/ping',
+  tags: ['hubspot'],
+  summary: 'Verify the configured HUBSPOT_TOKEN by hitting /account-info/v3/details.',
+  responses: {
+    200: jsonContent(HubspotPingResultSchema, 'Ping ok'),
     ...ProblemResponses,
   },
 });
@@ -146,6 +168,27 @@ export function registerHubspotRoutes(app: OpenAPIHono<ApiEnv>): void {
         detail: 'Set HUBSPOT_TOKEN in the server environment to enable sync.',
       });
     }
+    // Demo mode: no DATABASE_URL → return parsed entities directly so the
+    // browser store can hydrate without a Postgres write path.
+    if (!process.env.DATABASE_URL) {
+      try {
+        const demo = await pullHubspotForDemo();
+        return c.json(
+          {
+            ok: demo.ok,
+            demo: true as const,
+            customers: demo.customers,
+            projects: demo.projects,
+            regions: demo.regions,
+            lastSyncedAt: demo.finishedAt,
+            errors: [...demo.errors, ...demo.notes],
+          },
+          200,
+        );
+      } catch (err) {
+        translateHubspotError(err);
+      }
+    }
     try {
       const result = await syncFromHubspot();
       // Map our richer SyncResult onto the published OpenAPI shape.
@@ -164,6 +207,38 @@ export function registerHubspotRoutes(app: OpenAPIHono<ApiEnv>): void {
         200,
       );
     } catch (err) {
+      translateHubspotError(err);
+    }
+  });
+
+  app.openapi(pingRoute, async (c) => {
+    if (!isHubspotConfigured()) {
+      throw new ApiError({
+        status: 503,
+        title: 'HubSpot not configured',
+        detail: 'Set HUBSPOT_TOKEN in the server environment to enable ping.',
+      });
+    }
+    try {
+      const details = await getAccountDetails();
+      return c.json(
+        {
+          ok: true,
+          portalId: details.portalId,
+          accountType: details.accountType,
+          timeZone: details.timeZone,
+          currency: details.companyCurrency,
+        },
+        200,
+      );
+    } catch (err) {
+      if (err instanceof HubspotApiError && err.status === 401) {
+        throw new ApiError({
+          status: 401,
+          title: 'Unauthorized',
+          detail: 'HubSpot rejected the token: ' + err.message,
+        });
+      }
       translateHubspotError(err);
     }
   });

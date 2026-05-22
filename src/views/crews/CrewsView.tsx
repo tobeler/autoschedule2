@@ -15,6 +15,8 @@ import type { Crew, Person } from '../../types';
 import { WeeklyComposition } from './WeeklyComposition';
 import { AddCrewModal } from './AddCrewModal';
 import { AddMemberPicker } from './AddMemberPicker';
+import { EditCrewModal } from './EditCrewModal';
+import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 
 type Mode = 'default' | 'weekly';
 
@@ -162,7 +164,37 @@ function CrewsDefaultView() {
   const crews = useStore((s) => s.crews);
   const people = useStore((s) => s.people);
   const trucks = useStore((s) => s.trucks);
+  const jobs = useStore((s) => s.jobs);
+  const removeCrew = useStore((s) => s.removeCrew);
+  const updateCrew = useStore((s) => s.updateCrew);
+  const updatePerson = useStore((s) => s.updatePerson);
+  const pushToast = useStore((s) => s.pushToast);
   const [pickerForCrew, setPickerForCrew] = useState<Crew | null>(null);
+  const [editCrew, setEditCrew] = useState<Crew | null>(null);
+  const [deleteCrew, setDeleteCrew] = useState<Crew | null>(null);
+  const [removeMember, setRemoveMember] = useState<{ crew: Crew; person: Person } | null>(null);
+
+  function activeJobsForCrew(crewId: string) {
+    return jobs.filter(
+      (j) => j.crewId === crewId && j.status !== 'complete',
+    );
+  }
+
+  function confirmRemoveMember() {
+    if (!removeMember) return;
+    const { crew, person } = removeMember;
+    const next: Crew = {
+      ...crew,
+      members: crew.members.filter((m) => m !== person.id),
+      lead: crew.lead === person.id ? '' : crew.lead,
+    };
+    updateCrew(next);
+    if (person.defaultCrew === crew.id) {
+      updatePerson({ ...person, defaultCrew: '' });
+    }
+    pushToast('Removed ' + person.name + ' from ' + crew.name);
+    setRemoveMember(null);
+  }
 
   return (
     <>
@@ -202,7 +234,10 @@ function CrewsDefaultView() {
                     {crew.type} crew
                   </div>
                 </div>
-                <IconButton icon="more" label="Edit" />
+                <CardActions
+                  onEdit={() => setEditCrew(crew)}
+                  onDelete={() => setDeleteCrew(crew)}
+                />
               </div>
 
               {truck && (
@@ -225,7 +260,16 @@ function CrewsDefaultView() {
                   if (!m) return null;
                   const isLead = mid === crew.lead;
                   return (
-                    <MemberRow key={mid} person={m} isLead={isLead} />
+                    <MemberRow
+                      key={mid}
+                      person={m}
+                      isLead={isLead}
+                      onRemove={
+                        isLead
+                          ? undefined
+                          : () => setRemoveMember({ crew, person: m })
+                      }
+                    />
                   );
                 })}
                 {crew.members.length === 0 && (
@@ -258,11 +302,166 @@ function CrewsDefaultView() {
           onClose={() => setPickerForCrew(null)}
         />
       )}
+      {editCrew && (
+        <EditCrewModal crew={editCrew} onClose={() => setEditCrew(null)} />
+      )}
+      {deleteCrew && (
+        <ConfirmDeleteModal
+          entityLabel={deleteCrew.name}
+          body={(() => {
+            const blockers = activeJobsForCrew(deleteCrew.id);
+            if (blockers.length > 0) {
+              return (
+                <div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: '#781E1E',
+                    }}
+                  >
+                    {deleteCrew.name} is on {blockers.length} active job
+                    {blockers.length === 1 ? '' : 's'} — cancel or reassign first.
+                  </div>
+                  <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
+                    {blockers.slice(0, 5).map((j) => (
+                      <li key={j.id} className="mono">
+                        {j.id} · {j.date ?? 'unscheduled'} · {j.status}
+                      </li>
+                    ))}
+                    {blockers.length > 5 && (
+                      <li className="muted">+{blockers.length - 5} more…</li>
+                    )}
+                  </ul>
+                </div>
+              );
+            }
+            return (
+              <div className="muted small">
+                Members of this crew will have their default crew unset (they
+                are not cascade-deleted).
+              </div>
+            );
+          })()}
+          blocked={activeJobsForCrew(deleteCrew.id).length > 0}
+          confirmText={'Delete ' + deleteCrew.name}
+          onCancel={() => setDeleteCrew(null)}
+          onConfirm={() => {
+            removeCrew(deleteCrew.id);
+            pushToast('Deleted ' + deleteCrew.name);
+            setDeleteCrew(null);
+          }}
+        />
+      )}
+      {removeMember && (
+        <ConfirmDeleteModal
+          entityLabel={removeMember.person.name}
+          confirmText={'Remove from ' + removeMember.crew.name}
+          body={
+            <div className="muted small">
+              Removes {removeMember.person.name} from {removeMember.crew.name}.
+              {removeMember.person.defaultCrew === removeMember.crew.id && (
+                <> Their default crew will be cleared.</>
+              )}
+            </div>
+          }
+          onCancel={() => setRemoveMember(null)}
+          onConfirm={confirmRemoveMember}
+        />
+      )}
     </>
   );
 }
 
-function MemberRow({ person, isLead }: { person: Person; isLead: boolean }) {
+function CardActions({
+  onEdit,
+  onDelete,
+}: {
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: 'relative' }}>
+      <IconButton
+        icon="more"
+        label="Crew actions"
+        onClick={() => setOpen(!open)}
+      />
+      {open && (
+        <>
+          <div
+            onClick={() => setOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 50 }}
+          />
+          <div
+            role="menu"
+            style={{
+              position: 'absolute',
+              right: 0,
+              top: 30,
+              minWidth: 140,
+              background: 'var(--surface-card)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.1))',
+              padding: 4,
+              zIndex: 51,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                onEdit();
+                setOpen(false);
+              }}
+              style={menuBtnStyle()}
+            >
+              <Icon name="settings" size={12} /> Edit crew
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onDelete();
+                setOpen(false);
+              }}
+              style={menuBtnStyle('#C53030')}
+            >
+              <Icon name="x" size={12} /> Delete crew
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function menuBtnStyle(color?: string): React.CSSProperties {
+  return {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '6px 10px',
+    background: 'transparent',
+    border: 'none',
+    textAlign: 'left',
+    cursor: 'pointer',
+    fontSize: 12,
+    borderRadius: 6,
+    color: color ?? 'var(--fg)',
+  };
+}
+
+function MemberRow({
+  person,
+  isLead,
+  onRemove,
+}: {
+  person: Person;
+  isLead: boolean;
+  onRemove?: () => void;
+}) {
   return (
     <div className="member-row">
       <Avatar person={person} />
@@ -289,6 +488,22 @@ function MemberRow({ person, isLead }: { person: Person; isLead: boolean }) {
           )}
         </div>
       </div>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          title={'Remove ' + person.name + ' from crew'}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            color: 'var(--fg-muted)',
+            padding: 4,
+          }}
+        >
+          <Icon name="x" size={14} />
+        </button>
+      )}
     </div>
   );
 }

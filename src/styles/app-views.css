@@ -2562,3 +2562,13 @@ button.wiz-step:disabled { cursor: default; }
   background: rgba(60, 213, 103, 0.08);
   transition: background var(--dur-fast), outline-color var(--dur-fast);
 }
+
+/* Phase 15.1b — generic drop-target highlight for Week / Month calendar
+   cells, mirrors .daygrid-row.drop-target so the cue is consistent
+   across day, week, and month views. */
+.calendar-drop-target {
+  background-color: rgba(60, 213, 103, 0.12) !important;
+  outline: 2px dashed var(--jetson-green);
+  outline-offset: -2px;
+  z-index: 5;
+}

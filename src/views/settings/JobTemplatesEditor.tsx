@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
 import { JobTypeTag } from '../../components/JobTypeTag';
 import { JOB_TYPES, ROLES } from '../../data/seed';
+import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import type { JobTemplate, RoleKey, Level, TemplateSlot } from '../../types';
 
 const LEVELS: Level[] = ['L1', 'L2', 'L3'];
@@ -11,10 +12,23 @@ const LEVELS: Level[] = ['L1', 'L2', 'L3'];
 export function JobTemplatesEditor() {
   const templates = useStore((s) => s.templates);
   const updateTemplate = useStore((s) => s.updateTemplate);
+  const removeTemplate = useStore((s) => s.removeTemplate);
+  const jobs = useStore((s) => s.jobs);
   const pushToast = useStore((s) => s.pushToast);
   const keys = Object.keys(templates);
   const [editType, setEditType] = useState<string>(keys[0] ?? 'heatpump');
   const [draft, setDraft] = useState<JobTemplate | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const jobsUsingType = useMemo(
+    () => jobs.filter((j) => j.type === editType),
+    [jobs, editType],
+  );
+  // Block delete when this template's job type is referenced AND no other
+  // template still covers it. Since templates are keyed by jobType, deleting
+  // here always removes the only template for that type — so we block on any
+  // job reference.
+  const deleteBlocked = jobsUsingType.length > 0;
 
   const live = templates[editType];
   const editing = draft ?? live;
@@ -205,14 +219,68 @@ export function JobTemplatesEditor() {
         </div>
       </div>
 
-      <div className="row" style={{ justifyContent: 'flex-end' }}>
-        <button className="btn btn-outline btn-sm" onClick={cancel} disabled={!isDirty}>
-          Cancel
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <button
+          className="btn btn-danger btn-sm"
+          onClick={() => setConfirmDelete(editType)}
+          title={
+            deleteBlocked
+              ? jobsUsingType.length +
+                ' job(s) still use this type — delete blocked'
+              : undefined
+          }
+        >
+          <Icon name="x" size={12} /> Delete template
         </button>
-        <button className="btn btn-primary btn-sm" onClick={save} disabled={!isDirty}>
-          Save template
-        </button>
+        <div className="row">
+          <button className="btn btn-outline btn-sm" onClick={cancel} disabled={!isDirty}>
+            Cancel
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={save} disabled={!isDirty}>
+            Save template
+          </button>
+        </div>
       </div>
+
+      {confirmDelete && (
+        <ConfirmDeleteModal
+          entityLabel={'Template: ' + (templates[confirmDelete]?.label ?? confirmDelete)}
+          body={
+            deleteBlocked ? (
+              <div>
+                <div
+                  style={{ fontSize: 13, fontWeight: 600, color: '#781E1E' }}
+                >
+                  {jobsUsingType.length} job
+                  {jobsUsingType.length === 1 ? '' : 's'} still use this type.
+                </div>
+                <div className="muted small" style={{ marginTop: 6 }}>
+                  Add another template for {confirmDelete} or reassign those
+                  jobs before removing this template.
+                </div>
+              </div>
+            ) : (
+              <div className="muted small">
+                Removes the template definition. Job types remain available;
+                jobs of this type will need explicit slots until a new template
+                is added.
+              </div>
+            )
+          }
+          blocked={deleteBlocked}
+          confirmText="Delete template"
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => {
+            removeTemplate(confirmDelete);
+            pushToast('Deleted template');
+            setConfirmDelete(null);
+            const remaining = Object.keys(templates).filter(
+              (k) => k !== confirmDelete,
+            );
+            if (remaining[0]) setEditType(remaining[0]);
+          }}
+        />
+      )}
     </>
   );
 }

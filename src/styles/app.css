@@ -278,6 +278,14 @@ body {
 .btn-icon.btn-ghost:hover { background: var(--bg-subtle); }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .btn-lg { padding: 10px 18px; font-size: 15px; }
+/* Destructive — used by ConfirmDeleteModal + per-entity delete buttons. */
+.btn-danger {
+  background: #C53030;
+  color: #fff;
+  border-color: #C53030;
+}
+.btn-danger:hover:not(:disabled) { background: #A82424; border-color: #A82424; }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Toggle group / segmented control */
 .seg {
@@ -524,4 +532,21 @@ body {
 }
 @keyframes app-loading-spin {
   to { transform: rotate(360deg); }
+}
+
+/* ---- "Open in HubSpot" external link (Phase 17) ---- */
+.hs-open-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--fg-muted, #6b7280);
+  text-decoration: none;
+  transition: background 120ms ease;
+}
+.hs-open-link:hover {
+  background: var(--bg-subtle, rgba(0, 0, 0, 0.06));
+  color: var(--fg, #1a1a1a);
 }

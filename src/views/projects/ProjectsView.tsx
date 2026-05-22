@@ -12,6 +12,10 @@ import { TODAY, fmtDate, fmtTime } from '../../data/helpers';
 import { getCustomer, jobsForProject } from '../../data/selectors';
 import type { Project, ProjectStatus } from '../../types';
 import { ProjectDetailDrawer } from './ProjectDetailDrawer';
+import { AddProjectModal } from './AddProjectModal';
+import { EditProjectModal } from './EditProjectModal';
+import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
+import { IconButton } from '../../components/IconButton';
 
 interface ProjectStatusMeta {
   label: string;
@@ -70,6 +74,18 @@ export function ProjectsView() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editProject, setEditProject] = useState<Project | null>(null);
+  const [deleteProject, setDeleteProject] = useState<Project | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const removeProjectAction = useStore((s) => s.removeProject);
+  const pushToast = useStore((s) => s.pushToast);
+
+  function activeJobsForProject(id: string) {
+    return jobs.filter(
+      (j) => j.projectId === id && j.status !== 'complete',
+    );
+  }
 
   const enriched = useMemo(() => {
     const todayMs = TODAY.getTime();
@@ -132,7 +148,10 @@ export function ProjectsView() {
         title="Projects"
         subtitle="Scope-of-work tied to a customer property. Jobs roll up here."
       >
-        <button className="btn btn-outline btn-sm">
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => setShowAdd(true)}
+        >
           <Icon name="plus" size={14} /> New project
         </button>
       </PageHeader>
@@ -207,6 +226,18 @@ export function ProjectsView() {
             isStale={p.isStale}
             selected={selectedId === p.id}
             onClick={() => setSelectedId(p.id)}
+            menuOpen={openMenuId === p.id}
+            onMenuToggle={() =>
+              setOpenMenuId(openMenuId === p.id ? null : p.id)
+            }
+            onEdit={() => {
+              setEditProject(p);
+              setOpenMenuId(null);
+            }}
+            onDelete={() => {
+              setDeleteProject(p);
+              setOpenMenuId(null);
+            }}
           />
         ))}
         {filtered.length === 0 && (
@@ -226,6 +257,64 @@ export function ProjectsView() {
         <ProjectDetailDrawer
           project={selected}
           onClose={() => setSelectedId(null)}
+          onEdit={() => setEditProject(selected)}
+          onDelete={() => setDeleteProject(selected)}
+        />
+      )}
+
+      {showAdd && <AddProjectModal onClose={() => setShowAdd(false)} />}
+      {editProject && (
+        <EditProjectModal
+          project={editProject}
+          onClose={() => setEditProject(null)}
+        />
+      )}
+      {deleteProject && (
+        <ConfirmDeleteModal
+          entityLabel={deleteProject.name}
+          body={(() => {
+            const blockers = activeJobsForProject(deleteProject.id);
+            if (blockers.length > 0) {
+              return (
+                <div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: '#781E1E',
+                    }}
+                  >
+                    {deleteProject.name} has {blockers.length} active job
+                    {blockers.length === 1 ? '' : 's'} — cancel or reassign first.
+                  </div>
+                  <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
+                    {blockers.slice(0, 5).map((j) => (
+                      <li key={j.id} className="mono">
+                        {j.id} · {j.status}
+                      </li>
+                    ))}
+                    {blockers.length > 5 && (
+                      <li className="muted">+{blockers.length - 5} more…</li>
+                    )}
+                  </ul>
+                </div>
+              );
+            }
+            return (
+              <div className="muted small">
+                Completed jobs that referenced this project keep their history.
+              </div>
+            );
+          })()}
+          blocked={activeJobsForProject(deleteProject.id).length > 0}
+          confirmText={'Delete ' + deleteProject.id}
+          onCancel={() => setDeleteProject(null)}
+          onConfirm={() => {
+            removeProjectAction(deleteProject.id);
+            pushToast('Deleted ' + deleteProject.name);
+            setDeleteProject(null);
+            if (selectedId === deleteProject.id) setSelectedId(null);
+          }}
         />
       )}
     </div>
@@ -240,6 +329,10 @@ interface RowProps {
   isStale: boolean;
   selected: boolean;
   onClick: () => void;
+  menuOpen: boolean;
+  onMenuToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }
 
 function ProjectRow({
@@ -250,6 +343,10 @@ function ProjectRow({
   isStale,
   selected,
   onClick,
+  menuOpen,
+  onMenuToggle,
+  onEdit,
+  onDelete,
 }: RowProps) {
   const customers = useStore((s) => s.customers);
   const customer = getCustomer(customers, project.customer);
@@ -266,6 +363,7 @@ function ProjectRow({
       onClick={onClick}
       role="button"
       tabIndex={0}
+      style={{ position: 'relative' }}
     >
       <div className="col-id">
         <div className="proj-row-stripe" style={{ background: meta.color }}></div>
@@ -368,7 +466,7 @@ function ProjectRow({
           <span className="muted small">—</span>
         )}
       </div>
-      <div className="col-deal">
+      <div className="col-deal" style={{ position: 'relative' }}>
         {project.hubspotDealId && (
           <span
             className="badge"
@@ -382,7 +480,79 @@ function ProjectRow({
             <Icon name="hubspot" size={10} /> {project.hubspotDealId}
           </span>
         )}
+        <span
+          onClick={(e) => {
+            e.stopPropagation();
+            onMenuToggle();
+          }}
+          style={{
+            display: 'inline-flex',
+            marginLeft: 6,
+            verticalAlign: 'middle',
+          }}
+        >
+          <IconButton icon="more" label="Project actions" />
+        </span>
+        {menuOpen && (
+          <>
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                onMenuToggle();
+              }}
+              style={{ position: 'fixed', inset: 0, zIndex: 50 }}
+            />
+            <div
+              role="menu"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute',
+                right: 4,
+                top: 28,
+                minWidth: 140,
+                background: 'var(--surface-card)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.1))',
+                padding: 4,
+                zIndex: 51,
+              }}
+            >
+              <button
+                type="button"
+                onClick={onEdit}
+                style={projMenuStyle()}
+              >
+                <Icon name="settings" size={12} /> Edit
+              </button>
+              <button
+                type="button"
+                onClick={onDelete}
+                style={projMenuStyle('#C53030')}
+              >
+                <Icon name="x" size={12} /> Delete
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
+}
+
+function projMenuStyle(color?: string): React.CSSProperties {
+  return {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '6px 10px',
+    background: 'transparent',
+    border: 'none',
+    textAlign: 'left',
+    cursor: 'pointer',
+    fontSize: 12,
+    borderRadius: 6,
+    color: color ?? 'var(--fg)',
+  };
 }

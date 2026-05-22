@@ -30,7 +30,10 @@ import {
   suggestAssignments,
 } from '../data/selectors';
 import { fmtDate, fmtTime, hoursToStr, parseDateKey } from '../data/helpers';
+import { hubspotProjectUrl } from '../integrations/hubspot/urls';
 import { autoFillSlots } from '../lib/assignment';
+import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
+import { SuggestTimeOverlay } from './SuggestTimePicker';
 import { useSelectedJob, useStore } from '../store';
 import type {
   ChecklistItem,
@@ -87,6 +90,10 @@ export function JobDetailDrawer() {
   const [tab, setTab] = useState<TabKey>('overview');
   const [editingSlot, setEditingSlot] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState('');
+  const [showRescheduleMenu, setShowRescheduleMenu] = useState(false);
+  const [showReschedulePicker, setShowReschedulePicker] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const removeJob = useStore((s) => s.removeJob);
 
   // Reset tab and drafts when the selected job changes. If the caller passed
   // an `initialTab` via selectJob (e.g. dispatch board auto-prompting the
@@ -160,23 +167,94 @@ export function JobDetailDrawer() {
           <JobTypeTag type={job.type} size="lg" />
           <div className="topbar-spacer"></div>
           {job.status !== 'unscheduled' && (
-            <button
-              type="button"
-              className="btn btn-outline btn-sm"
-              onClick={() => {
-                moveJob(job.id, {
-                  date: null,
-                  startHour: null,
-                  crewId: null,
-                  truckId: null,
-                });
-                pushToast(`Moved ${job.id} to Unscheduled`);
-              }}
-              title="Move this job back to the Unscheduled rail"
-            >
-              <Icon name="chevron_left" size={12} /> Move to Unscheduled
-            </button>
+            <>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setShowReschedulePicker(true)}
+                title="Pick a new time slot for this job"
+              >
+                <Icon name="refresh" size={12} /> Reschedule
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => {
+                  moveJob(job.id, {
+                    date: null,
+                    startHour: null,
+                    crewId: null,
+                    truckId: null,
+                  });
+                  pushToast(`Moved ${job.id} to Unscheduled`);
+                }}
+                title="Move this job back to the Unscheduled rail"
+              >
+                <Icon name="chevron_left" size={12} /> Move to Unscheduled
+              </button>
+            </>
           )}
+          <div style={{ position: 'relative' }}>
+            <IconButton
+              icon="more"
+              label="More job actions"
+              onClick={() => setShowRescheduleMenu(!showRescheduleMenu)}
+            />
+            {showRescheduleMenu && (
+              <>
+                <div
+                  onClick={() => setShowRescheduleMenu(false)}
+                  style={{ position: 'fixed', inset: 0, zIndex: 50 }}
+                />
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute',
+                    right: 0,
+                    top: 30,
+                    minWidth: 160,
+                    background: 'var(--surface-card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.1))',
+                    padding: 4,
+                    zIndex: 51,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRescheduleMenu(false);
+                      setConfirmDelete(true);
+                    }}
+                    disabled={job.status === 'onsite'}
+                    title={
+                      job.status === 'onsite'
+                        ? 'Use the Timeline tab to complete or cancel an on-site job.'
+                        : undefined
+                    }
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 10px',
+                      background: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      cursor: job.status === 'onsite' ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      borderRadius: 6,
+                      color: job.status === 'onsite' ? 'var(--fg-muted)' : '#C53030',
+                      opacity: job.status === 'onsite' ? 0.5 : 1,
+                    }}
+                  >
+                    <Icon name="x" size={12} /> Delete job
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <IconButton icon="x" label="Close" onClick={close} />
         </div>
 
@@ -270,7 +348,22 @@ export function JobDetailDrawer() {
               ></div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="eyebrow">Part of project</div>
-                <div className="name">{project.name}</div>
+                <div className="row" style={{ gap: 6 }}>
+                  <div className="name">{project.name}</div>
+                  {project.hubspotProjectId && (
+                    <a
+                      href={hubspotProjectUrl(project.hubspotProjectId)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hs-open-link"
+                      title="Open project in HubSpot"
+                      aria-label="Open project in HubSpot"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Icon name="external_link" size={12} stroke="var(--fg-muted)" />
+                    </a>
+                  )}
+                </div>
                 <div className="meta">
                   {project.id} · {projectCompleted}/{projectSiblings.length} jobs ·{' '}
                   {projectStatusLabel(project.status)}
@@ -352,6 +445,10 @@ export function JobDetailDrawer() {
               truckLabel={truck ? `${truck.name} · ${truck.plate}` : null}
               unfilledCount={unfilledCount}
               onAutoFill={autoFillThisJob}
+              onPatch={(patch) => updateJob({ ...job, ...patch })}
+              projectOptions={projects.filter(
+                (p) => job.customer == null || p.customer === job.customer,
+              )}
             />
           )}
 
@@ -426,6 +523,54 @@ export function JobDetailDrawer() {
           )}
         </div>
       </aside>
+
+      {showReschedulePicker && (
+        <SuggestTimeOverlay
+          job={{
+            type: job.type,
+            slots: job.slots,
+            customer: job.customer,
+            address: job.address,
+            durationHrs: job.durationHrs,
+          }}
+          defaultDate={job.date ? new Date(job.date + 'T12:00:00') : undefined}
+          onClose={() => setShowReschedulePicker(false)}
+          onSchedule={(slot) => {
+            const crewObj = getCrew(crews, slot.crewId);
+            moveJob(job.id, {
+              date: slot.dateKey,
+              startHour: slot.startHour,
+              crewId: slot.crewId,
+              truckId: crewObj?.truck ?? job.truckId,
+            });
+            pushToast(
+              `Rescheduled ${job.id} · ${crewObj?.name ?? ''} on ${slot.dateKey} at ${fmtTime(slot.startHour)}`,
+            );
+            setShowReschedulePicker(false);
+          }}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmDeleteModal
+          entityLabel={'Job ' + job.id}
+          body={
+            <div className="muted small">
+              Removes <span className="mono">{job.id}</span> from the schedule
+              and all rollups. Past records linked to this job stay in audit
+              history.
+            </div>
+          }
+          confirmText={'Delete ' + job.id}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => {
+            removeJob(job.id);
+            pushToast('Deleted ' + job.id);
+            setConfirmDelete(false);
+            close();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -638,14 +783,28 @@ function OverviewTab({
   truckLabel,
   unfilledCount,
   onAutoFill,
+  onPatch,
+  projectOptions,
 }: {
   job: Job;
   crewName: string | undefined;
   truckLabel: string | null;
   unfilledCount: number;
   onAutoFill: () => void;
+  onPatch: (patch: Partial<Job>) => void;
+  projectOptions: import('../types').Project[];
 }) {
   const jt = getJobType(job.type);
+
+  // Local drafts for the editable fields. We only commit on blur to avoid
+  // hammering the store / API on every keystroke.
+  const [addressDraft, setAddressDraft] = useState(job.address);
+  const [driveDraft, setDriveDraft] = useState(String(job.driveTimeMin ?? 0));
+  const [priceDraft, setPriceDraft] = useState(
+    job.price != null ? String(job.price) : '',
+  );
+  const [dealDraft, setDealDraft] = useState(job.hubspotDealId ?? '');
+
   return (
     <>
       <div className="drawer-section">
@@ -667,19 +826,90 @@ function OverviewTab({
               ? `${fmtTime(job.startHour)}–${fmtTime(job.startHour + job.durationHrs)}`
               : 'Unscheduled'}
           </dd>
-          <dt>Address</dt>
-          <dd>{job.address}</dd>
           <dt>Crew</dt>
           <dd>{crewName || '—'}</dd>
           <dt>Truck</dt>
           <dd>{truckLabel || '—'}</dd>
-          {job.driveTimeMin > 0 && (
-            <>
-              <dt>Drive time</dt>
-              <dd>{job.driveTimeMin} min from prior job</dd>
-            </>
-          )}
         </dl>
+      </div>
+
+      {/* Editable basics — Phase 16 */}
+      <div className="drawer-section">
+        <div className="drawer-section-title">
+          <Icon name="settings" size={14} /> Job details
+        </div>
+        <div className="modal-form-grid" style={{ marginTop: 4 }}>
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
+            <label className="label">Address</label>
+            <input
+              className="input"
+              value={addressDraft}
+              onChange={(e) => setAddressDraft(e.target.value)}
+              onBlur={() => {
+                if (addressDraft !== job.address) onPatch({ address: addressDraft });
+              }}
+            />
+          </div>
+          <div className="field">
+            <label className="label">Drive time (min)</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              value={driveDraft}
+              onChange={(e) => setDriveDraft(e.target.value)}
+              onBlur={() => {
+                const next = Number(driveDraft) || 0;
+                if (next !== (job.driveTimeMin ?? 0))
+                  onPatch({ driveTimeMin: next });
+              }}
+            />
+          </div>
+          <div className="field">
+            <label className="label">Price ($)</label>
+            <input
+              className="input"
+              type="number"
+              step="50"
+              value={priceDraft}
+              onChange={(e) => setPriceDraft(e.target.value)}
+              onBlur={() => {
+                const next = priceDraft ? Number(priceDraft) : undefined;
+                if (next !== job.price) onPatch({ price: next });
+              }}
+            />
+          </div>
+          <div className="field">
+            <label className="label">HubSpot deal id</label>
+            <input
+              className="input mono"
+              value={dealDraft}
+              placeholder="DEAL-…"
+              onChange={(e) => setDealDraft(e.target.value)}
+              onBlur={() => {
+                const next = dealDraft.trim() || null;
+                if (next !== job.hubspotDealId) onPatch({ hubspotDealId: next });
+              }}
+            />
+          </div>
+          <div className="field">
+            <label className="label">Project</label>
+            <select
+              className="select"
+              value={job.projectId ?? ''}
+              onChange={(e) =>
+                onPatch({ projectId: e.target.value || null })
+              }
+            >
+              <option value="">— None —</option>
+              {projectOptions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id} · {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
       </div>
 
       {job.notes && (

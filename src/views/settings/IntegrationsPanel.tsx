@@ -1,8 +1,23 @@
+// =============================================================
+// HubSpot integration card (Settings → Integrations).
+//
+// Phase 17:
+//  - Test connection (POST /v1/hubspot/ping) shows green check + portal id
+//    on 200, "Token invalid" on 401, "Token missing" if no token.
+//  - When not connected, a small "Paste HubSpot token" input POSTs to
+//    /api/dev/set-hubspot-token (dev only) and re-pings.
+//  - Sync now: demo branch hydrates the store via setCustomers /
+//    setProjects / setRegions and persists lastSyncedAt to localStorage.
+//  - Test push is disabled in demo mode (no DATABASE_URL) with a tooltip.
+//  - HubspotFieldMapping save now PUTs each entity to the API too.
+// =============================================================
 import { useEffect, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { useStore } from '../../store';
 import { HubspotFieldMapping } from './HubspotFieldMapping';
 import { client } from '../../api/client';
+
+const LAST_SYNC_STORAGE_KEY = 'jetson-fsm-v1.hubspotSync.lastAt';
 
 interface PartnerCardProps {
   letters: string;
@@ -31,23 +46,58 @@ function PartnerCard({ letters, bg, title, blurb, status, cta }: PartnerCardProp
   );
 }
 
+type PingState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'ok'; portalId: number; accountType: string }
+  | { status: 'invalid'; message: string }
+  | { status: 'missing' };
+
+function isDevEnv(): boolean {
+  // Vite exposes NODE_ENV via import.meta.env.MODE; we also accept the
+  // Next.js convention so this card works in either harness.
+  try {
+    // @ts-expect-error import.meta is widened by Vite
+    if (typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'development') {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  if (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development') {
+    return true;
+  }
+  return false;
+}
+
 export function IntegrationsPanel() {
   const hubspotMapping = useStore((s) => s.hubspotMapping);
   const pushToast = useStore((s) => s.pushToast);
   const jobs = useStore((s) => s.jobs);
+  const setCustomers = useStore((s) => s.setCustomers);
+  const setProjects = useStore((s) => s.setProjects);
+  const setRegions = useStore((s) => s.setRegions);
+
   const [hsExpanded, setHsExpanded] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [pushing, setPushing] = useState(false);
-  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [pingState, setPingState] = useState<PingState>({ status: 'idle' });
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return window.localStorage.getItem(LAST_SYNC_STORAGE_KEY);
+  });
   const [lastResult, setLastResult] = useState<string | null>(null);
-  // Phase 13: connection is now resolved server-side. We probe
-  // /v1/hubspot/mapping (a cheap GET) on mount and update the badge
-  // based on whether /v1/hubspot/sync raises a 503 (no HUBSPOT_TOKEN).
+  const [demoMode, setDemoMode] = useState<boolean>(false);
+  const [tokenInput, setTokenInput] = useState<string>('');
+  const [savingToken, setSavingToken] = useState(false);
+
+  // Connection probe: a /mapping GET is cheap and uses the same auth path.
   const [connectionState, setConnectionState] =
     useState<'unknown' | 'connected' | 'disconnected'>('unknown');
 
   const connected = connectionState !== 'disconnected';
   const totalMappedFields = hubspotMapping.reduce((n, e) => n + e.fields.length, 0);
+  const dev = isDevEnv();
 
   useEffect(() => {
     let cancelled = false;
@@ -64,27 +114,125 @@ export function IntegrationsPanel() {
     };
   }, []);
 
+  async function onTestConnection() {
+    setPingState({ status: 'checking' });
+    try {
+      const res = await client.hubspot.ping();
+      if (res.ok) {
+        setPingState({ status: 'ok', portalId: res.portalId, accountType: res.accountType });
+        setConnectionState('connected');
+      } else {
+        setPingState({ status: 'invalid', message: 'Ping returned ok=false' });
+      }
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      const msg = err instanceof Error ? err.message : 'Ping failed.';
+      if (status === 401) {
+        setPingState({ status: 'invalid', message: 'Token invalid' });
+        setConnectionState('disconnected');
+      } else if (status === 503 || /not configured/i.test(msg)) {
+        setPingState({ status: 'missing' });
+        setConnectionState('disconnected');
+      } else {
+        setPingState({ status: 'invalid', message: msg });
+      }
+    }
+  }
+
+  async function onPasteToken() {
+    const trimmed = tokenInput.trim();
+    if (trimmed.length < 10) {
+      setLastResult('Token looks too short — paste the full Private App token.');
+      return;
+    }
+    setSavingToken(true);
+    setLastResult(null);
+    try {
+      const res = await fetch('/api/dev/set-hubspot-token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: trimmed }),
+      });
+      const payload = await res.json().catch(() => ({ ok: false, error: 'Bad response' }));
+      if (!res.ok || !payload.ok) {
+        const message = payload.error || `set-hubspot-token returned ${res.status}`;
+        setLastResult(message);
+        setPingState({ status: 'invalid', message });
+        return;
+      }
+      setPingState({
+        status: 'ok',
+        portalId: payload.portalId,
+        accountType: payload.accountType,
+      });
+      setConnectionState('connected');
+      setTokenInput('');
+      pushToast('HubSpot connected · portal ' + payload.portalId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Token paste failed.';
+      setLastResult(msg);
+    } finally {
+      setSavingToken(false);
+    }
+  }
+
   async function onSyncNow() {
     setSyncing(true);
     setLastResult(null);
     try {
       const res = await client.hubspot.sync();
-      if (res.ok) {
+      if ('demo' in res && res.demo) {
+        // Demo branch — hydrate the store directly.
+        setCustomers(res.customers);
+        setProjects(res.projects);
+        setRegions(res.regions);
+        setDemoMode(true);
+        const at = res.lastSyncedAt || new Date().toISOString();
+        setLastSyncAt(at);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(LAST_SYNC_STORAGE_KEY, at);
+        }
         setLastResult(
-          'Synced ' + res.contacts + ' contacts, ' + res.deals + ' deals, '
-            + res.projects + ' projects, ' + res.serviceAreas + ' service areas, '
-            + res.installations + ' legacy installations.',
+          'Demo sync: ' +
+            res.customers.length +
+            ' customers, ' +
+            res.projects.length +
+            ' projects, ' +
+            res.regions.length +
+            ' regions.',
         );
-        pushToast('HubSpot sync complete');
+        if (res.ok) pushToast('HubSpot sync complete · ' + res.customers.length + ' contacts');
         setConnectionState('connected');
-      } else if (res.errors.length) {
-        setLastResult(res.errors[0] ?? 'Sync returned errors.');
+      } else {
+        // DB-mode response.
+        if (res.ok) {
+          setLastResult(
+            'Synced ' +
+              res.contacts +
+              ' contacts, ' +
+              res.deals +
+              ' deals, ' +
+              res.projects +
+              ' projects, ' +
+              res.serviceAreas +
+              ' service areas, ' +
+              res.installations +
+              ' legacy installations.',
+          );
+          pushToast('HubSpot sync complete');
+          setConnectionState('connected');
+        } else if (res.errors.length) {
+          setLastResult(res.errors[0] ?? 'Sync returned errors.');
+        }
+        setLastSyncAt(res.finishedAt);
+        setDemoMode(false);
       }
-      setLastSyncAt(res.finishedAt);
     } catch (err) {
+      const status = (err as { status?: number }).status;
       const msg = err instanceof Error ? err.message : 'Sync failed.';
-      if (msg.includes('503') || msg.toLowerCase().includes('not configured')) {
+      if (status === 503 || /not configured/i.test(msg)) {
         setConnectionState('disconnected');
+        setPingState({ status: 'missing' });
       }
       setLastResult(msg);
     } finally {
@@ -93,6 +241,7 @@ export function IntegrationsPanel() {
   }
 
   async function onTestPush() {
+    if (demoMode) return;
     const sample = jobs.find((j) => j.status === 'scheduled') ?? jobs[0];
     if (!sample) {
       setLastResult('No jobs to push.');
@@ -111,6 +260,48 @@ export function IntegrationsPanel() {
     }
   }
 
+  function renderPingBadge(): React.ReactNode {
+    if (pingState.status === 'idle') return null;
+    if (pingState.status === 'checking') {
+      return (
+        <span className="muted small" style={{ marginLeft: 8 }}>
+          <Icon name="refresh" size={11} /> Checking…
+        </span>
+      );
+    }
+    if (pingState.status === 'ok') {
+      return (
+        <span
+          className="badge badge-onsite"
+          style={{ marginLeft: 8 }}
+          title={'Account type: ' + pingState.accountType}
+        >
+          <Icon name="check" size={10} /> Portal {pingState.portalId}
+        </span>
+      );
+    }
+    if (pingState.status === 'missing') {
+      return (
+        <span className="badge badge-scheduled" style={{ marginLeft: 8 }}>
+          Token missing
+        </span>
+      );
+    }
+    return (
+      <span
+        className="badge"
+        style={{
+          marginLeft: 8,
+          background: 'rgba(220,53,69,0.12)',
+          color: '#9C2334',
+        }}
+        title={pingState.message}
+      >
+        <Icon name="alert_circle" size={10} /> {pingState.message}
+      </span>
+    );
+  }
+
   return (
     <>
       <div>
@@ -125,12 +316,13 @@ export function IntegrationsPanel() {
             <h4 style={{ fontSize: 15 }}>HubSpot</h4>
             {connected
               ? <span className="badge badge-onsite">Connected</span>
-              : <span className="badge badge-scheduled">Disconnected</span>}
+              : <span className="badge badge-scheduled">Not connected</span>}
+            {renderPingBadge()}
           </div>
           <div className="muted small" style={{ marginTop: 2 }}>
             {connected
               ? 'Jetson portal 21424670 (na1). ' + totalMappedFields + ' fields mapped'
-                + (lastSyncAt ? ' · last sync ' + new Date(lastSyncAt).toLocaleTimeString() : ' · never synced')
+                + (lastSyncAt ? ' · last sync ' + new Date(lastSyncAt).toLocaleString() : ' · never synced')
               : 'Set HUBSPOT_TOKEN on the server to enable Sync and Test push.'}
           </div>
         </div>
@@ -142,13 +334,57 @@ export function IntegrationsPanel() {
           <Icon name="settings" size={12} /> Configure
           <Icon name={hsExpanded ? 'chevron_up' : 'chevron_down'} size={11} />
         </button>
-        <button className="btn btn-ghost btn-sm" onClick={onSyncNow} disabled={!connected || syncing}>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={onTestConnection}
+          disabled={pingState.status === 'checking'}
+        >
+          <Icon name="zap" size={12} />{' '}
+          {pingState.status === 'checking' ? 'Testing…' : 'Test connection'}
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={onSyncNow} disabled={syncing}>
           <Icon name="refresh" size={12} /> {syncing ? 'Syncing…' : 'Sync now'}
         </button>
-        <button className="btn btn-ghost btn-sm" onClick={onTestPush} disabled={!connected || pushing}>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={onTestPush}
+          disabled={!connected || pushing || demoMode}
+          title={demoMode ? 'Push enabled when DATABASE_URL is set' : undefined}
+        >
           <Icon name="arrow_right" size={12} /> {pushing ? 'Pushing…' : 'Test push'}
         </button>
       </div>
+
+      {/* Dev-only token paste — surfaces when the server isn't connected. */}
+      {dev && !connected && (
+        <div
+          className="integ-card"
+          style={{ marginLeft: 60, gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
+        >
+          <div className="muted small" style={{ flex: '0 0 100%', marginBottom: 4 }}>
+            <Icon name="info" size={11} /> Development only. Paste a HubSpot Private App token
+            to connect for this dev process. Production uses Vercel env vars.
+          </div>
+          <input
+            type="password"
+            className="input"
+            placeholder="pat-na1-…"
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            style={{ flex: 1, minWidth: 220 }}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={onPasteToken}
+            disabled={savingToken || tokenInput.length < 10}
+          >
+            {savingToken ? 'Saving…' : 'Save & test'}
+          </button>
+        </div>
+      )}
+
       {lastResult && (
         <div className="muted small" style={{ marginLeft: 60, marginTop: -8 }}>
           <Icon name="info" size={11} /> {lastResult}
