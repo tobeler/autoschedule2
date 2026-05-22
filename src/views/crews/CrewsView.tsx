@@ -1,7 +1,7 @@
 // =============================================================
-// Crews view — header toggle between "Default crews" and "This week"
-// KPI row, per-crew roster cards (default), weekly grid (weekly),
-// skills matrix below.
+// Crews view — crew composition only. Default crews ↔ This week.
+// "+ Add crew" and per-card "+ Add member" pickers.
+// Skills matrix lives under Technicians (modal trigger).
 // =============================================================
 import { useMemo, useState } from 'react';
 import { Avatar } from '../../components/Avatar';
@@ -11,9 +11,10 @@ import { PageHeader } from '../../components/PageHeader';
 import { useStore } from '../../store';
 import { TODAY, addDays, dateKey, startOfWeek } from '../../data/helpers';
 import { getPerson, getTruck, roleLabel } from '../../data/selectors';
-import type { Person } from '../../types';
+import type { Crew, Person } from '../../types';
 import { WeeklyComposition } from './WeeklyComposition';
-import { SkillsMatrix } from './SkillsMatrix';
+import { AddCrewModal } from './AddCrewModal';
+import { AddMemberPicker } from './AddMemberPicker';
 
 type Mode = 'default' | 'weekly';
 
@@ -25,6 +26,8 @@ export function CrewsView() {
   const jobs = useStore((s) => s.jobs);
 
   const [mode, setMode] = useState<Mode>('default');
+  const [showAddCrew, setShowAddCrew] = useState(false);
+
   const weekStart = useMemo(() => startOfWeek(TODAY), []);
   const weekDays = useMemo(
     () => Array.from({ length: 5 }, (_, i) => addDays(weekStart, i)),
@@ -64,7 +67,7 @@ export function CrewsView() {
     <>
       <PageHeader
         eyebrow="Resources"
-        title="Crews & technicians"
+        title="Crews"
         subtitle={
           crews.length +
           ' default crews · ' +
@@ -86,10 +89,10 @@ export function CrewsView() {
             This week
           </button>
         </div>
-        <button className="btn btn-outline btn-sm">
-          <Icon name="layers" size={14} /> Skills matrix
-        </button>
-        <button className="btn btn-primary btn-sm">
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => setShowAddCrew(true)}
+        >
           <Icon name="plus" size={14} /> Add crew
         </button>
       </PageHeader>
@@ -142,24 +145,12 @@ export function CrewsView() {
 
         {mode === 'default' && <CrewsDefaultView />}
         {mode === 'weekly' && <WeeklyComposition weekStart={weekStart} />}
-
-        {/* SKILLS MATRIX — always visible */}
-        <h3
-          style={{
-            fontFamily: 'var(--font-subhead)',
-            fontWeight: 700,
-            fontSize: 16,
-            marginTop: 32,
-            marginBottom: 12,
-          }}
-        >
-          Skills & certifications
-        </h3>
-        <SkillsMatrix />
       </div>
 
       {/* keep trucks reference live so subtitle counts can pull from store */}
       <span hidden>{trucks.length}</span>
+
+      {showAddCrew && <AddCrewModal onClose={() => setShowAddCrew(false)} />}
     </>
   );
 }
@@ -171,6 +162,7 @@ function CrewsDefaultView() {
   const crews = useStore((s) => s.crews);
   const people = useStore((s) => s.people);
   const trucks = useStore((s) => s.trucks);
+  const [pickerForCrew, setPickerForCrew] = useState<Crew | null>(null);
 
   return (
     <>
@@ -236,19 +228,36 @@ function CrewsDefaultView() {
                     <MemberRow key={mid} person={m} isLead={isLead} />
                   );
                 })}
+                {crew.members.length === 0 && (
+                  <div className="muted small" style={{ padding: '6px 0' }}>
+                    No members yet.
+                  </div>
+                )}
               </div>
 
               <div className="divider" style={{ margin: '6px 0' }}></div>
               <div className="row" style={{ justifyContent: 'space-between' }}>
-                <span className="muted small">{crew.members.length} people</span>
-                <button className="btn btn-ghost btn-sm">
-                  <Icon name="plus" size={12} /> Add person
+                <span className="muted small">
+                  Members ({crew.members.length})
+                </span>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setPickerForCrew(crew)}
+                >
+                  <Icon name="plus" size={12} /> Add member
                 </button>
               </div>
             </div>
           );
         })}
       </div>
+
+      {pickerForCrew && (
+        <AddMemberPicker
+          crew={pickerForCrew}
+          onClose={() => setPickerForCrew(null)}
+        />
+      )}
     </>
   );
 }

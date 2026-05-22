@@ -38,6 +38,7 @@ export type TabId =
   | 'attention'
   | 'jobs'
   | 'projects'
+  | 'technicians'
   | 'crews'
   | 'fleet'
   | 'timesheets'
@@ -93,6 +94,12 @@ interface State {
   updateJob: (job: Job) => void;
   addJob: (job: Job) => void;
   removeJob: (id: string) => void;
+  addPerson: (p: Person) => void;
+  updatePerson: (p: Person) => void;
+  removePerson: (id: string) => void;
+  addCrew: (c: Crew) => void;
+  updateCrew: (c: Crew) => void;
+  removeCrew: (id: string) => void;
   resizeJob: (id: string, hours: number) => void;
   setJobStatus: (id: string, status: JobStatus) => void;
   moveJob: (id: string, updates: { date?: string | null; startHour?: number | null; crewId?: string | null; truckId?: string | null }) => void;
@@ -168,6 +175,24 @@ export const useStore = create<State>()(
         })),
       addJob: (job) => set((s) => ({ jobs: [...s.jobs, job] })),
       removeJob: (id) => set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) })),
+      addPerson: (p) => set((s) => ({ people: [...s.people, p] })),
+      updatePerson: (p) =>
+        set((s) => ({ people: s.people.map((x) => (x.id === p.id ? p : x)) })),
+      removePerson: (id) =>
+        set((s) => ({
+          people: s.people.filter((x) => x.id !== id),
+          // remove from any crew rosters too
+          crews: s.crews.map((c) => ({
+            ...c,
+            members: c.members.filter((m) => m !== id),
+            lead: c.lead === id ? '' : c.lead,
+          })),
+        })),
+      addCrew: (c) => set((s) => ({ crews: [...s.crews, c] })),
+      updateCrew: (c) =>
+        set((s) => ({ crews: s.crews.map((x) => (x.id === c.id ? c : x)) })),
+      removeCrew: (id) =>
+        set((s) => ({ crews: s.crews.filter((x) => x.id !== id) })),
       resizeJob: (id, hours) =>
         set((s) => ({ jobs: s.jobs.map((j) => (j.id === id ? { ...j, durationHrs: hours } : j)) })),
       setJobStatus: (id, status) =>

@@ -13,6 +13,7 @@ import { DispatchView } from './views/dispatch/DispatchView';
 import { AttentionView, buildAttentionItems } from './views/attention/AttentionView';
 import { JobsView } from './views/jobs/JobsView';
 import { ProjectsView } from './views/projects/ProjectsView';
+import { TechniciansView } from './views/technicians/TechniciansView';
 import { CrewsView } from './views/crews/CrewsView';
 import { FleetView } from './views/fleet/FleetView';
 import { TimesheetsView } from './views/timesheets/TimesheetsView';
@@ -46,6 +47,7 @@ export default function App() {
 
   const jobs = useStore((s) => s.jobs);
   const projects = useStore((s) => s.projects);
+  const people = useStore((s) => s.people);
 
   // Keyboard: Escape closes drawer
   useEffect(() => {
@@ -64,6 +66,7 @@ export default function App() {
     { id: 'dispatch', label: 'Dispatch', icon: 'calendar', badge: unscheduledJobs(jobs).length || null },
     { id: 'projects', label: 'Projects', icon: 'home', badge: projects.length },
     { id: 'jobs', label: 'Jobs', icon: 'briefcase', badge: jobs.length },
+    { id: 'technicians', label: 'Technicians', icon: 'user', badge: people.length },
     { id: 'crews', label: 'Crews', icon: 'users' },
     { id: 'fleet', label: 'Trucks', icon: 'truck' },
     { id: 'timesheets', label: 'Timesheets', icon: 'timer', badge: 8 },
@@ -177,6 +180,7 @@ export default function App() {
           {tab === 'attention' && <AttentionView />}
           {tab === 'jobs' && <JobsView />}
           {tab === 'projects' && <ProjectsView />}
+          {tab === 'technicians' && <TechniciansView />}
           {tab === 'crews' && <CrewsView />}
           {tab === 'fleet' && <FleetView />}
           {tab === 'timesheets' && <TimesheetsView />}
