@@ -1,8 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { useStore } from '../../store';
 import { HubspotFieldMapping } from './HubspotFieldMapping';
-import { isHubspotConnected } from '../../integrations/hubspot/client';
 import { client } from '../../api/client';
 
 interface PartnerCardProps {
@@ -41,9 +40,29 @@ export function IntegrationsPanel() {
   const [pushing, setPushing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
+  // Phase 13: connection is now resolved server-side. We probe
+  // /v1/hubspot/mapping (a cheap GET) on mount and update the badge
+  // based on whether /v1/hubspot/sync raises a 503 (no HUBSPOT_TOKEN).
+  const [connectionState, setConnectionState] =
+    useState<'unknown' | 'connected' | 'disconnected'>('unknown');
 
-  const connected = isHubspotConnected();
+  const connected = connectionState !== 'disconnected';
   const totalMappedFields = hubspotMapping.reduce((n, e) => n + e.fields.length, 0);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        await client.hubspot.getMapping();
+        if (!cancelled) setConnectionState('connected');
+      } catch {
+        if (!cancelled) setConnectionState('disconnected');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onSyncNow() {
     setSyncing(true);
@@ -52,15 +71,22 @@ export function IntegrationsPanel() {
       const res = await client.hubspot.sync();
       if (res.ok) {
         setLastResult(
-          'Synced ' + res.contacts + ' contacts, ' + res.deals + ' deals, ' + res.serviceAreas + ' service areas.',
+          'Synced ' + res.contacts + ' contacts, ' + res.deals + ' deals, '
+            + res.projects + ' projects, ' + res.serviceAreas + ' service areas, '
+            + res.installations + ' legacy installations.',
         );
         pushToast('HubSpot sync complete');
+        setConnectionState('connected');
       } else if (res.errors.length) {
         setLastResult(res.errors[0] ?? 'Sync returned errors.');
       }
       setLastSyncAt(res.finishedAt);
     } catch (err) {
-      setLastResult(err instanceof Error ? err.message : 'Sync failed.');
+      const msg = err instanceof Error ? err.message : 'Sync failed.';
+      if (msg.includes('503') || msg.toLowerCase().includes('not configured')) {
+        setConnectionState('disconnected');
+      }
+      setLastResult(msg);
     } finally {
       setSyncing(false);
     }
@@ -105,7 +131,7 @@ export function IntegrationsPanel() {
             {connected
               ? 'Jetson portal 21424670 (na1). ' + totalMappedFields + ' fields mapped'
                 + (lastSyncAt ? ' · last sync ' + new Date(lastSyncAt).toLocaleTimeString() : ' · never synced')
-              : 'Set VITE_HUBSPOT_TOKEN in your .env to enable Sync and Test push.'}
+              : 'Set HUBSPOT_TOKEN on the server to enable Sync and Test push.'}
           </div>
         </div>
         <button

@@ -1,8 +1,21 @@
 // =============================================================
-// Zustand store — central state with localStorage persistence.
+// Zustand store — central state.
+//
+// Phase 12: every mutation now does an optimistic local update
+// and, when wired to the API (`apiMode === true`), writes through
+// to the Hono REST layer in parallel. On API failure we roll back
+// the optimistic update and surface a toast.
+//
+// Demo mode (`apiMode === false`) preserves the prototype's
+// localStorage + seed behavior so the dispatcher keeps working
+// against a laptop with no DATABASE_URL. `useStoreHydration()`
+// in `src/hooks/useStoreHydration.ts` decides which mode we land
+// in by attempting the first API list and falling back on any
+// 401 / network error.
 // =============================================================
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+
 import type {
   Job,
   Person,
@@ -32,6 +45,16 @@ import {
   CHECKLISTS,
   CHECKLIST_RESPONSES,
 } from './data/seed';
+import { client } from './api/client';
+import {
+  jobToDTOPatch,
+  jobToDTOCreate,
+  personToDTOPatch,
+  personToDTOCreate,
+  crewToDTOPatch,
+  crewToDTOCreate,
+  templateToDTOPatch,
+} from './api/storeMappers';
 
 export type TabId =
   | 'dispatch'
@@ -77,6 +100,14 @@ interface State {
   showWizard: boolean;
   smartScheduleJobId: string | null;
 
+  // ---- runtime mode (not persisted) ----
+  /** True when hydrated from the API and writes go through the REST layer. */
+  apiMode: boolean;
+  /** True once first hydration attempt completes (API success or demo fallback). */
+  hydrated: boolean;
+  /** Set when hydration fails fatally; UI shows a retry screen. */
+  hydrationError: string | null;
+
   // ---- actions ----
   setTab: (t: TabId) => void;
   selectJob: (id: string | null) => void;
@@ -90,6 +121,17 @@ interface State {
   setRegion: (r: RegionSelection) => void;
   setTweak: <K extends keyof Tweaks>(k: K, v: Tweaks[K]) => void;
 
+  // ---- hydration helpers (internal, used by hooks) ----
+  setApiMode: (v: boolean) => void;
+  setHydrated: (v: boolean, error?: string | null) => void;
+  hydrateCollections: (s: Partial<Omit<State, 'tab' | 'selectedJobId' | 'apiMode' | 'hydrated' | 'hydrationError'>>) => void;
+  applyJob: (job: Job) => void;
+  applyJobRemove: (id: string) => void;
+  applyCrew: (crew: Crew) => void;
+  applyCrewRemove: (id: string) => void;
+  applyPerson: (p: Person) => void;
+  applyPersonRemove: (id: string) => void;
+
   // ---- mutations ----
   updateJob: (job: Job) => void;
   addJob: (job: Job) => void;
@@ -102,7 +144,10 @@ interface State {
   removeCrew: (id: string) => void;
   resizeJob: (id: string, hours: number) => void;
   setJobStatus: (id: string, status: JobStatus) => void;
-  moveJob: (id: string, updates: { date?: string | null; startHour?: number | null; crewId?: string | null; truckId?: string | null }) => void;
+  moveJob: (
+    id: string,
+    updates: { date?: string | null; startHour?: number | null; crewId?: string | null; truckId?: string | null },
+  ) => void;
   updateTemplate: (key: string, tpl: JobTemplate) => void;
   setHubspotMapping: (m: HubspotEntityMapping[]) => void;
   setChecklist: (jobType: string, sections: ChecklistSection[]) => void;
@@ -125,6 +170,13 @@ const DEFAULT_TWEAKS: Tweaks = {
 const DEFAULT_REGION: RegionSelection = { regionId: 'co', subId: 'co-d' };
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ---- helpers --------------------------------------------------------------
+
+function logApiError(action: string, err: unknown): void {
+  // eslint-disable-next-line no-console
+  console.error(`store.${action} write-through failed`, err);
+}
 
 export const useStore = create<State>()(
   persist(
@@ -152,6 +204,11 @@ export const useStore = create<State>()(
       showWizard: false,
       smartScheduleJobId: null,
 
+      apiMode: false,
+      hydrated: false,
+      hydrationError: null,
+
+      // ---- UI actions ----
       setTab: (t) => set({ tab: t }),
       selectJob: (id) => set({ selectedJobId: id }),
       collapseSidebar: (v) => set({ sidebarCollapsed: v }),
@@ -168,57 +225,280 @@ export const useStore = create<State>()(
       setRegion: (r) => set({ region: r }),
       setTweak: (k, v) => set((s) => ({ tweaks: { ...s.tweaks, [k]: v } })),
 
-      updateJob: (job) =>
-        set((s) => ({
-          jobs: s.jobs.map((j) => (j.id === job.id ? job : j)),
-          selectedJobId: s.selectedJobId === job.id ? job.id : s.selectedJobId,
-        })),
-      addJob: (job) => set((s) => ({ jobs: [...s.jobs, job] })),
-      removeJob: (id) => set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) })),
-      addPerson: (p) => set((s) => ({ people: [...s.people, p] })),
-      updatePerson: (p) =>
-        set((s) => ({ people: s.people.map((x) => (x.id === p.id ? p : x)) })),
-      removePerson: (id) =>
+      // ---- hydration helpers ----
+      setApiMode: (v) => set({ apiMode: v }),
+      setHydrated: (v, error = null) => set({ hydrated: v, hydrationError: error }),
+      hydrateCollections: (s) => set(s),
+      applyJob: (job) =>
+        set((s) => {
+          const idx = s.jobs.findIndex((j) => j.id === job.id);
+          if (idx === -1) return { jobs: [...s.jobs, job] };
+          const next = s.jobs.slice();
+          next[idx] = job;
+          return { jobs: next };
+        }),
+      applyJobRemove: (id) =>
+        set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) })),
+      applyCrew: (crew) =>
+        set((s) => {
+          const idx = s.crews.findIndex((c) => c.id === crew.id);
+          if (idx === -1) return { crews: [...s.crews, crew] };
+          const next = s.crews.slice();
+          next[idx] = crew;
+          return { crews: next };
+        }),
+      applyCrewRemove: (id) =>
+        set((s) => ({ crews: s.crews.filter((c) => c.id !== id) })),
+      applyPerson: (p) =>
+        set((s) => {
+          const idx = s.people.findIndex((x) => x.id === p.id);
+          if (idx === -1) return { people: [...s.people, p] };
+          const next = s.people.slice();
+          next[idx] = p;
+          return { people: next };
+        }),
+      applyPersonRemove: (id) =>
         set((s) => ({
           people: s.people.filter((x) => x.id !== id),
-          // remove from any crew rosters too
           crews: s.crews.map((c) => ({
             ...c,
             members: c.members.filter((m) => m !== id),
             lead: c.lead === id ? '' : c.lead,
           })),
         })),
-      addCrew: (c) => set((s) => ({ crews: [...s.crews, c] })),
-      updateCrew: (c) =>
-        set((s) => ({ crews: s.crews.map((x) => (x.id === c.id ? c : x)) })),
-      removeCrew: (id) =>
-        set((s) => ({ crews: s.crews.filter((x) => x.id !== id) })),
-      resizeJob: (id, hours) =>
-        set((s) => ({ jobs: s.jobs.map((j) => (j.id === id ? { ...j, durationHrs: hours } : j)) })),
-      setJobStatus: (id, status) =>
-        set((s) => ({ jobs: s.jobs.map((j) => (j.id === id ? { ...j, status } : j)) })),
-      moveJob: (id, updates) =>
-        set((s) => ({
-          jobs: s.jobs.map((j) =>
-            j.id === id
-              ? {
-                  ...j,
-                  ...updates,
-                  status:
-                    j.status === 'unscheduled' && updates.date && updates.startHour != null
-                      ? 'scheduled'
-                      : j.status,
-                }
-              : j,
-          ),
-        })),
-      updateTemplate: (key, tpl) =>
-        set((s) => ({ templates: { ...s.templates, [key]: tpl } })),
-      setHubspotMapping: (m) => set({ hubspotMapping: m }),
+
+      // ---- mutations (optimistic + write-through) ----
+
+      updateJob: (job) => {
+        const prev = get().jobs;
+        set({
+          jobs: prev.map((j) => (j.id === job.id ? job : j)),
+        });
+        if (get().apiMode) {
+          client.jobs
+            .update(job.id, jobToDTOPatch(job))
+            .catch((err) => {
+              set({ jobs: prev });
+              get().pushToast('Update failed — restored');
+              logApiError('updateJob', err);
+            });
+        }
+      },
+
+      addJob: (job) => {
+        const prev = get().jobs;
+        set({ jobs: [...prev, job] });
+        if (get().apiMode) {
+          client.jobs.create(jobToDTOCreate(job)).catch((err) => {
+            set({ jobs: prev });
+            get().pushToast('Could not save new job — undone');
+            logApiError('addJob', err);
+          });
+        }
+      },
+
+      removeJob: (id) => {
+        const prev = get().jobs;
+        set({ jobs: prev.filter((j) => j.id !== id) });
+        if (get().apiMode) {
+          client.jobs.remove(id).catch((err) => {
+            set({ jobs: prev });
+            get().pushToast('Could not remove job — restored');
+            logApiError('removeJob', err);
+          });
+        }
+      },
+
+      addPerson: (p) => {
+        const prev = get().people;
+        set({ people: [...prev, p] });
+        if (get().apiMode) {
+          client.people.create(personToDTOCreate(p)).catch((err) => {
+            set({ people: prev });
+            get().pushToast('Could not add technician — undone');
+            logApiError('addPerson', err);
+          });
+        }
+      },
+
+      updatePerson: (p) => {
+        const prev = get().people;
+        set({ people: prev.map((x) => (x.id === p.id ? p : x)) });
+        if (get().apiMode) {
+          client.people.update(p.id, personToDTOPatch(p)).catch((err) => {
+            set({ people: prev });
+            get().pushToast('Update failed — restored');
+            logApiError('updatePerson', err);
+          });
+        }
+      },
+
+      removePerson: (id) => {
+        const prevPeople = get().people;
+        const prevCrews = get().crews;
+        set({
+          people: prevPeople.filter((x) => x.id !== id),
+          crews: prevCrews.map((c) => ({
+            ...c,
+            members: c.members.filter((m) => m !== id),
+            lead: c.lead === id ? '' : c.lead,
+          })),
+        });
+        if (get().apiMode) {
+          client.people.remove(id).catch((err) => {
+            set({ people: prevPeople, crews: prevCrews });
+            get().pushToast('Could not remove technician — restored');
+            logApiError('removePerson', err);
+          });
+        }
+      },
+
+      addCrew: (c) => {
+        const prev = get().crews;
+        set({ crews: [...prev, c] });
+        if (get().apiMode) {
+          client.crews.create(crewToDTOCreate(c)).catch((err) => {
+            set({ crews: prev });
+            get().pushToast('Could not add crew — undone');
+            logApiError('addCrew', err);
+          });
+        }
+      },
+
+      updateCrew: (c) => {
+        const prev = get().crews;
+        set({ crews: prev.map((x) => (x.id === c.id ? c : x)) });
+        if (get().apiMode) {
+          client.crews.update(c.id, crewToDTOPatch(c)).catch((err) => {
+            set({ crews: prev });
+            get().pushToast('Update failed — restored');
+            logApiError('updateCrew', err);
+          });
+        }
+      },
+
+      removeCrew: (id) => {
+        const prev = get().crews;
+        set({ crews: prev.filter((x) => x.id !== id) });
+        if (get().apiMode) {
+          client.crews.remove(id).catch((err) => {
+            set({ crews: prev });
+            get().pushToast('Could not remove crew — restored');
+            logApiError('removeCrew', err);
+          });
+        }
+      },
+
+      resizeJob: (id, hours) => {
+        const prev = get().jobs;
+        const target = prev.find((j) => j.id === id);
+        if (!target) return;
+        const next: Job = { ...target, durationHrs: hours };
+        set({ jobs: prev.map((j) => (j.id === id ? next : j)) });
+        if (get().apiMode) {
+          client.jobs
+            .update(id, { durationHrs: hours })
+            .catch((err) => {
+              set({ jobs: prev });
+              get().pushToast('Resize failed — restored');
+              logApiError('resizeJob', err);
+            });
+        }
+      },
+
+      setJobStatus: (id, status) => {
+        const prev = get().jobs;
+        const target = prev.find((j) => j.id === id);
+        if (!target) return;
+        set({
+          jobs: prev.map((j) => (j.id === id ? { ...j, status } : j)),
+        });
+        if (get().apiMode) {
+          client.jobs
+            .transition(id, { status })
+            .catch((err) => {
+              set({ jobs: prev });
+              get().pushToast('Status change failed — restored');
+              logApiError('setJobStatus', err);
+            });
+        }
+      },
+
+      moveJob: (id, updates) => {
+        const prev = get().jobs;
+        const target = prev.find((j) => j.id === id);
+        if (!target) return;
+        const next: Job = {
+          ...target,
+          ...updates,
+          status:
+            target.status === 'unscheduled' && updates.date && updates.startHour != null
+              ? 'scheduled'
+              : target.status,
+        };
+        set({ jobs: prev.map((j) => (j.id === id ? next : j)) });
+        if (get().apiMode) {
+          client.jobs
+            .update(id, {
+              date: next.date,
+              startHour: next.startHour,
+              crewId: next.crewId,
+              truckId: next.truckId,
+              status: next.status,
+            })
+            .catch((err) => {
+              set({ jobs: prev });
+              get().pushToast('Move failed — restored');
+              logApiError('moveJob', err);
+            });
+        }
+      },
+
+      updateTemplate: (key, tpl) => {
+        const prev = get().templates;
+        set({ templates: { ...prev, [key]: tpl } });
+        if (get().apiMode) {
+          client.templates
+            .update(key, templateToDTOPatch(tpl))
+            .catch((err) => {
+              set({ templates: prev });
+              get().pushToast('Template save failed — restored');
+              logApiError('updateTemplate', err);
+            });
+        }
+      },
+
+      setHubspotMapping: (m) => {
+        // Kept local-only — Phase 13 will route through
+        // client.hubspot.putMapping(entity, body) per-entity.
+        set({ hubspotMapping: m });
+      },
+
       setChecklist: (jobType, sections) =>
+        // Definitions are read-mostly today; admin tooling lands in Phase 14.
         set((s) => ({ checklists: { ...s.checklists, [jobType]: sections } })),
-      setChecklistResponse: (jobId, responses) =>
-        set((s) => ({ checklistResponses: { ...s.checklistResponses, [jobId]: responses } })),
+
+      setChecklistResponse: (jobId, responses) => {
+        const prevAll = get().checklistResponses;
+        const prevForJob = prevAll[jobId] ?? {};
+        set({ checklistResponses: { ...prevAll, [jobId]: responses } });
+        if (!get().apiMode) return;
+        // Diff vs previous and PUT each changed item individually
+        // (the API exposes per-item upsert).
+        const itemIds = new Set<string>([
+          ...Object.keys(prevForJob),
+          ...Object.keys(responses),
+        ]);
+        for (const itemId of itemIds) {
+          const before = prevForJob[itemId] ?? null;
+          const after = responses[itemId] ?? null;
+          if (JSON.stringify(before) === JSON.stringify(after)) continue;
+          client.checklists
+            .upsertResponse(jobId, { itemId, value: after })
+            .catch((err) => logApiError('setChecklistResponse', err));
+        }
+      },
+
       setCustomers: (customers) => set({ customers }),
       setProjects: (projects) => set({ projects }),
       setRegions: (regions) => set({ regions }),
@@ -249,6 +529,10 @@ export const useStore = create<State>()(
     {
       name: 'jetson-fsm-v1',
       storage: createJSONStorage(() => localStorage),
+      // Persist only what's safe to round-trip via localStorage. In API
+      // mode the hydration hook will overwrite these on mount with fresh
+      // server data; in demo mode the persisted snapshot is the source
+      // of truth.
       partialize: (s) => ({
         jobs: s.jobs,
         people: s.people,

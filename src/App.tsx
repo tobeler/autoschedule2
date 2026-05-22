@@ -26,6 +26,9 @@ import { JobDetailDrawer } from './modals/JobDetailDrawer';
 import { NewJobWizard } from './modals/NewJobWizard/NewJobWizard';
 import { SmartScheduleModal } from './modals/SmartScheduleModal';
 
+import { useStoreHydration } from './hooks/useStoreHydration';
+import { useStoreRealtime } from './hooks/useStoreRealtime';
+
 interface NavItem {
   id: import('./store').TabId;
   label: string;
@@ -34,6 +37,10 @@ interface NavItem {
 }
 
 export default function App() {
+  // Mount hydration + realtime hooks first so they own data lifecycle.
+  const hydration = useStoreHydration();
+  useStoreRealtime();
+
   const tab = useStore((s) => s.tab);
   const setTab = useStore((s) => s.setTab);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
@@ -57,6 +64,25 @@ export default function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedJobId, selectJob]);
+
+  // ---- loading + error gates ----
+  if (hydration.loading) {
+    return (
+      <div className="app-loading-screen">
+        <div className="app-loading-spinner" aria-hidden="true" />
+        <div className="app-loading-label">Loading dispatcher…</div>
+      </div>
+    );
+  }
+  if (hydration.error) {
+    return (
+      <div className="app-loading-screen">
+        <div className="app-loading-label">Could not load dispatcher</div>
+        <div className="muted small" style={{ marginBottom: 12 }}>{hydration.error}</div>
+        <button className="btn primary" onClick={hydration.retry}>Retry</button>
+      </div>
+    );
+  }
 
   const attentionItems = buildAttentionItems();
   const urgentCount = attentionItems.filter((i) => i.sev === 'urgent').length;

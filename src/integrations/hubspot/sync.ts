@@ -1,229 +1,869 @@
 // =============================================================
-// High-level HubSpot sync — orchestrates pulls (contacts/deals/SAs)
-// and pushes (FSM Job custom-object records).
+// HubSpot sync (Phase 13) — server-side orchestration that pulls
+// HubSpot records (Service Areas, Contacts, native Projects,
+// Closed-Won Deals, legacy Installations) and upserts the FSM
+// Drizzle tables. Also handles pushing FSM Jobs and Project
+// lifecycle updates back into HubSpot.
 //
-// The functions here read from / write to the Zustand store via the
-// `actions` argument so they remain testable and so this module
-// has no circular import dependency on `../../store`.
+// Everything in this module assumes a server runtime — it reads
+// `HUBSPOT_TOKEN`, opens a Postgres transaction, and never touches
+// the Zustand store.
 // =============================================================
-import type { Customer, Job, Project, Region, SubRegion } from '../../types';
+import { and, eq, isNull, sql } from 'drizzle-orm';
+
+import { db } from '@/lib/db';
 import {
-  createOrUpdateJobRecord,
+  customers,
+  jobs as jobsTable,
+  jobSlots,
+  outbox,
+  projects,
+  regions,
+} from '@/db/schema';
+import type { Job } from '../../types';
+
+import {
+  createOrUpdateJob,
+  getContact,
   getDealContactIds,
+  getInstallation,
+  getProject,
+  getProjectContactIds,
   HubspotApiError,
   HubspotConfigError,
-  isHubspotConnected,
+  isHubspotConfigured,
   listServiceAreas,
   searchContacts,
   searchDeals,
+  searchInstallations,
+  searchProjects,
+  updateProject,
   type HubspotContact,
   type HubspotDeal,
-  type HubspotJob,
+  type HubspotInstallation,
+  type HubspotProject,
   type HubspotServiceArea,
+  type HubspotJob,
 } from './client';
 
-const CLOSED_WON_STAGES = ['closedwon', '1108691004']; // closedwon + closedwon-requote
+// Closed Won + Closed Won-requote (Jetson-specific stage id).
+const CLOSED_WON_STAGES = ['closedwon', '1108691004'];
 
 // ---------- Pull -------------------------------------------------------------
 
-export interface SyncFromHubspotResult {
+export interface SyncCounts {
+  regions: number;
+  customers: number;
+  projects: number;
+  legacyInstallations: number;
+  dealsAttached: number;
+  deals: number;
+  serviceAreas: number;
+}
+
+export interface SyncResult {
   ok: boolean;
   startedAt: string;
   finishedAt: string;
-  contacts: number;
-  deals: number;
-  serviceAreas: number;
+  counts: SyncCounts;
   errors: string[];
+  notes: string[];
 }
 
-export interface SyncActions {
-  setCustomers: (next: Customer[]) => void;
-  setProjects: (next: Project[]) => void;
-  setRegions: (next: Region[]) => void;
+function describeError(err: unknown): string {
+  if (err instanceof HubspotConfigError) return err.message;
+  if (err instanceof HubspotApiError) {
+    return 'HubSpot ' + err.status + (err.category ? ' [' + err.category + ']' : '') + ': ' + err.message;
+  }
+  if (err instanceof Error) return err.message;
+  return 'Unknown error';
 }
 
-export async function syncFromHubspot(actions?: SyncActions): Promise<SyncFromHubspotResult> {
-  const result: SyncFromHubspotResult = {
+function safeName(c: HubspotContact): string {
+  const p = c.properties;
+  const first = (p.firstname ?? '').trim();
+  const last = (p.lastname ?? '').trim();
+  const full = (first + ' ' + last).trim();
+  if (full.length) return full;
+  if (p.email) return p.email;
+  return 'Contact ' + c.id;
+}
+
+function safeAddress(c: HubspotContact): string {
+  const p = c.properties;
+  const parts = [p.address, p.address_line_2, p.city, p.state, p.zip].filter(
+    (s): s is string => Boolean(s && s.length),
+  );
+  return parts.join(', ');
+}
+
+function customerIdForContact(contactId: string): string {
+  return 'hs-c-' + contactId;
+}
+
+function projectIdForHubspotProject(projectId: string): string {
+  return 'hs-p-' + projectId;
+}
+
+function projectIdForLegacyInstallation(installationId: string): string {
+  return 'hs-i-' + installationId;
+}
+
+function pipelineStageToStatus(stage: string | null | undefined): typeof projects.$inferInsert['status'] {
+  switch ((stage ?? '').toLowerCase()) {
+    case 'planning':
+    case 'review':
+      return 'sold';
+    case 'execution':
+      return 'in_progress';
+    case 'completed':
+      return 'complete';
+    case 'cancelled':
+      return 'cancelled';
+    case 'on_hold':
+      return 'in_progress';
+    default:
+      return 'sold';
+  }
+}
+
+function dealStageToStatus(stage: string | null | undefined): typeof projects.$inferInsert['status'] {
+  if (!stage) return 'sold';
+  if (CLOSED_WON_STAGES.includes(stage)) return 'sold';
+  if (stage === '1183937358' || stage === 'closedlost' || stage === '1353452390') return 'cancelled';
+  return 'proposed';
+}
+
+function num(s: string | null | undefined): string | null {
+  if (s === null || s === undefined || s === '') return null;
+  const n = Number(s);
+  if (Number.isNaN(n)) return null;
+  return n.toString();
+}
+
+function makeRegionShort(name: string): string {
+  return name
+    .replace(/[^A-Za-z]/g, '')
+    .slice(0, 2)
+    .toUpperCase() || 'XX';
+}
+
+interface SyncOptions {
+  /** Limit the per-record-type fetch (mainly for unit tests). */
+  limit?: number;
+}
+
+/**
+ * Pull HubSpot records into our Postgres. One Drizzle transaction wraps
+ * every upsert so a partial failure rolls back cleanly. Returns a
+ * structured summary the route handler echoes back to the caller.
+ */
+export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResult> {
+  const result: SyncResult = {
     ok: false,
     startedAt: new Date().toISOString(),
     finishedAt: '',
-    contacts: 0,
-    deals: 0,
-    serviceAreas: 0,
+    counts: {
+      regions: 0,
+      customers: 0,
+      projects: 0,
+      legacyInstallations: 0,
+      dealsAttached: 0,
+      deals: 0,
+      serviceAreas: 0,
+    },
     errors: [],
+    notes: [],
   };
 
-  if (!isHubspotConnected()) {
-    result.errors.push('HubSpot is not connected. Set VITE_HUBSPOT_TOKEN.');
+  if (!isHubspotConfigured()) {
+    result.errors.push('HubSpot not configured. Set HUBSPOT_TOKEN.');
     result.finishedAt = new Date().toISOString();
     return result;
   }
 
+  let serviceAreaRecords: HubspotServiceArea[] = [];
+  let projectRecords: HubspotProject[] = [];
+  let dealRecords: HubspotDeal[] = [];
+  let installationRecords: HubspotInstallation[] = [];
+  const contactIds = new Set<string>();
+  const contactsByProject = new Map<string, string[]>();
+  const contactsByDeal = new Map<string, string[]>();
+  let contactRecords: HubspotContact[] = [];
+
+  // -------- Fetch phase (network) ------------------------------------------
+
   try {
-    // 1) Pull Closed Won deals first — they're the seeds for the contacts we need.
-    const dealPages: HubspotDeal[] = [];
-    for (const stage of CLOSED_WON_STAGES) {
-      try {
-        const page = await searchDeals({ pipeline: 'default', stage, limit: 100 });
-        dealPages.push(...page.results);
-      } catch (err) {
-        result.errors.push('Deals (' + stage + '): ' + describeError(err));
-      }
-    }
-    result.deals = dealPages.length;
+    serviceAreaRecords = await listServiceAreas();
+    result.counts.serviceAreas = serviceAreaRecords.length;
+  } catch (err) {
+    result.errors.push('Service areas: ' + describeError(err));
+  }
 
-    // 2) Collect associated contact ids for those deals.
-    const contactIdSet = new Set<string>();
-    for (const deal of dealPages) {
-      try {
-        const ids = await getDealContactIds(deal.id);
-        ids.forEach((id) => contactIdSet.add(id));
-      } catch (err) {
-        result.errors.push('Deal ' + deal.id + ' contacts: ' + describeError(err));
-      }
-    }
+  try {
+    projectRecords = await searchProjects({ limit: opts.limit });
+    result.counts.projects = projectRecords.length;
+  } catch (err) {
+    result.errors.push('Projects: ' + describeError(err));
+  }
 
-    // 3) Fetch those contacts.
-    const contactRecords: HubspotContact[] = [];
-    const ids = Array.from(contactIdSet);
-    for (let i = 0; i < ids.length; i += 50) {
-      try {
-        const page = await searchContacts({ ids: ids.slice(i, i + 50), limit: 50 });
-        contactRecords.push(...page.results);
-      } catch (err) {
-        result.errors.push('Contacts batch: ' + describeError(err));
-      }
-    }
-    result.contacts = contactRecords.length;
-
-    // 4) Service areas.
-    let serviceAreaRecords: HubspotServiceArea[] = [];
+  for (const proj of projectRecords) {
     try {
-      const sa = await listServiceAreas();
-      serviceAreaRecords = sa.results;
-      result.serviceAreas = sa.results.length;
+      const ids = await getProjectContactIds(proj.id);
+      contactsByProject.set(proj.id, ids);
+      ids.forEach((id) => contactIds.add(id));
     } catch (err) {
-      result.errors.push('Service areas: ' + describeError(err));
+      result.errors.push('Project ' + proj.id + ' contacts: ' + describeError(err));
     }
+  }
 
-    // 5) Map into FSM entities and write into the store via the provided actions.
-    if (actions) {
-      actions.setCustomers(contactRecords.map(toCustomer));
-      actions.setProjects(dealPages.map(toProject));
-      if (serviceAreaRecords.length) actions.setRegions(toRegions(serviceAreaRecords));
+  try {
+    for (const stage of CLOSED_WON_STAGES) {
+      const page = await searchDeals({ pipeline: 'default', stage, limit: opts.limit });
+      dealRecords.push(...page);
     }
+    result.counts.deals = dealRecords.length;
+  } catch (err) {
+    result.errors.push('Deals: ' + describeError(err));
+  }
+
+  for (const deal of dealRecords) {
+    try {
+      const ids = await getDealContactIds(deal.id);
+      contactsByDeal.set(deal.id, ids);
+      ids.forEach((id) => contactIds.add(id));
+    } catch (err) {
+      result.errors.push('Deal ' + deal.id + ' contacts: ' + describeError(err));
+    }
+  }
+
+  try {
+    const ids = Array.from(contactIds);
+    for (let i = 0; i < ids.length; i += 50) {
+      const slice = ids.slice(i, i + 50);
+      const page = await searchContacts({ ids: slice });
+      contactRecords.push(...page);
+    }
+    result.counts.customers = contactRecords.length;
+  } catch (err) {
+    result.errors.push('Contacts batch: ' + describeError(err));
+  }
+
+  try {
+    installationRecords = await searchInstallations({ limit: opts.limit });
+  } catch (err) {
+    result.errors.push('Installations: ' + describeError(err));
+  }
+
+  // -------- Write phase (one transaction) ----------------------------------
+
+  try {
+    await db.transaction(async (tx) => {
+      // 1) Service areas → regions (parent country + sub regions).
+      const byCountry = new Map<string, HubspotServiceArea[]>();
+      for (const sa of serviceAreaRecords) {
+        const country = (sa.properties.countries ?? 'United States').split(';')[0].trim() || 'United States';
+        if (!byCountry.has(country)) byCountry.set(country, []);
+        byCountry.get(country)!.push(sa);
+      }
+      let regionWrites = 0;
+      for (const [country, subs] of byCountry) {
+        const parentId = 'hs-reg-' + country.toLowerCase().replace(/\s+/g, '-');
+        await tx
+          .insert(regions)
+          .values({
+            id: parentId,
+            name: country,
+            short: makeRegionShort(country),
+            parentRegionId: null,
+            headcount: 0,
+            crewCount: 0,
+          })
+          .onConflictDoUpdate({
+            target: regions.id,
+            set: { name: country, short: makeRegionShort(country), updatedAt: new Date() },
+          });
+        regionWrites += 1;
+        for (const sa of subs) {
+          await tx
+            .insert(regions)
+            .values({
+              id: 'hs-sa-' + sa.id,
+              name: sa.properties.name ?? 'Service area ' + sa.id,
+              short: makeRegionShort(sa.properties.service_area_code ?? sa.properties.name ?? sa.id),
+              parentRegionId: parentId,
+              headcount: 0,
+              crewCount: 0,
+            })
+            .onConflictDoUpdate({
+              target: regions.id,
+              set: {
+                name: sa.properties.name ?? 'Service area ' + sa.id,
+                short: makeRegionShort(sa.properties.service_area_code ?? sa.properties.name ?? sa.id),
+                parentRegionId: parentId,
+                updatedAt: new Date(),
+              },
+            });
+          regionWrites += 1;
+        }
+      }
+      result.counts.regions = regionWrites;
+
+      // 2) Customers (only those linked to active projects/deals).
+      for (const c of contactRecords) {
+        await tx
+          .insert(customers)
+          .values({
+            id: customerIdForContact(c.id),
+            name: safeName(c),
+            address: safeAddress(c),
+            phone: c.properties.phone ?? '',
+            hubspotId: c.id,
+          })
+          .onConflictDoUpdate({
+            target: customers.id,
+            set: {
+              name: safeName(c),
+              address: safeAddress(c),
+              phone: c.properties.phone ?? '',
+              hubspotId: c.id,
+              updatedAt: new Date(),
+            },
+          });
+      }
+
+      // 3) Native Projects (`0-970`).
+      for (const proj of projectRecords) {
+        const projContacts = contactsByProject.get(proj.id) ?? [];
+        const customerId = projContacts.length ? customerIdForContact(projContacts[0]) : null;
+        if (!customerId) {
+          // Skip projects without an associated contact — projects table
+          // requires a non-null customerId. Note it for the report.
+          result.notes.push('Project ' + proj.id + ' skipped: no associated contact');
+          continue;
+        }
+        const id = projectIdForHubspotProject(proj.id);
+        const p = proj.properties;
+        const desc = [p.hs_description, p.system_design_notes]
+          .filter((s): s is string => Boolean(s && s.length))
+          .join('\n\n');
+        const designNotes = p.system_design_notes ?? null;
+        await tx
+          .insert(projects)
+          .values({
+            id,
+            customerId,
+            name: p.hs_name ?? 'Project ' + proj.id,
+            type: p.hs_type ?? 'Retrofit',
+            status: pipelineStageToStatus(p.hs_pipeline_stage),
+            soldDate: p.hs_start_date ?? null,
+            targetCompletion: p.hs_target_due_date ?? null,
+            value: num(p.hs_total_cost),
+            hubspotDealId: null,
+            hubspotProjectId: proj.id,
+            source: 'native_project',
+            description: desc.length ? desc : null,
+            designNotes,
+          })
+          .onConflictDoUpdate({
+            target: projects.id,
+            set: {
+              customerId,
+              name: p.hs_name ?? 'Project ' + proj.id,
+              type: p.hs_type ?? 'Retrofit',
+              status: pipelineStageToStatus(p.hs_pipeline_stage),
+              soldDate: p.hs_start_date ?? null,
+              targetCompletion: p.hs_target_due_date ?? null,
+              value: num(p.hs_total_cost),
+              hubspotProjectId: proj.id,
+              source: 'native_project',
+              description: desc.length ? desc : null,
+              designNotes,
+              updatedAt: new Date(),
+            },
+          });
+      }
+
+      // 4) Closed Won Deals → attach as sales_context on the related project
+      //    when we can resolve one (joined via shared contact ids). One deal
+      //    may map to one project; the secondary deals beyond the first are
+      //    noted in `result.notes`.
+      //
+      //    Join is best-effort: if no project shares a contact with this
+      //    deal, the deal goes unattached. The route handler surfaces this
+      //    via the result counts.
+      let dealsAttached = 0;
+      for (const deal of dealRecords) {
+        const dealContacts = contactsByDeal.get(deal.id) ?? [];
+        // Find the first project whose contacts overlap this deal's.
+        const match = projectRecords.find((proj) => {
+          const pc = contactsByProject.get(proj.id) ?? [];
+          return pc.some((c) => dealContacts.includes(c));
+        });
+        if (!match) {
+          result.notes.push('Deal ' + deal.id + ' could not be joined to a project');
+          continue;
+        }
+        const projectRowId = projectIdForHubspotProject(match.id);
+        // Stamp the deal id onto the project; further deals overwrite (we
+        // intentionally keep the most recently-seen Closed Won as the primary
+        // sales_context for v1).
+        await tx
+          .update(projects)
+          .set({
+            hubspotDealId: deal.id,
+            updatedAt: new Date(),
+          })
+          .where(eq(projects.id, projectRowId));
+        dealsAttached += 1;
+      }
+      result.counts.dealsAttached = dealsAttached;
+
+      // 5) Legacy Installations whose related Project doesn't already exist.
+      //    The installation row carries `related_project_id` (set by HubSpot
+      //    via the legacy pipeline). If that project id is in our active
+      //    project set we skip; otherwise we upsert a stub with
+      //    `source: 'legacy_installation'`.
+      let legacyWrites = 0;
+      const activeProjectKeys = new Set(projectRecords.map((p) => p.id));
+      for (const inst of installationRecords) {
+        const relProj = inst.properties.related_project_id ?? null;
+        if (relProj && activeProjectKeys.has(relProj)) continue;
+        const legacyId = projectIdForLegacyInstallation(inst.id);
+        // Address-only — install records carry their own place_* fields.
+        const addressParts = [
+          inst.properties.full_address,
+          inst.properties.address_city,
+          inst.properties.state_province_region,
+          inst.properties.address_zip,
+        ].filter((s): s is string => Boolean(s && s.length));
+        // Synthesize a stand-in customer when we can't reuse one (legacy
+        // installs may pre-date the contact in our `customers` table).
+        const standInCustomerId = 'hs-legacy-cust-' + inst.id;
+        await tx
+          .insert(customers)
+          .values({
+            id: standInCustomerId,
+            name: 'Legacy install ' + inst.id,
+            address: addressParts.join(', '),
+            phone: '',
+            hubspotId: null,
+          })
+          .onConflictDoNothing({ target: customers.id });
+        await tx
+          .insert(projects)
+          .values({
+            id: legacyId,
+            customerId: standInCustomerId,
+            name: 'Legacy install ' + inst.id,
+            type: 'Retrofit',
+            status: 'complete',
+            soldDate: null,
+            targetCompletion: inst.properties.entered_complete_stage_date ?? null,
+            value: null,
+            hubspotDealId: null,
+            hubspotProjectId: null,
+            source: 'legacy_installation',
+            description: 'Imported from legacy Installations object.',
+            designNotes: null,
+          })
+          .onConflictDoUpdate({
+            target: projects.id,
+            set: {
+              status: 'complete',
+              source: 'legacy_installation',
+              updatedAt: new Date(),
+            },
+          });
+        legacyWrites += 1;
+      }
+      result.counts.legacyInstallations = legacyWrites;
+
+      // 6) Permits / Systems / Rebates — read-only child rows. There are no
+      //    child tables in our schema today; noted so a future migration
+      //    can land them. See route handler for the schema-gap warning.
+      result.notes.push(
+        'Permits/Systems/Rebates: read-only child tables not modeled in v1 schema; skipped.',
+      );
+    });
 
     result.ok = result.errors.length === 0;
   } catch (err) {
-    result.errors.push(describeError(err));
+    result.errors.push('Write phase: ' + describeError(err));
   }
 
   result.finishedAt = new Date().toISOString();
   return result;
 }
 
-// ---------- Push -------------------------------------------------------------
+// ---------- Targeted single-record pulls (used by webhook receiver) ---------
+
+/** Pull and upsert a single Project record. */
+export async function syncProject(projectId: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const proj = await getProject(projectId);
+    const contactIds = await getProjectContactIds(projectId);
+    const customerId = contactIds.length ? customerIdForContact(contactIds[0]) : null;
+    if (!customerId) {
+      return { ok: false, message: 'Project has no associated contact' };
+    }
+    // Make sure the contact exists locally first.
+    const c = await getContact(contactIds[0]);
+    await db
+      .insert(customers)
+      .values({
+        id: customerId,
+        name: safeName(c),
+        address: safeAddress(c),
+        phone: c.properties.phone ?? '',
+        hubspotId: c.id,
+      })
+      .onConflictDoUpdate({
+        target: customers.id,
+        set: {
+          name: safeName(c),
+          address: safeAddress(c),
+          phone: c.properties.phone ?? '',
+          updatedAt: new Date(),
+        },
+      });
+    const id = projectIdForHubspotProject(proj.id);
+    const p = proj.properties;
+    await db
+      .insert(projects)
+      .values({
+        id,
+        customerId,
+        name: p.hs_name ?? 'Project ' + proj.id,
+        type: p.hs_type ?? 'Retrofit',
+        status: pipelineStageToStatus(p.hs_pipeline_stage),
+        soldDate: p.hs_start_date ?? null,
+        targetCompletion: p.hs_target_due_date ?? null,
+        value: num(p.hs_total_cost),
+        hubspotProjectId: proj.id,
+        source: 'native_project',
+      })
+      .onConflictDoUpdate({
+        target: projects.id,
+        set: {
+          name: p.hs_name ?? 'Project ' + proj.id,
+          status: pipelineStageToStatus(p.hs_pipeline_stage),
+          targetCompletion: p.hs_target_due_date ?? null,
+          value: num(p.hs_total_cost),
+          updatedAt: new Date(),
+        },
+      });
+    return { ok: true, message: 'Synced project ' + projectId };
+  } catch (err) {
+    return { ok: false, message: describeError(err) };
+  }
+}
+
+/** Pull and upsert a single Contact record. */
+export async function syncContact(contactId: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const c = await getContact(contactId);
+    await db
+      .insert(customers)
+      .values({
+        id: customerIdForContact(c.id),
+        name: safeName(c),
+        address: safeAddress(c),
+        phone: c.properties.phone ?? '',
+        hubspotId: c.id,
+      })
+      .onConflictDoUpdate({
+        target: customers.id,
+        set: {
+          name: safeName(c),
+          address: safeAddress(c),
+          phone: c.properties.phone ?? '',
+          updatedAt: new Date(),
+        },
+      });
+    return { ok: true, message: 'Synced contact ' + contactId };
+  } catch (err) {
+    return { ok: false, message: describeError(err) };
+  }
+}
+
+/** Pull and reconcile a single legacy Installation. */
+export async function syncInstallation(installationId: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const inst = await getInstallation(installationId);
+    const relProj = inst.properties.related_project_id ?? null;
+    if (relProj) {
+      // If the live project exists in our DB, prefer it. The presence of the
+      // live row is the cue to drop the legacy stub.
+      const live = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.hubspotProjectId, relProj))
+        .limit(1);
+      if (live.length) return { ok: true, message: 'Legacy install ' + installationId + ' superseded' };
+    }
+    const legacyId = projectIdForLegacyInstallation(inst.id);
+    const standInCustomerId = 'hs-legacy-cust-' + inst.id;
+    await db
+      .insert(customers)
+      .values({
+        id: standInCustomerId,
+        name: 'Legacy install ' + inst.id,
+        address: '',
+        phone: '',
+      })
+      .onConflictDoNothing({ target: customers.id });
+    await db
+      .insert(projects)
+      .values({
+        id: legacyId,
+        customerId: standInCustomerId,
+        name: 'Legacy install ' + inst.id,
+        type: 'Retrofit',
+        status: 'complete',
+        source: 'legacy_installation',
+      })
+      .onConflictDoUpdate({
+        target: projects.id,
+        set: { status: 'complete', updatedAt: new Date() },
+      });
+    return { ok: true, message: 'Synced installation ' + installationId };
+  } catch (err) {
+    return { ok: false, message: describeError(err) };
+  }
+}
+
+/**
+ * Triggered by deal.propertyChange when a deal reaches Closed Won. If no
+ * project already exists for the deal's contact, kicks off a full pull so the
+ * project lands in our DB.
+ */
+export async function syncDealClosedWon(dealId: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const contactIds = await getDealContactIds(dealId);
+    if (!contactIds.length) return { ok: false, message: 'Deal ' + dealId + ' has no contacts' };
+    const customerId = customerIdForContact(contactIds[0]);
+    const existing = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.customerId, customerId))
+      .limit(1);
+    if (existing.length) {
+      return { ok: true, message: 'Deal ' + dealId + ' already has a project; no-op' };
+    }
+    // No existing project — kick off a full sync. Cheaper than constructing
+    // a project record by hand because the native Project record probably
+    // exists in HubSpot already and our sync logic already handles it.
+    const r = await syncFromHubspot();
+    return { ok: r.ok, message: 'Triggered full sync from deal ' + dealId };
+  } catch (err) {
+    return { ok: false, message: describeError(err) };
+  }
+}
+
+// ---------- Push: FSM Job → HubSpot Job custom object -----------------------
 
 export interface PushJobResult {
   ok: boolean;
   jobId: string;
-  hubspotRecordId?: string;
+  hubspotObjectId?: string;
   message: string;
   raw?: HubspotJob;
 }
 
-export async function pushJobToHubspot(job: Job): Promise<PushJobResult> {
-  if (!isHubspotConnected()) {
-    return { ok: false, jobId: job.id, message: 'HubSpot not connected (no VITE_HUBSPOT_TOKEN).' };
+export async function pushJobToHubspot(fsmJobId: string): Promise<PushJobResult> {
+  if (!isHubspotConfigured()) {
+    return { ok: false, jobId: fsmJobId, message: 'HubSpot not configured (no HUBSPOT_TOKEN).' };
   }
+
+  // Load the job + slots from Postgres.
+  const row = (
+    await db.select().from(jobsTable).where(eq(jobsTable.id, fsmJobId)).limit(1)
+  )[0];
+  if (!row) return { ok: false, jobId: fsmJobId, message: 'Job not found' };
+
+  const slotRows = await db
+    .select()
+    .from(jobSlots)
+    .where(eq(jobSlots.jobId, fsmJobId));
+
+  const job: Job = {
+    id: row.id,
+    type: row.type,
+    status: row.status,
+    customer: row.customerId,
+    date: row.date,
+    startHour: row.startHour !== null ? Number(row.startHour) : null,
+    durationHrs: Number(row.durationHrs ?? 0),
+    crewId: row.crewId,
+    extraCrewIds: [],
+    truckId: row.truckId,
+    slots: slotRows.map((s) => ({
+      id: s.id,
+      role: s.role,
+      level: s.level,
+      hours: Number(s.hours),
+      start: Number(s.startOffsetHours ?? 0),
+      optional: s.optional,
+      assignedTo: s.assignedTo,
+      suggested: s.suggested,
+    })),
+    notes: row.notes,
+    address: row.address,
+    hubspotDealId: row.hubspotDealId,
+    driveTimeMin: row.driveTimeMin,
+    projectId: row.projectId,
+  };
+
   try {
-    const result = await createOrUpdateJobRecord(job);
+    const baseUrl = process.env.NEXTAUTH_URL ?? 'https://autoschedule2.vercel.app';
+    const jobUrl = baseUrl.replace(/\/$/, '') + '/jobs/' + encodeURIComponent(job.id);
+    const result = await createOrUpdateJob(job, {
+      jobUrl,
+      existingHubspotId: row.hubspotJobObjectId,
+    });
+    // Persist the HubSpot record id.
+    if (result.id && result.id !== row.hubspotJobObjectId) {
+      await db
+        .update(jobsTable)
+        .set({ hubspotJobObjectId: result.id, updatedAt: new Date() })
+        .where(eq(jobsTable.id, fsmJobId));
+    }
     return {
       ok: true,
-      jobId: job.id,
-      hubspotRecordId: result.id,
-      message: 'Pushed Job to HubSpot' + (result.id ? ' (record ' + result.id + ')' : '') + '.',
+      jobId: fsmJobId,
+      hubspotObjectId: result.id,
+      message: 'Pushed job to HubSpot (record ' + (result.id ?? 'n/a') + ').',
       raw: result,
     };
   } catch (err) {
-    return { ok: false, jobId: job.id, message: describeError(err) };
+    return { ok: false, jobId: fsmJobId, message: describeError(err) };
   }
 }
 
-// ---------- Mappers (HubSpot → FSM) -----------------------------------------
+// ---------- Push: FSM Project lifecycle → HubSpot Project -------------------
 
-function toCustomer(c: HubspotContact): Customer {
-  const p = c.properties;
-  const first = p.firstname ?? '';
-  const last = p.lastname ?? '';
-  const fullName = (first + ' ' + last).trim() || p.email || ('Contact ' + c.id);
-  const addressParts = [p.address, p.city, p.state, p.zip].filter(Boolean) as string[];
-  return {
-    id: 'hs-c-' + c.id,
-    name: fullName,
-    address: addressParts.join(', '),
-    phone: p.phone ?? '',
-    hubspot: c.id,
-  };
+export interface PushProjectResult {
+  ok: boolean;
+  projectId: string;
+  hubspotObjectId?: string;
+  message: string;
 }
 
-function toProject(d: HubspotDeal): Project {
-  const p = d.properties;
-  return {
-    id: 'hs-d-' + d.id,
-    customer: '', // wired up later in the seed→sync merge layer
-    name: p.dealname ?? ('Deal ' + d.id),
-    type: p.project_type ?? 'Retrofit',
-    status: dealStageToStatus(p.dealstage),
-    soldDate: p.closedate ?? null,
-    targetCompletion: p.install_end_date ?? null,
-    value: p.amount ? Number(p.amount) : null,
-    hubspotDealId: d.id,
-    primaryCrew: null,
-    description: p.scheduling_instructions ?? undefined,
-    designNotes: p.installation_notes ?? undefined,
-  };
-}
-
-function dealStageToStatus(stage: string | null | undefined): Project['status'] {
-  if (!stage) return 'sold';
-  if (stage === 'closedwon' || stage === '1108691004') return 'sold';
-  if (stage === '1183937358') return 'cancelled';
-  if (stage === 'closedlost' || stage === '1353452390') return 'cancelled';
-  return 'proposed';
-}
-
-function toRegions(records: HubspotServiceArea[]): Region[] {
-  // Group SAs by country into a single region; each SA becomes a sub.
-  const byCountry = new Map<string, SubRegion[]>();
-  for (const r of records) {
-    const props = r.properties;
-    const country = (props.countries || 'United States').split(';')[0].trim();
-    if (!byCountry.has(country)) byCountry.set(country, []);
-    byCountry.get(country)!.push({
-      id: r.id,
-      name: props.name ?? ('Service area ' + r.id),
-      headcount: 0,
-      crews: 0,
-    });
+/**
+ * Push our project's status updates back to the HubSpot Project record.
+ * Writes:
+ *  - installation_date_formatted (computed from earliest scheduled job date)
+ *  - field_work_completed (true iff every linked job is `complete`)
+ *  - ready_to_close + close_out_notes
+ *  - hs_pipeline_stage = `completed` when all jobs are complete
+ *  - hs_close_date = today when transitioning to completed
+ */
+export async function pushProjectToHubspot(fsmProjectId: string): Promise<PushProjectResult> {
+  if (!isHubspotConfigured()) {
+    return { ok: false, projectId: fsmProjectId, message: 'HubSpot not configured (no HUBSPOT_TOKEN).' };
   }
-  const result: Region[] = [];
-  let i = 0;
-  for (const [country, subs] of byCountry) {
-    i += 1;
-    result.push({
-      id: 'reg-' + i,
-      name: country,
-      short: country.slice(0, 2).toUpperCase(),
-      subs,
-    });
+  const row = (
+    await db.select().from(projects).where(eq(projects.id, fsmProjectId)).limit(1)
+  )[0];
+  if (!row) return { ok: false, projectId: fsmProjectId, message: 'Project not found' };
+  if (!row.hubspotProjectId) {
+    return {
+      ok: false,
+      projectId: fsmProjectId,
+      message: 'Project ' + fsmProjectId + ' is not linked to a HubSpot Project record',
+    };
   }
-  return result;
+
+  // Gather child jobs to compute lifecycle flags.
+  const childJobs = await db
+    .select({ status: jobsTable.status, date: jobsTable.date })
+    .from(jobsTable)
+    .where(eq(jobsTable.projectId, fsmProjectId));
+
+  const total = childJobs.length;
+  const allComplete = total > 0 && childJobs.every((j) => j.status === 'complete');
+  const earliestDate = childJobs
+    .map((j) => j.date)
+    .filter((d): d is string => Boolean(d))
+    .sort()[0];
+
+  const patch: Record<string, string | number | boolean | null> = {};
+  if (earliestDate) patch.installation_date_formatted = earliestDate;
+  patch.field_work_completed = allComplete;
+  patch.ready_to_close = allComplete;
+  if (row.description) patch.close_out_notes = row.description;
+  if (allComplete) {
+    patch.hs_pipeline_stage = 'completed';
+    patch.hs_close_date = new Date().toISOString().slice(0, 10);
+  }
+
+  try {
+    const result = await updateProject(row.hubspotProjectId, patch);
+    return {
+      ok: true,
+      projectId: fsmProjectId,
+      hubspotObjectId: result.id,
+      message: 'Pushed project lifecycle to HubSpot Project ' + row.hubspotProjectId,
+    };
+  } catch (err) {
+    return { ok: false, projectId: fsmProjectId, message: describeError(err) };
+  }
 }
 
-function describeError(err: unknown): string {
-  if (err instanceof HubspotConfigError) return err.message;
-  if (err instanceof HubspotApiError) return 'HubSpot ' + err.status + (err.category ? ' [' + err.category + ']' : '') + ': ' + err.message;
-  if (err instanceof Error) return err.message;
-  return 'Unknown error';
+// ---------- Outbox draining -------------------------------------------------
+
+/** Drain a single outbox row by id. Called by the Supabase Database webhook. */
+export async function drainOutboxRow(rowId: string): Promise<{ ok: boolean; message: string }> {
+  const row = (await db.select().from(outbox).where(eq(outbox.id, rowId)).limit(1))[0];
+  if (!row) return { ok: false, message: 'Outbox row not found' };
+  if (row.deliveredAt) return { ok: true, message: 'Already delivered' };
+
+  try {
+    const payload = row.payloadJson as { jobId?: string; projectId?: string } | null;
+    if (row.topic === 'jobs.updated') {
+      const jobId = payload?.jobId;
+      if (!jobId) throw new Error('jobs.updated payload missing jobId');
+      const r = await pushJobToHubspot(jobId);
+      if (!r.ok) throw new Error(r.message);
+    } else if (row.topic === 'projects.updated') {
+      const projectId = payload?.projectId;
+      if (!projectId) throw new Error('projects.updated payload missing projectId');
+      const r = await pushProjectToHubspot(projectId);
+      if (!r.ok) throw new Error(r.message);
+    } else {
+      // Unknown topic — mark delivered so we don't retry forever.
+    }
+    await db
+      .update(outbox)
+      .set({ deliveredAt: new Date(), attempts: (row.attempts ?? 0) + 1 })
+      .where(eq(outbox.id, rowId));
+    return { ok: true, message: 'Delivered ' + row.topic };
+  } catch (err) {
+    await db
+      .update(outbox)
+      .set({ attempts: (row.attempts ?? 0) + 1 })
+      .where(eq(outbox.id, rowId));
+    return { ok: false, message: describeError(err) };
+  }
+}
+
+/**
+ * Drain every undelivered outbox row in order. Used by the cron entry as a
+ * safety net in case the Database Webhook missed an insert.
+ */
+export async function drainOutbox(): Promise<{ delivered: number; failed: number }> {
+  const pending = await db
+    .select({ id: outbox.id })
+    .from(outbox)
+    .where(and(isNull(outbox.deliveredAt), sql`${outbox.attempts} < 10`))
+    .limit(200);
+  let delivered = 0;
+  let failed = 0;
+  for (const p of pending) {
+    const r = await drainOutboxRow(p.id);
+    if (r.ok) delivered += 1;
+    else failed += 1;
+  }
+  return { delivered, failed };
 }

@@ -1,14 +1,34 @@
 // =============================================================
-// /v1/hubspot/* — sync + push surface. Phase 13 fleshes out the
-// handler bodies; the OpenAPI surface lands here so the generated
-// client + UI can target the final shape.
+// /v1/hubspot/* — sync + push surface (Phase 13).
+//
+// Routes:
+//   POST /hubspot/sync                  — full pull from HubSpot
+//   POST /hubspot/push-job/{id}         — push one FSM job
+//   POST /hubspot/push-project/{id}     — push one FSM project lifecycle
+//   GET  /hubspot/mapping               — read field maps
+//   PUT  /hubspot/mapping/{entity}      — replace field map for an entity
+//
+// All HubSpot errors are caught and converted to RFC 7807 via
+// the global error handler. A missing HUBSPOT_TOKEN surfaces as
+// HTTP 503 with a clear hint.
 // =============================================================
 import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
 import { hubspotMappings } from '@/db/schema';
+import {
+  HubspotApiError,
+  HubspotConfigError,
+  isHubspotConfigured,
+} from '@/integrations/hubspot/client';
+import {
+  pushJobToHubspot,
+  pushProjectToHubspot,
+  syncFromHubspot,
+} from '@/integrations/hubspot/sync';
 
+import { ApiError } from '../middleware/error';
 import { ProblemResponses, jsonContent, z } from '../schemas/common';
 import {
   HubspotEntityMappingSchema,
@@ -23,7 +43,7 @@ const syncRoute = createRoute({
   method: 'post',
   path: '/hubspot/sync',
   tags: ['hubspot'],
-  summary: 'Pull HubSpot contacts/projects/deals into our DB (Phase 13)',
+  summary: 'Pull HubSpot service areas, contacts, projects, deals, and legacy installations into our DB.',
   responses: {
     200: jsonContent(HubspotSyncResultSchema, 'Sync result'),
     ...ProblemResponses,
@@ -34,7 +54,7 @@ const pushJobRoute = createRoute({
   method: 'post',
   path: '/hubspot/push-job/{id}',
   tags: ['hubspot'],
-  summary: 'Push one job to the HubSpot Job custom object (Phase 13)',
+  summary: 'Push one job to the HubSpot Job custom object.',
   request: {
     params: z.object({
       id: z.string().openapi({ param: { name: 'id', in: 'path' } }),
@@ -50,7 +70,7 @@ const pushProjectRoute = createRoute({
   method: 'post',
   path: '/hubspot/push-project/{id}',
   tags: ['hubspot'],
-  summary: 'Push one project lifecycle update to HubSpot (Phase 13)',
+  summary: 'Push one project lifecycle update to the HubSpot Project record.',
   request: {
     params: z.object({
       id: z.string().openapi({ param: { name: 'id', in: 'path' } }),
@@ -88,36 +108,114 @@ const putMappingRoute = createRoute({
   },
 });
 
+function translateHubspotError(err: unknown): never {
+  if (err instanceof HubspotConfigError) {
+    throw new ApiError({
+      status: 503,
+      title: 'HubSpot not configured',
+      detail: err.message,
+      type: 'about:blank',
+    });
+  }
+  if (err instanceof HubspotApiError) {
+    // 401 from HubSpot → 502; 4xx from upstream → 502; 5xx → 502.
+    throw new ApiError({
+      status: 502,
+      title: 'HubSpot upstream error',
+      detail: 'HubSpot ' + err.status + ': ' + err.message,
+      type: 'about:blank',
+    });
+  }
+  if (err instanceof Error) {
+    throw new ApiError({
+      status: 500,
+      title: 'Internal Server Error',
+      detail: err.message,
+    });
+  }
+  throw new ApiError({ status: 500, title: 'Internal Server Error', detail: 'Unknown error' });
+}
+
 export function registerHubspotRoutes(app: OpenAPIHono<ApiEnv>): void {
-  app.openapi(syncRoute, (c) => {
-    // TODO Phase 13: actual sync flow.
-    const now = new Date().toISOString();
-    return c.json(
-      {
-        ok: true,
-        contacts: 0,
-        deals: 0,
-        projects: 0,
-        serviceAreas: 0,
-        installations: 0,
-        startedAt: now,
-        finishedAt: now,
-        errors: [],
-      },
-      200,
-    );
+  app.openapi(syncRoute, async (c) => {
+    if (!isHubspotConfigured()) {
+      // Surface a 503 so the UI can render "Disconnected".
+      throw new ApiError({
+        status: 503,
+        title: 'HubSpot not configured',
+        detail: 'Set HUBSPOT_TOKEN in the server environment to enable sync.',
+      });
+    }
+    try {
+      const result = await syncFromHubspot();
+      // Map our richer SyncResult onto the published OpenAPI shape.
+      return c.json(
+        {
+          ok: result.ok,
+          contacts: result.counts.customers,
+          deals: result.counts.deals,
+          projects: result.counts.projects,
+          serviceAreas: result.counts.serviceAreas,
+          installations: result.counts.legacyInstallations,
+          startedAt: result.startedAt,
+          finishedAt: result.finishedAt,
+          errors: [...result.errors, ...result.notes],
+        },
+        200,
+      );
+    } catch (err) {
+      translateHubspotError(err);
+    }
   });
 
-  app.openapi(pushJobRoute, (c) => {
-    // TODO Phase 13: push to HubSpot Job custom object.
+  app.openapi(pushJobRoute, async (c) => {
     const { id } = c.req.valid('param');
-    return c.json({ ok: true, message: `stub: would push job ${id}` }, 200);
+    try {
+      const result = await pushJobToHubspot(id);
+      if (!result.ok) {
+        throw new ApiError({
+          status: result.message.includes('not found') ? 404 : 502,
+          title: 'HubSpot push failed',
+          detail: result.message,
+        });
+      }
+      return c.json(
+        {
+          ok: true,
+          message: result.message,
+          hubspotObjectId: result.hubspotObjectId,
+        },
+        200,
+      );
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      translateHubspotError(err);
+    }
   });
 
-  app.openapi(pushProjectRoute, (c) => {
-    // TODO Phase 13: push project lifecycle update.
+  app.openapi(pushProjectRoute, async (c) => {
     const { id } = c.req.valid('param');
-    return c.json({ ok: true, message: `stub: would push project ${id}` }, 200);
+    try {
+      const result = await pushProjectToHubspot(id);
+      if (!result.ok) {
+        throw new ApiError({
+          status: result.message.includes('not found') ? 404 : 502,
+          title: 'HubSpot push failed',
+          detail: result.message,
+        });
+      }
+      return c.json(
+        {
+          ok: true,
+          message: result.message,
+          hubspotObjectId: result.hubspotObjectId,
+        },
+        200,
+      );
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      translateHubspotError(err);
+    }
   });
 
   app.openapi(getMappingRoute, async (c) => {
@@ -142,8 +240,7 @@ export function registerHubspotRoutes(app: OpenAPIHono<ApiEnv>): void {
   app.openapi(putMappingRoute, async (c) => {
     const { entity } = c.req.valid('param');
     const { fields } = c.req.valid('json');
-    // Replace strategy: delete-then-insert for this entity. Phase 13 may
-    // promote this to an upsert with versioning if needed.
+    // Replace strategy: delete-then-insert for this entity.
     await db.delete(hubspotMappings).where(eq(hubspotMappings.entity, entity));
     if (fields.length) {
       await db.insert(hubspotMappings).values(
@@ -157,7 +254,4 @@ export function registerHubspotRoutes(app: OpenAPIHono<ApiEnv>): void {
     }
     return c.json({ entity, fields }, 200);
   });
-
-  // suppress unused-imports lint
-  void and;
 }
