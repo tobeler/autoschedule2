@@ -1,0 +1,368 @@
+// =============================================================
+// WeekCalendar — Mon–Fri grid × rows (crew / truck / tech).
+//
+// Weekday-only (the prototype intentionally skips weekends).
+// Each crew-day cell:
+//   - capacity heatmap overlay via lib/capacity.ts (counts primary + loan hours)
+//   - inline job cards (compact JobBlock-flavored, no resize)
+//   - loan blocks on crew rows when one of the crew's techs is staffed
+//     into another crew's job
+// =============================================================
+import { Fragment } from 'react';
+import type { Crew, Job, JobSlot, Person, Truck } from '../../types';
+import { Icon } from '../../components/Icon';
+import { ROLES } from '../../data/seed';
+import {
+  addDays,
+  dateKey,
+  fmtTime,
+  hoursToStr,
+  TODAY,
+} from '../../data/helpers';
+import { getCrew, getCustomer, getJobType, getPerson } from '../../data/selectors';
+import { useStore } from '../../store';
+
+type GroupKind = 'crew' | 'truck' | 'tech';
+
+interface WeekCalendarProps {
+  startDate: Date;
+  groupBy: GroupKind;
+  jobs: Job[];
+  onJobClick: (job: Job) => void;
+}
+
+type RowKind = 'crew' | 'truck' | 'tech';
+interface WeekRow {
+  id: string;
+  name: string;
+  color: string;
+  meta: string;
+  kind: RowKind;
+}
+
+interface LoanBlock {
+  job: Job;
+  slot: JobSlot;
+  person: Person;
+}
+
+type HeatLevel = 'low' | 'med' | 'high' | 'full' | 'over';
+
+function bucketForHours(hours: number, dailyCap: number): HeatLevel | null {
+  if (hours === 0) return null;
+  const pct = hours / dailyCap;
+  if (pct < 0.25) return 'low';
+  if (pct < 0.5) return 'med';
+  if (pct < 0.85) return 'high';
+  if (pct <= 1) return 'full';
+  return 'over';
+}
+
+export function WeekCalendar({
+  startDate,
+  groupBy,
+  jobs,
+  onJobClick,
+}: WeekCalendarProps) {
+  const allCrews = useStore((s) => s.crews);
+  const allTrucks = useStore((s) => s.trucks);
+  const allPeople = useStore((s) => s.people);
+  const allCustomers = useStore((s) => s.customers);
+
+  const days = Array.from({ length: 5 }).map((_, i) => addDays(startDate, i));
+  const weekKeys = days.map(dateKey);
+  const todayKey = dateKey(TODAY);
+
+  let rows: WeekRow[];
+  if (groupBy === 'truck') {
+    rows = allTrucks
+      .filter((t) => t.assignedCrew)
+      .map<WeekRow>((t: Truck) => {
+        const crew = getCrew(allCrews, t.assignedCrew);
+        return {
+          id: t.id,
+          name: t.name,
+          color: crew?.color || 'var(--mid-gray)',
+          meta: crew?.name || '',
+          kind: 'truck',
+        };
+      });
+  } else if (groupBy === 'tech') {
+    rows = allPeople
+      .filter((p) =>
+        jobs.some(
+          (j) =>
+            j.date != null &&
+            weekKeys.includes(j.date) &&
+            j.slots.some((s) => s.assignedTo === p.id),
+        ),
+      )
+      .slice()
+      .sort((a, b) =>
+        a.name
+          .split(' ')
+          .slice(-1)[0]
+          .localeCompare(b.name.split(' ').slice(-1)[0]),
+      )
+      .map<WeekRow>((p: Person) => ({
+        id: p.id,
+        name: p.name,
+        color: getCrew(allCrews, p.defaultCrew)?.color || 'var(--mid-gray)',
+        meta: (ROLES[p.roles[0]]?.label || p.roles[0]) + ' · ' + p.level,
+        kind: 'tech',
+      }));
+  } else {
+    rows = allCrews.map<WeekRow>((c: Crew) => ({
+      id: c.id,
+      name: c.name,
+      color: c.color,
+      meta: c.type,
+      kind: 'crew',
+    }));
+  }
+
+  return (
+    <div className="calendar-wrap" style={{ padding: 12, overflow: 'auto' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '180px repeat(5, 1fr)',
+          gap: 1,
+          background: 'var(--border)',
+          borderRadius: 12,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            background: 'var(--surface-card)',
+            padding: '10px 14px',
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            color: 'var(--fg-muted)',
+          }}
+        >
+          {groupBy === 'truck' ? 'Truck' : groupBy === 'tech' ? 'Technician' : 'Crew'}
+        </div>
+        {days.map((d) => {
+          const isToday = dateKey(d) === todayKey;
+          return (
+            <div
+              key={dateKey(d)}
+              style={{ background: 'var(--surface-card)', padding: '10px 12px' }}
+            >
+              <div
+                className="eyebrow-sm"
+                style={{
+                  color: isToday ? 'var(--jetson-green)' : 'var(--fg-muted)',
+                }}
+              >
+                {d.toLocaleDateString('en-US', { weekday: 'short' })}
+              </div>
+              <div
+                className="h4"
+                style={{
+                  fontFamily: 'var(--font-subhead)',
+                  fontWeight: 700,
+                  fontSize: 18,
+                }}
+              >
+                {d.getDate()} {d.toLocaleDateString('en-US', { month: 'short' })}
+              </div>
+            </div>
+          );
+        })}
+
+        {rows.map((row) => (
+          <Fragment key={row.id}>
+            <div
+              style={{
+                background: 'var(--surface-card)',
+                padding: '12px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                borderRight: '1px solid var(--border)',
+              }}
+            >
+              <div
+                style={{
+                  width: 4,
+                  height: 28,
+                  borderRadius: 2,
+                  background: row.color,
+                }}
+              />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{row.name}</div>
+                <div className="muted small" style={{ fontSize: 10 }}>
+                  {row.meta}
+                </div>
+              </div>
+            </div>
+            {days.map((d) => {
+              const dk = dateKey(d);
+              const primaryJobs = jobs.filter((j) => {
+                if (j.date !== dk) return false;
+                if (row.kind === 'truck') return j.truckId === row.id;
+                if (row.kind === 'tech')
+                  return j.slots.some((s) => s.assignedTo === row.id);
+                return j.crewId === row.id;
+              });
+              const loanBlocks: LoanBlock[] =
+                row.kind === 'crew'
+                  ? jobs.flatMap((j) => {
+                      if (j.date !== dk) return [];
+                      if (j.crewId === row.id) return [];
+                      const out: LoanBlock[] = [];
+                      j.slots.forEach((s) => {
+                        if (!s.assignedTo) return;
+                        const person = getPerson(allPeople, s.assignedTo);
+                        if (!person) return;
+                        if (person.defaultCrew !== row.id) return;
+                        out.push({ job: j, slot: s, person });
+                      });
+                      return out;
+                    })
+                  : [];
+
+              const primaryHours = primaryJobs.reduce(
+                (a, j) => a + (j.durationHrs || 0),
+                0,
+              );
+              const loanHours = loanBlocks.reduce((a, b) => a + b.slot.hours, 0);
+              const hoursBooked = primaryHours + loanHours;
+              const level = bucketForHours(hoursBooked, 8);
+              const pct = hoursBooked / 8;
+
+              return (
+                <div
+                  key={dk + row.id}
+                  style={{
+                    background: 'var(--surface-card)',
+                    padding: 6,
+                    minHeight: 96,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                    position: 'relative',
+                  }}
+                >
+                  {level && (
+                    <>
+                      <div className="heat-overlay" data-level={level} />
+                      <div className="heat-label">{Math.round(pct * 100)}%</div>
+                    </>
+                  )}
+                  {primaryJobs.map((j) => {
+                    const c = getCustomer(allCustomers, j.customer);
+                    const jt = getJobType(j.type);
+                    return (
+                      <div
+                        key={j.id}
+                        className={'job-block ' + (jt?.color || '')}
+                        style={{
+                          position: 'relative',
+                          zIndex: 1,
+                          height: 'auto',
+                          minHeight: 0,
+                          padding: '5px 8px',
+                        }}
+                        onClick={() => onJobClick(j)}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            opacity: 0.8,
+                          }}
+                        >
+                          {j.startHour != null
+                            ? fmtTime(j.startHour) + ' · ' + hoursToStr(j.durationHrs)
+                            : hoursToStr(j.durationHrs)}
+                        </div>
+                        <div
+                          style={{
+                            fontWeight: 700,
+                            fontSize: 12,
+                            lineHeight: 1.1,
+                          }}
+                        >
+                          {c
+                            ? c.name
+                            : j.address?.split('·')[0].trim() || 'Untitled'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {loanBlocks.map(({ job: j, slot: s, person }, i) => {
+                    const homeCrew = getCrew(allCrews, j.crewId);
+                    const startH = (j.startHour || 0) + (s.start || 0);
+                    return (
+                      <div
+                        key={'loan-' + j.id + '-' + i}
+                        className="job-loan-block"
+                        title={
+                          person.name +
+                          ' loaned to ' +
+                          (homeCrew?.name || 'another crew') +
+                          ' for ' +
+                          j.id
+                        }
+                        onClick={() => onJobClick(j)}
+                      >
+                        <div
+                          className="job-loan-stripe"
+                          style={{
+                            background: homeCrew?.color || 'var(--mid-gray)',
+                          }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="job-loan-head">
+                            <Icon name="refresh" size={9} /> LOAN ·{' '}
+                            {ROLES[s.role]?.short || s.role}
+                          </div>
+                          <div className="job-loan-time">
+                            {fmtTime(startH)}–{fmtTime(startH + s.hours)} ·{' '}
+                            {hoursToStr(s.hours)}
+                          </div>
+                          <div className="job-loan-host">
+                            @ {homeCrew?.name || '—'}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {primaryJobs.length === 0 && loanBlocks.length === 0 && (
+                    <div
+                      style={{
+                        height: '100%',
+                        minHeight: 60,
+                        border: '1px dashed var(--border)',
+                        borderRadius: 6,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--mid-gray)',
+                        fontSize: 10,
+                        position: 'relative',
+                        zIndex: 1,
+                      }}
+                    >
+                      —
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}

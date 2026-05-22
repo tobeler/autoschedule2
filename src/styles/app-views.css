@@ -1495,3 +1495,179 @@
 .builder-field-row .select { padding: 5px 8px; font-size: 12px; }
 .builder-field-row .input { padding: 5px 10px; font-size: 13px; }
 .builder-field-row.options-row { padding: 8px 28px; background: transparent; border: 0; }
+
+/* ============= PHASE 4: CAPACITY HEATMAP OVERLAY ============= */
+.heat-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 0;
+}
+.heat-overlay[data-level="low"]    { background: rgba(60,213,103,0.06); }
+.heat-overlay[data-level="med"]    { background: rgba(60,213,103,0.16); }
+.heat-overlay[data-level="high"]   { background: rgba(255,182,39,0.18); }
+.heat-overlay[data-level="full"]   { background: rgba(255,182,39,0.32); }
+.heat-overlay[data-level="over"]   {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(197,48,48,0.20),
+    rgba(197,48,48,0.20) 6px,
+    rgba(197,48,48,0.30) 6px,
+    rgba(197,48,48,0.30) 12px
+  );
+}
+.heat-label {
+  position: absolute;
+  bottom: 4px; right: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--fg-muted);
+  background: var(--surface-card);
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ============= PHASE 4: KANBAN DRAG ============= */
+.kanban-col.drop-active {
+  outline: 2px dashed var(--jetson-green);
+  outline-offset: -4px;
+}
+.kanban-card.selected {
+  border-color: var(--jetson-green);
+  box-shadow: 0 0 0 2px rgba(60,213,103,0.18);
+}
+
+/* ============= PHASE 4: MAP VIEW ============= */
+.map-view {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  min-height: 0;
+}
+.map-canvas {
+  position: relative;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(60,213,103,0.08) 0%, transparent 50%),
+    radial-gradient(circle at 70% 70%, rgba(79,179,232,0.08) 0%, transparent 50%),
+    linear-gradient(180deg, #EDEAD9 0%, #F2F0E4 100%);
+  overflow: hidden;
+}
+.map-canvas::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(15,31,13,0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15,31,13,0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.map-canvas::after {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(110deg, transparent 48%, rgba(15,31,13,0.08) 48.5%, rgba(15,31,13,0.08) 50%, transparent 50.5%),
+    linear-gradient(20deg,  transparent 30%, rgba(15,31,13,0.06) 30.5%, rgba(15,31,13,0.06) 31.5%, transparent 32%),
+    linear-gradient(80deg,  transparent 65%, rgba(15,31,13,0.06) 65.4%, rgba(15,31,13,0.06) 66.2%, transparent 66.5%),
+    linear-gradient(160deg, transparent 75%, rgba(15,31,13,0.05) 75.5%, rgba(15,31,13,0.05) 76%, transparent 76.5%);
+}
+.map-pin-large {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  cursor: pointer;
+  z-index: 2;
+}
+.map-pin-large .pin-body {
+  width: 44px; height: 44px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-md);
+  position: relative;
+}
+.map-pin-large .pin-body > * { transform: rotate(45deg); font-weight: 800; font-size: 14px; }
+.map-pin-large .pin-label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--forest);
+  color: var(--off-white);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  margin-top: 4px;
+}
+.map-route-svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  width: 100%; height: 100%;
+}
+.map-route-svg path {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.map-route-svg .route-shadow { stroke: rgba(15,31,13,0.15); stroke-width: 5; }
+.map-overlay {
+  position: absolute;
+  top: 16px; left: 16px;
+  background: var(--surface-card);
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: var(--shadow-md);
+  display: flex; gap: 16px;
+  z-index: 3;
+}
+.map-side {
+  border-left: 1px solid var(--border);
+  background: var(--surface-card);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.route-list-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.route-list {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+}
+.route-stop {
+  display: flex;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background var(--dur-fast);
+  position: relative;
+}
+.route-stop:hover { background: var(--bg-subtle); }
+.route-stop.active { background: var(--bg-subtle); border: 1px solid var(--border-strong); }
+.route-stop-num {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 12px;
+  color: var(--off-white);
+  flex-shrink: 0;
+  border: 2px solid var(--surface-card);
+}
+.route-stop-time { font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); }
+.route-stop-name { font-weight: 700; font-size: 13px; }
+.route-stop-meta { font-size: 11px; color: var(--fg-muted); }
+.route-connector {
+  margin-left: 22px;
+  padding: 6px 0 6px 24px;
+  border-left: 2px dashed var(--border);
+  font-size: 11px;
+  color: var(--fg-muted);
+  display: flex; align-items: center; gap: 6px;
+}

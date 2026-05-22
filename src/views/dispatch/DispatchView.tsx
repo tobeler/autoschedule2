@@ -1,14 +1,13 @@
 // =============================================================
 // DispatchView — top-level dispatch tab.
 //
-// Phase 2 ships the Day calendar end-to-end. Week / Month / Kanban /
-// Gantt / Map are handled by the Phase 4 agent — DispatchView renders a
-// placeholder for those combinations so the toolbar still works.
+// Day calendar (Phase 2) plus Week / Month / Kanban / Gantt / Map
+// views (Phase 4). The toolbar drives range × layout × groupBy ×
+// density × type filter; we route to the right child below.
 // =============================================================
 import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
-import { EmptyState } from '../../components/EmptyState';
-import { addDays, dateKey, TODAY } from '../../data/helpers';
+import { addDays, dateKey, startOfWeek, TODAY } from '../../data/helpers';
 import { unscheduledJobs } from '../../data/selectors';
 import { Icon } from '../../components/Icon';
 
@@ -23,6 +22,11 @@ import {
 import { AttentionCTA } from './AttentionCTA';
 import { UnscheduledRail } from './UnscheduledRail';
 import { DayCalendar } from './DayCalendar';
+import { WeekCalendar } from './WeekCalendar';
+import { MonthCalendar } from './MonthCalendar';
+import { KanbanBoard } from './KanbanBoard';
+import { GanttChart } from './GanttChart';
+import { MapView } from './MapView';
 
 export function DispatchView() {
   const jobs = useStore((s) => s.jobs);
@@ -110,19 +114,18 @@ export function DispatchView() {
             flexDirection: 'column',
           }}
         >
-          {dayMode ? (
-            <DayCalendar
-              date={date}
-              dateKeyStr={dateKey(date)}
-              jobs={visibleJobs}
-              groupBy={groupBy}
-              density={density}
-              selectedJobId={selectedJobId}
-              onJobClick={(j) => selectJob(j.id)}
-            />
-          ) : (
-            <Phase4Stub layout={layout} range={range} />
-          )}
+          {renderContent({
+            range,
+            layout,
+            date,
+            visibleJobs,
+            allJobs: jobs,
+            unsched,
+            groupBy,
+            density,
+            selectedJobId,
+            onJobClick: (j) => selectJob(j.id),
+          })}
         </div>
       </div>
 
@@ -140,24 +143,94 @@ export function DispatchView() {
   );
 }
 
-function Phase4Stub({ layout, range }: { layout: LayoutKind; range: RangeKind }) {
-  const label =
-    layout === 'calendar'
-      ? range === 'week'
-        ? 'Week calendar'
-        : 'Month calendar'
-      : layout === 'kanban'
-      ? 'Kanban board'
-      : layout === 'gantt'
-      ? 'Gantt chart'
-      : 'Map view';
-  return (
-    <div className="view-stub" style={{ flex: 1, overflow: 'auto' }}>
-      <EmptyState
-        icon="sparkle"
-        title={label + ' — building Phase 4'}
-        body="Capacity heatmap, multi-day bars, kanban columns, route map. Day view is fully wired — switch back to Day · Calendar to schedule jobs."
+// Route the (range, layout) tuple to the right view component.
+interface RenderArgs {
+  range: RangeKind;
+  layout: LayoutKind;
+  date: Date;
+  visibleJobs: import('../../types').Job[];
+  allJobs: import('../../types').Job[];
+  unsched: import('../../types').Job[];
+  groupBy: GroupKind;
+  density: Density;
+  selectedJobId: string | null;
+  onJobClick: (j: import('../../types').Job) => void;
+}
+
+function renderContent({
+  range,
+  layout,
+  date,
+  visibleJobs,
+  allJobs,
+  unsched,
+  groupBy,
+  density,
+  selectedJobId,
+  onJobClick,
+}: RenderArgs) {
+  if (layout === 'kanban') {
+    // Kanban shows scheduled (visible) jobs + the unscheduled rail items.
+    const merged = visibleJobs.concat(
+      unsched.filter((u) => !visibleJobs.some((v) => v.id === u.id)),
+    );
+    return (
+      <KanbanBoard
+        jobs={merged}
+        selectedJobId={selectedJobId}
+        onJobClick={onJobClick}
       />
-    </div>
+    );
+  }
+
+  if (layout === 'gantt') {
+    return (
+      <GanttChart
+        startDate={startOfWeek(date)}
+        groupBy={groupBy}
+        jobs={visibleJobs}
+        onJobClick={onJobClick}
+      />
+    );
+  }
+
+  if (layout === 'map') {
+    return (
+      <MapView date={dateKey(date)} jobs={allJobs} onJobClick={onJobClick} />
+    );
+  }
+
+  // layout === 'calendar'
+  if (range === 'week') {
+    return (
+      <WeekCalendar
+        startDate={startOfWeek(date)}
+        groupBy={groupBy}
+        jobs={visibleJobs}
+        onJobClick={onJobClick}
+      />
+    );
+  }
+  if (range === 'month') {
+    return (
+      <MonthCalendar
+        monthDate={date}
+        jobs={visibleJobs}
+        groupBy={groupBy}
+        onJobClick={onJobClick}
+      />
+    );
+  }
+  // range === 'day'
+  return (
+    <DayCalendar
+      date={date}
+      dateKeyStr={dateKey(date)}
+      jobs={visibleJobs}
+      groupBy={groupBy}
+      density={density}
+      selectedJobId={selectedJobId}
+      onJobClick={onJobClick}
+    />
   );
 }
