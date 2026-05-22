@@ -127,12 +127,17 @@ export function GanttChart({
                 const dayIdx = days.findIndex((d) => dateKey(d) === j.date);
                 if (dayIdx === -1 || j.startHour == null) return null;
                 const left = dayIdx * DAY_W + (j.startHour / 24) * DAY_W;
-                const width = Math.max(40, (j.durationHrs / 24) * DAY_W);
+                const width = Math.max(28, (j.durationHrs / 24) * DAY_W);
                 const jt = getJobType(j.type);
                 const c = getCustomer(allCustomers, j.customer);
                 const bgColor = jt
                   ? 'var(--' + jt.color + '-bg)'
                   : 'var(--bg-subtle)';
+                // Phase 19 fix: short blocks (< 60px) drop the customer
+                // name and only show the job-type tag. Full info on hover.
+                const compact = width < 60;
+                const customerLabel = c ? c.name : j.address?.split('·')[0] || 'Untitled';
+                const title = `${jt?.label ?? j.type} · ${customerLabel} · ${j.durationHrs}h`;
                 return (
                   <div
                     key={j.id}
@@ -142,18 +147,21 @@ export function GanttChart({
                       width: width + 'px',
                       background: bgColor,
                     }}
+                    title={title}
                     onClick={() => onJobClick(j)}
                   >
                     <JobTypeTag type={j.type} />
-                    <span
-                      style={{
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {c ? c.name : j.address?.split('·')[0] || 'Untitled'}
-                    </span>
+                    {!compact && (
+                      <span
+                        style={{
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {customerLabel}
+                      </span>
+                    )}
                   </div>
                 );
               })}

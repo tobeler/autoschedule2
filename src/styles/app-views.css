@@ -2572,3 +2572,30 @@ button.wiz-step:disabled { cursor: default; }
   outline-offset: -2px;
   z-index: 5;
 }
+
+/* Phase 19 fix: collapsed "needs scheduling" banner shown in drawer
+   on non-Overview tabs for unscheduled jobs. */
+.job-schedule-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 32px);
+  margin: 12px 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(60, 213, 103, 0.4);
+  background: rgba(60, 213, 103, 0.08);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--forest);
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.job-schedule-banner:hover { background: rgba(60, 213, 103, 0.14); }
+.job-schedule-banner-cta {
+  margin-left: auto;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

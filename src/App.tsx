@@ -159,15 +159,7 @@ export default function App() {
           </>
         )}
 
-        <div className="sidebar-footer">
-          <Avatar person={{ id: 'me', initials: 'JR', name: 'Jordan Rivera', roles: [], level: 'L2', defaultCrew: '' } as never} />
-          {!sidebarCollapsed && (
-            <div className="sidebar-user">
-              <div>Jordan Rivera</div>
-              <small>Dispatcher · Watertown</small>
-            </div>
-          )}
-        </div>
+        <SidebarUserFooter collapsed={sidebarCollapsed} />
       </aside>
 
       {/* MAIN */}
@@ -221,6 +213,54 @@ export default function App() {
 
       <TweaksPanel />
       <Toast />
+    </div>
+  );
+}
+
+// Phase 19 fix: pull dispatcher name + role from the store so once auth
+// lands the sidebar reflects the real signed-in user. Falls back to the
+// seed dispatcher label in demo mode.
+function SidebarUserFooter({ collapsed }: { collapsed: boolean }) {
+  const name = useStore((s) => s.currentUserName) || 'Jordan Rivera';
+  const role = useStore((s) => s.currentUserRole) || 'dispatcher';
+  const initials = name
+    .split(' ')
+    .map((s) => s[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+  const roleLabel = role.charAt(0).toUpperCase() + role.slice(1);
+  const region = useStore((s) => s.region);
+  const regions = useStore((s) => s.regions);
+  const subLabel = region?.subId
+    ? regions
+        .find((r) => r.id === region.regionId)
+        ?.subs.find((s) => s.id === region.subId)?.name
+    : 'Demo';
+
+  return (
+    <div className="sidebar-footer">
+      <Avatar
+        person={
+          {
+            id: 'me',
+            initials,
+            name,
+            roles: [],
+            level: 'L2',
+            defaultCrew: '',
+          } as never
+        }
+      />
+      {!collapsed && (
+        <div className="sidebar-user">
+          <div>{name}</div>
+          <small>
+            {roleLabel}
+            {subLabel ? ' · ' + subLabel : ''}
+          </small>
+        </div>
+      )}
     </div>
   );
 }

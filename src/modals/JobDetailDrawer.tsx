@@ -401,7 +401,22 @@ export function JobDetailDrawer() {
 
         {/* ===== BODY ===== */}
         <div className="drawer-body">
-          {isUnscheduled && (
+          {/* Phase 19 fix: only show the full Pick-a-crew hero on the
+              Overview tab. When the user clicks another tab we collapse to
+              a thin banner so the tab content gets the full body. */}
+          {isUnscheduled && tab !== 'overview' && (
+            <button
+              type="button"
+              className="job-schedule-banner"
+              onClick={() => setTab('overview')}
+              title="Open scheduling tools"
+            >
+              <Icon name="alert_circle" size={13} stroke="var(--jetson-green)" />
+              <span>This job needs scheduling</span>
+              <span className="job-schedule-banner-cta">Schedule it →</span>
+            </button>
+          )}
+          {isUnscheduled && tab === 'overview' && (
             <UnscheduledHero
               job={job}
               onSchedule={(payload) => {
