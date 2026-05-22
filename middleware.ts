@@ -17,9 +17,17 @@ function isPublic(pathname: string): boolean {
   );
 }
 
+// Demo bypass: when NEXTAUTH_SECRET is unset (auth not yet wired into
+// a real Supabase project) OR DEMO_MODE === 'true', skip the auth gate.
+// This lets us run a demo from a laptop without a real DB.
+const DEMO_BYPASS =
+  !process.env.NEXTAUTH_SECRET || process.env.DEMO_MODE === 'true';
+
 // next-auth v5's `auth()` returns a wrapped request that includes
 // `req.auth` when a valid session cookie is present.
 export default auth((req: NextRequest & { auth: unknown }) => {
+  if (DEMO_BYPASS) return NextResponse.next();
+
   const { pathname, search } = req.nextUrl;
   if (isPublic(pathname)) return NextResponse.next();
   if (req.auth) return NextResponse.next();
