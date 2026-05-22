@@ -22,7 +22,14 @@ export const AuditLogQuerySchema = z
     entityType: z.string().optional(),
     entityId: z.string().optional(),
     actorUserId: z.string().optional(),
+    /** Inclusive lower bound (ISO-8601). Alias for `from`. */
     since: z.string().optional(),
+    /** Inclusive lower bound (ISO-8601). */
+    from: z.string().optional(),
+    /** Inclusive upper bound (ISO-8601). */
+    to: z.string().optional(),
+    /** Opaque cursor — the prior page's last `createdAt`. */
+    cursor: z.string().optional(),
     limit: z.string().optional(),
     offset: z.string().optional(),
   })

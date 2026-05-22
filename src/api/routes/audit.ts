@@ -4,7 +4,7 @@
 // it later.
 // =============================================================
 import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
-import { and, desc, eq, gte } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, lte } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
@@ -18,9 +18,9 @@ const listRoute = createRoute({
   method: 'get',
   path: '/audit-log',
   tags: ['audit'],
-  summary: 'List audit entries (admin-only)',
+  summary: 'List audit entries (admin + manager)',
   request: { query: AuditLogQuerySchema },
-  middleware: requireRole('admin'),
+  middleware: requireRole('admin', 'manager'),
   responses: {
     200: jsonContent(paged(AuditLogRowSchema), 'Audit page'),
     ...ProblemResponses,
@@ -36,7 +36,12 @@ export function registerAuditRoutes(app: OpenAPIHono<ApiEnv>): void {
     if (q.entityType) conds.push(eq(auditLog.entityType, q.entityType));
     if (q.entityId) conds.push(eq(auditLog.entityId, q.entityId));
     if (q.actorUserId) conds.push(eq(auditLog.actorUserId, q.actorUserId));
-    if (q.since) conds.push(gte(auditLog.createdAt, new Date(q.since)));
+    const lowerBound = q.from ?? q.since;
+    if (lowerBound) conds.push(gte(auditLog.createdAt, new Date(lowerBound)));
+    if (q.to) conds.push(lte(auditLog.createdAt, new Date(q.to)));
+    // Cursor is the prior page's last createdAt — strictly older
+    // since we're sorted desc.
+    if (q.cursor) conds.push(lt(auditLog.createdAt, new Date(q.cursor)));
     const query = db.select().from(auditLog).orderBy(desc(auditLog.createdAt));
     const rows = await (conds.length ? query.where(and(...conds)) : query)
       .limit(limit)

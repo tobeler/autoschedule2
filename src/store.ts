@@ -107,6 +107,10 @@ interface State {
   hydrated: boolean;
   /** Set when hydration fails fatally; UI shows a retry screen. */
   hydrationError: string | null;
+  /** Role of the actor backing the current session (`admin`, `manager`, `dispatcher`, `tech`, `fsm`). */
+  currentUserRole: string | null;
+  /** Human-readable label for the actor (display name or fallback). */
+  currentUserName: string | null;
 
   // ---- actions ----
   setTab: (t: TabId) => void;
@@ -124,6 +128,7 @@ interface State {
   // ---- hydration helpers (internal, used by hooks) ----
   setApiMode: (v: boolean) => void;
   setHydrated: (v: boolean, error?: string | null) => void;
+  setCurrentUser: (role: string | null, name: string | null) => void;
   hydrateCollections: (s: Partial<Omit<State, 'tab' | 'selectedJobId' | 'apiMode' | 'hydrated' | 'hydrationError'>>) => void;
   applyJob: (job: Job) => void;
   applyJobRemove: (id: string) => void;
@@ -207,6 +212,8 @@ export const useStore = create<State>()(
       apiMode: false,
       hydrated: false,
       hydrationError: null,
+      currentUserRole: null,
+      currentUserName: null,
 
       // ---- UI actions ----
       setTab: (t) => set({ tab: t }),
@@ -228,6 +235,7 @@ export const useStore = create<State>()(
       // ---- hydration helpers ----
       setApiMode: (v) => set({ apiMode: v }),
       setHydrated: (v, error = null) => set({ hydrated: v, hydrationError: error }),
+      setCurrentUser: (role, name) => set({ currentUserRole: role, currentUserName: name }),
       hydrateCollections: (s) => set(s),
       applyJob: (job) =>
         set((s) => {

@@ -364,6 +364,47 @@ export function createApiClient(opts: ClientOptions = {}) {
           `/admin/api-keys/${encodeURIComponent(id)}/revoke`,
         ),
     },
+
+    me: {
+      get: () =>
+        request<{
+          userId: string;
+          role: string;
+          displayName: string | null;
+          source: 'session' | 'api_key' | 'demo';
+        }>('GET', '/me'),
+    },
+
+    auditLog: {
+      list: (query?: {
+        entityType?: string;
+        entityId?: string;
+        actorUserId?: string;
+        from?: string;
+        to?: string;
+        cursor?: string;
+        limit?: number;
+        offset?: number;
+      }) =>
+        request<
+          PagedResponse<{
+            id: string;
+            actorUserId: string | null;
+            action: string;
+            entityType: string;
+            entityId: string;
+            before: unknown;
+            after: unknown;
+            createdAt: string;
+          }>
+        >('GET', '/audit-log', {
+          query: query
+            ? Object.fromEntries(
+                Object.entries(query).map(([k, v]) => [k, v == null ? undefined : String(v)]),
+              )
+            : undefined,
+        }),
+    },
   };
 }
 

@@ -15,6 +15,7 @@
 // =============================================================
 import { OpenAPIHono } from '@hono/zod-openapi';
 
+import { auditLogMiddleware } from './middleware/auditLog';
 import { authMiddleware, type ApiEnv } from './middleware/auth';
 import { errorHandler, validationHook } from './middleware/error';
 import { requestLogger } from './middleware/logger';
@@ -26,6 +27,7 @@ import { registerCustomerRoutes } from './routes/customers';
 import { registerHealthRoutes } from './routes/health';
 import { registerHubspotRoutes } from './routes/hubspot';
 import { registerJobRoutes } from './routes/jobs';
+import { registerMeRoutes } from './routes/me';
 import { registerPeopleRoutes } from './routes/people';
 import { registerProjectRoutes } from './routes/projects';
 import { registerRegionRoutes } from './routes/regions';
@@ -41,9 +43,17 @@ export const app = new OpenAPIHono<ApiEnv>({
   defaultHook: validationHook,
 }).basePath('/api/v1');
 
-// Global handlers.
+// Global handlers. Order is intentional:
+//   1. errorHandler — catch everything below.
+//   2. authMiddleware — must resolve an actor before audit + logger
+//      can use it.
+//   3. auditLogMiddleware — sits above the request logger so it can
+//      observe the final status, but below auth so `c.get('actor')`
+//      is populated.
+//   4. requestLogger — single-line summary per request.
 app.onError(errorHandler);
 app.use('*', authMiddleware);
+app.use('*', auditLogMiddleware);
 app.use('*', requestLogger);
 
 // Routes.
@@ -63,6 +73,7 @@ registerSuggestRoutes(app);
 registerHubspotRoutes(app);
 registerAuditRoutes(app);
 registerApiKeyRoutes(app);
+registerMeRoutes(app);
 
 // OpenAPI document. Bearer auth + cookie session both supported.
 app.doc('/openapi.json', {

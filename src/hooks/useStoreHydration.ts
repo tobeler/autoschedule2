@@ -42,6 +42,7 @@ export function useStoreHydration(): HydrationStatus {
   const hydrationError = useStore((s) => s.hydrationError);
   const setApiMode = useStore((s) => s.setApiMode);
   const setHydrated = useStore((s) => s.setHydrated);
+  const setCurrentUser = useStore((s) => s.setCurrentUser);
   const hydrateCollections = useStore((s) => s.hydrateCollections);
 
   const inFlight = useRef(false);
@@ -95,6 +96,12 @@ export function useStoreHydration(): HydrationStatus {
       });
       setApiMode(true);
       setHydrated(true, null);
+      // Resolve the actor's role + display name in the background.
+      // Failure is non-fatal — UI falls back to "no role known".
+      void client.me
+        .get()
+        .then((me) => setCurrentUser(me.role, me.displayName))
+        .catch(() => setCurrentUser(null, null));
     } catch (err) {
       const status = (err as { status?: number }).status;
       // 401 or network/5xx → fall back to demo mode (seeds + localStorage).
