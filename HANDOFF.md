@@ -163,9 +163,11 @@ Three findings from the initial Playwright pass (Crews weekly toggle, HubSpot Co
 
 The actual real bugs/UX issues:
 
-1. **Gantt view: short-duration job blocks truncate to 4–6 characters.** Each day column is `DAY_W = 140px` in `GanttChart.tsx:34`. An 8-hour install fits ~47px (readable: "HP INSTALL"); a 3-hour electrician slot fits ~17px (only "HP IN..." visible). Needs a design call: widen the column, OR collapse short blocks to a job-type color chip + duration count, OR show full text on hover.
+1. **Gantt view: short-duration job blocks truncate to 4–6 characters.** ✅ **Fixed in `cfb1515`** — blocks < 60px wide now drop the customer name and only show the job-type color tag. Full label available on hover via `title` attr.
 
-2. **Unscheduled-job drawer is hero-dominated.** When opening a job that's still in the rail, the drawer's "Pick a crew and time" green-bordered hero takes ~60% of the vertical space, pushing the 6 tab contents below the fold. The hero is correct UX for "this needs scheduling," but should collapse to a thin banner once the user interacts with another tab — OR open the drawer directly on the Crew tab (currently happens for drop-from-rail; not for click-from-rail).
+2. **Unscheduled-job drawer is hero-dominated.** ✅ **Fixed in `cfb1515`** — when user clicks any tab other than Overview, the green hero collapses to a thin "This job needs scheduling · Schedule it →" banner. Clicking the banner jumps back to Overview where the full picker is.
+
+3. **Sidebar dispatcher footer was hardcoded** to "Jordan Rivera · Dispatcher · Watertown". ✅ **Fixed in `cfb1515`** — now reads `currentUserName` + `currentUserRole` from the store (populated by `/v1/me`) + the selected region's sub-name. Falls back to seed dispatcher in demo mode.
 
 ### Cosmetic nits (lower priority)
 
