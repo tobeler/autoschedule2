@@ -10,9 +10,8 @@ import '@/styles/view-projects.css';
 export const metadata: Metadata = {
   title: 'Jetson · Schedule + Dispatch',
   description: 'Jetson field service management — schedule, dispatch, and crew assignment.',
-  icons: {
-    icon: '/logos/Jetson-Logo-Green.png',
-  },
+  // Favicon is served from app/icon.svg — Next.js auto-detects that
+  // convention and emits the right <link> tags, so no `icons` field needed.
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

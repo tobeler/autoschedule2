@@ -1,0 +1,36 @@
+// =============================================================
+// Auth gate. Anything that isn't `/login`, the NextAuth API
+// endpoints, or a Next.js / public asset path requires a session
+// — otherwise we redirect to /login with the original URL kept
+// in `callbackUrl` so the user lands back where they came from.
+// =============================================================
+
+import { NextResponse, type NextRequest } from 'next/server';
+
+import { auth } from './auth';
+
+const PUBLIC_PREFIXES = ['/login', '/api/auth'];
+
+function isPublic(pathname: string): boolean {
+  return PUBLIC_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
+}
+
+// next-auth v5's `auth()` returns a wrapped request that includes
+// `req.auth` when a valid session cookie is present.
+export default auth((req: NextRequest & { auth: unknown }) => {
+  const { pathname, search } = req.nextUrl;
+  if (isPublic(pathname)) return NextResponse.next();
+  if (req.auth) return NextResponse.next();
+
+  const loginUrl = req.nextUrl.clone();
+  loginUrl.pathname = '/login';
+  loginUrl.searchParams.set('callbackUrl', pathname + search);
+  return NextResponse.redirect(loginUrl);
+});
+
+export const config = {
+  // Run on every path except Next.js internals + static assets.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|fonts/|logos/).*)'],
+};

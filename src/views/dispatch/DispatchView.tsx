@@ -106,6 +106,12 @@ export function DispatchView() {
             onCollapse={() => setShowRail(false)}
           />
         )}
+        {!railVisible && dayMode && (
+          <CollapsedRailStub
+            count={unsched.length}
+            onExpand={() => setShowRail(true)}
+          />
+        )}
         <div
           style={{
             minHeight: 0,
@@ -128,18 +134,69 @@ export function DispatchView() {
           })}
         </div>
       </div>
-
-      {!railVisible && dayMode && (
-        <button
-          className="btn btn-dark btn-sm"
-          style={{ position: 'absolute', left: 16, bottom: 16 }}
-          onClick={() => setShowRail(true)}
-        >
-          <Icon name="chevron_right" size={14} /> Show unscheduled (
-          {unsched.length})
-        </button>
-      )}
     </>
+  );
+}
+
+// Thin always-visible strip rendered in the rail's flex slot when the
+// full rail is collapsed. Clicking anywhere on it re-opens the rail.
+function CollapsedRailStub({ count, onExpand }: { count: number; onExpand: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      title={`Show unscheduled (${count})`}
+      style={{
+        flex: '0 0 36px',
+        width: 36,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        gap: 12,
+        padding: '12px 0',
+        background: 'var(--surface-card)',
+        border: 'none',
+        borderRight: '1px solid var(--border)',
+        cursor: 'pointer',
+        font: 'inherit',
+        color: 'var(--fg)',
+      }}
+    >
+      <Icon name="chevron_right" size={16} />
+      <span
+        style={{
+          minWidth: 22,
+          height: 22,
+          padding: '0 6px',
+          borderRadius: 999,
+          background: 'var(--forest)',
+          color: 'var(--off-white)',
+          fontSize: 11,
+          fontWeight: 800,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {count}
+      </span>
+      <span
+        style={{
+          writingMode: 'vertical-rl',
+          transform: 'rotate(180deg)',
+          fontFamily: 'var(--font-subhead)',
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          color: 'var(--fg-muted)',
+          marginTop: 4,
+        }}
+      >
+        Unscheduled
+      </span>
+    </button>
   );
 }
 

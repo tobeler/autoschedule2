@@ -118,7 +118,7 @@ interface State {
 const DEFAULT_TWEAKS: Tweaks = {
   density: 'cozy',
   accent: 'green',
-  showDriveTime: false,
+  showDriveTime: true,
   dark: false,
 };
 
