@@ -1,8 +1,5 @@
 node_modules/
-dist/
 .next/
-out/
-.vite/
 .env
 .env.local
 .env.*.local
@@ -11,6 +8,6 @@ out/
 .tmp/
 coverage/
 .claude/
-.vercel
-*.tsbuildinfo
-next-env.d.ts
+design-source/
+dist/
+.vite/

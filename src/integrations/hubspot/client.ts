@@ -1,8 +1,9 @@
 // =============================================================
 // HubSpot client — thin fetch wrapper around the HubSpot v3 REST API.
-// Reads VITE_HUBSPOT_TOKEN from build-time env. Token is never bundled
-// into source — when missing, every call rejects with a friendly error
-// that the Settings page surfaces in the integrations card.
+// Reads NEXT_PUBLIC_HUBSPOT_TOKEN from build-time env. Token is never
+// bundled into source — when missing, every call rejects with a friendly
+// error that the Settings page surfaces in the integrations card.
+// (Phase 13 will move this token server-side as HUBSPOT_TOKEN.)
 // =============================================================
 import type { Job } from '../../types';
 import { STATUS_ENUM_MAP } from './field-map-defaults';
@@ -30,14 +31,14 @@ export class HubspotApiError extends Error {
 }
 
 function readToken(): string {
-  const tok = import.meta.env.VITE_HUBSPOT_TOKEN as string | undefined;
+  const tok = process.env.NEXT_PUBLIC_HUBSPOT_TOKEN as string | undefined;
   if (!tok || !tok.length) throw new HubspotConfigError();
   return tok;
 }
 
 /** True if a token is present at build time. Settings reads this to render Connected vs Disconnected. */
 export function isHubspotConnected(): boolean {
-  const tok = import.meta.env.VITE_HUBSPOT_TOKEN as string | undefined;
+  const tok = process.env.NEXT_PUBLIC_HUBSPOT_TOKEN as string | undefined;
   return Boolean(tok && tok.length);
 }
 

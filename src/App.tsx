@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect } from 'react';
 import { useStore } from './store';
 import { Icon, type IconName } from './components/Icon';
@@ -23,8 +25,6 @@ import { SettingsView } from './views/settings/SettingsView';
 import { JobDetailDrawer } from './modals/JobDetailDrawer';
 import { NewJobWizard } from './modals/NewJobWizard/NewJobWizard';
 import { SmartScheduleModal } from './modals/SmartScheduleModal';
-
-import logoOffWhite from './assets/logos/Jetson-Logo-Off-White.png';
 
 interface NavItem {
   id: import('./store').TabId;
@@ -79,7 +79,7 @@ export default function App() {
       {/* SIDEBAR */}
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <img src={logoOffWhite} alt="Jetson" />
+          <img src="/logos/Jetson-Logo-Off-White.png" alt="Jetson" />
           {!sidebarCollapsed && (
             <div className="sidebar-brand-text">
               Schedule

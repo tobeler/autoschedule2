@@ -5,77 +5,77 @@
 /* --- Fonts: MNKY Jane family (local woff2) --- */
 @font-face {
   font-family: 'MNKY Jane';
-  src: url('assets/fonts/mnkyjane-regular.woff2') format('woff2');
+  src: url('/fonts/mnkyjane-regular.woff2') format('woff2');
   font-weight: 400; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'MNKY Jane';
-  src: url('assets/fonts/mnkyjane-italic.woff2') format('woff2');
+  src: url('/fonts/mnkyjane-italic.woff2') format('woff2');
   font-weight: 400; font-style: italic; font-display: swap;
 }
 @font-face {
   font-family: 'MNKY Jane';
-  src: url('assets/fonts/mnkyjane-medium.woff2') format('woff2');
+  src: url('/fonts/mnkyjane-medium.woff2') format('woff2');
   font-weight: 500; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'MNKY Jane';
-  src: url('assets/fonts/mnkyjane-semibold.woff2') format('woff2');
+  src: url('/fonts/mnkyjane-semibold.woff2') format('woff2');
   font-weight: 600; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'MNKY Jane';
-  src: url('assets/fonts/mnkyjane-bold.woff2') format('woff2');
+  src: url('/fonts/mnkyjane-bold.woff2') format('woff2');
   font-weight: 700; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'MNKY Jane';
-  src: url('assets/fonts/mnkyjane-black.woff2') format('woff2');
+  src: url('/fonts/mnkyjane-black.woff2') format('woff2');
   font-weight: 900; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'MNKY Jane';
-  src: url('assets/fonts/mnkyjane-light.woff2') format('woff2');
+  src: url('/fonts/mnkyjane-light.woff2') format('woff2');
   font-weight: 300; font-style: normal; font-display: swap;
 }
 
 @font-face {
   font-family: 'MNKY Jane SemiCondensed';
-  src: url('assets/fonts/mnkyjanesemicondensed-regular.woff2') format('woff2');
+  src: url('/fonts/mnkyjanesemicondensed-regular.woff2') format('woff2');
   font-weight: 400; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'MNKY Jane SemiCondensed';
-  src: url('assets/fonts/mnkyjanesemicondensed-medium.woff2') format('woff2');
+  src: url('/fonts/mnkyjanesemicondensed-medium.woff2') format('woff2');
   font-weight: 500; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'MNKY Jane SemiCondensed';
-  src: url('assets/fonts/mnkyjanesemicondensed-bold.woff2') format('woff2');
+  src: url('/fonts/mnkyjanesemicondensed-bold.woff2') format('woff2');
   font-weight: 700; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'MNKY Jane SemiCondensed';
-  src: url('assets/fonts/mnkyjanesemicondensed-black.woff2') format('woff2');
+  src: url('/fonts/mnkyjanesemicondensed-black.woff2') format('woff2');
   font-weight: 900; font-style: normal; font-display: swap;
 }
 
 @font-face {
   font-family: 'MNKY Jane Condensed';
-  src: url('assets/fonts/mnkyjanecondensed-bold.woff2') format('woff2');
+  src: url('/fonts/mnkyjanecondensed-bold.woff2') format('woff2');
   font-weight: 700; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'MNKY Jane Condensed';
-  src: url('assets/fonts/mnkyjanecondensed-black.woff2') format('woff2');
+  src: url('/fonts/mnkyjanecondensed-black.woff2') format('woff2');
   font-weight: 900; font-style: normal; font-display: swap;
 }
 
 /* --- Variable font (single file for all weights) --- */
 @font-face {
   font-family: 'MNKY Jane Variable';
-  src: url('assets/fonts/mnkyjane-variable.woff2') format('woff2-variations'),
-       url('assets/fonts/mnkyjane-variable.woff2') format('woff2');
+  src: url('/fonts/mnkyjane-variable.woff2') format('woff2-variations'),
+       url('/fonts/mnkyjane-variable.woff2') format('woff2');
   font-weight: 100 900; font-style: normal; font-display: swap;
 }
 
