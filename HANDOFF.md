@@ -149,6 +149,51 @@ All 14+4 = 18 phases of the plan are shipped + committed + pushed to `tobeler/au
 
 ---
 
+## UI/UX review pass — 2026-05-22
+
+Driven via headless Playwright across every nav tab, every dispatch range × layout, every settings sub-tab, every Add/Edit modal, the job drawer (all 6 tabs), wizard flow, demo-data toggle, attention pill, region picker. 44 screenshots in `/tmp/jetson-review/`. **0 unhandled page errors.** Findings ranked by leverage:
+
+### Real issues worth fixing
+
+Three findings from the initial Playwright pass (Crews weekly toggle, HubSpot Configure modal, project row click) **turned out to be Playwright selector artifacts** on investigation:
+
+- Crews `mode === 'weekly' && <WeeklyComposition/>` is correctly wired in `CrewsView.tsx:149`.
+- HubSpot Configure expand uses `.integ-config-expand` inline (`IntegrationsPanel.tsx:395-398`). The `modal-backdrop` Playwright tripped on was the DemoData confirm modal from a previous click; the Cancel button was real but the selector then matched Twilio's "Configure" button instead of HubSpot's.
+- `ProjectsView` rows are clickable via `.proj-row onClick={() => setSelectedId(p.id)}` (`ProjectsView.tsx:228`). My selector used `table tbody tr` which doesn't match the custom row component.
+
+The actual real bugs/UX issues:
+
+1. **Gantt view: short-duration job blocks truncate to 4–6 characters.** Each day column is `DAY_W = 140px` in `GanttChart.tsx:34`. An 8-hour install fits ~47px (readable: "HP INSTALL"); a 3-hour electrician slot fits ~17px (only "HP IN..." visible). Needs a design call: widen the column, OR collapse short blocks to a job-type color chip + duration count, OR show full text on hover.
+
+2. **Unscheduled-job drawer is hero-dominated.** When opening a job that's still in the rail, the drawer's "Pick a crew and time" green-bordered hero takes ~60% of the vertical space, pushing the 6 tab contents below the fold. The hero is correct UX for "this needs scheduling," but should collapse to a thin banner once the user interacts with another tab — OR open the drawer directly on the Crew tab (currently happens for drop-from-rail; not for click-from-rail).
+
+### Cosmetic nits (lower priority)
+
+6. **Map view side panel is cramped.** Crew filter chips + route-stop cards squeezed into ~280px. Consider widening the side panel to ~360px and making stops collapsible per crew.
+
+7. **Topbar potential collision at narrow viewports.** At 1600px the topbar is fine, but the Denver region pill + "Dispatch" title + search are tightly packed. Worth a manual check at 1200–1280px viewports (typical laptop screens).
+
+8. **Reports + Timesheets have no obvious CTAs.** Reports could use a prominent "Export CSV" button; Timesheets needs an "Approve all" action. Wait until real data lands before polishing.
+
+9. **Dispatcher footer in sidebar (Jordan Rivera · Watertown) shows fixed text.** Once auth lands, this should pull from `currentUserName` / branch.
+
+### What didn't render correctly during the pass
+
+- **Wizard step 2 (job type)** — the Playwright "Continue" click after picking a customer didn't navigate. Could be timing; the wizard works manually. Worth a manual smoke-test.
+- **Drawer's Crew/Timeline/Customer/Completion/Notes tabs** captured but show the unscheduled-hero overlay obscuring the tab body. Confirms finding #5.
+
+### Pre-existing footguns flagged earlier in the plan and still open
+
+- Vercel Hobby's commercial-use TOS (gray area)
+- HubSpot webhook signature verification — code exists, not yet verified against a real webhook delivery
+- API rate limiting (not yet implemented; recommended Upstash Redis before production traffic)
+- Real timezone handling for jobs across MST/EST/PST regions
+- Sign-out + password reset routes
+- Audit log retention policy
+- Mobile (Expo) — design source preserved in `design-source/`
+
+---
+
 ## Production-readiness items deferred from the original plan
 
 The original plan called these out as "not in v1" — flagging here so we know what's still missing:
