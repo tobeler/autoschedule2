@@ -100,6 +100,10 @@ interface State {
   setHubspotMapping: (m: HubspotEntityMapping[]) => void;
   setChecklist: (jobType: string, sections: ChecklistSection[]) => void;
   setChecklistResponse: (jobId: string, responses: ChecklistResponses) => void;
+  // Bulk-import setters used by integrations/hubspot/sync.ts
+  setCustomers: (customers: Customer[]) => void;
+  setProjects: (projects: Project[]) => void;
+  setRegions: (regions: Region[]) => void;
 
   resetAll: () => void;
 }
@@ -190,6 +194,9 @@ export const useStore = create<State>()(
         set((s) => ({ checklists: { ...s.checklists, [jobType]: sections } })),
       setChecklistResponse: (jobId, responses) =>
         set((s) => ({ checklistResponses: { ...s.checklistResponses, [jobId]: responses } })),
+      setCustomers: (customers) => set({ customers }),
+      setProjects: (projects) => set({ projects }),
+      setRegions: (regions) => set({ regions }),
 
       resetAll: () =>
         set({
