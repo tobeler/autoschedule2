@@ -3,7 +3,7 @@ import { Icon } from '../../components/Icon';
 import { useStore } from '../../store';
 import { HubspotFieldMapping } from './HubspotFieldMapping';
 import { isHubspotConnected } from '../../integrations/hubspot/client';
-import { pushJobToHubspot, syncFromHubspot } from '../../integrations/hubspot/sync';
+import { client } from '../../api/client';
 
 interface PartnerCardProps {
   letters: string;
@@ -49,14 +49,14 @@ export function IntegrationsPanel() {
     setSyncing(true);
     setLastResult(null);
     try {
-      const res = await syncFromHubspot();
+      const res = await client.hubspot.sync();
       if (res.ok) {
         setLastResult(
           'Synced ' + res.contacts + ' contacts, ' + res.deals + ' deals, ' + res.serviceAreas + ' service areas.',
         );
         pushToast('HubSpot sync complete');
       } else if (res.errors.length) {
-        setLastResult(res.errors[0]);
+        setLastResult(res.errors[0] ?? 'Sync returned errors.');
       }
       setLastSyncAt(res.finishedAt);
     } catch (err) {
@@ -75,9 +75,11 @@ export function IntegrationsPanel() {
     setPushing(true);
     setLastResult(null);
     try {
-      const res = await pushJobToHubspot(sample);
+      const res = await client.hubspot.pushJob(sample.id);
       setLastResult(res.message);
       if (res.ok) pushToast('Pushed job ' + sample.id);
+    } catch (err) {
+      setLastResult(err instanceof Error ? err.message : 'Push failed.');
     } finally {
       setPushing(false);
     }
