@@ -142,8 +142,10 @@ export function DispatchView() {
   );
 }
 
-// Thin always-visible strip rendered in the rail's flex slot when the
-// full rail is collapsed. Clicking anywhere on it re-opens the rail.
+// Slim 14px collapse handle on the left edge of the dispatch area.
+// Just a chevron — no rotated label, no count badge — so it doesn't
+// visually band against the topbar. Click anywhere on the strip
+// re-opens the rail.
 function CollapsedRailStub({ count, onExpand }: { count: number; onExpand: () => void }) {
   return (
     <button
@@ -151,55 +153,24 @@ function CollapsedRailStub({ count, onExpand }: { count: number; onExpand: () =>
       onClick={onExpand}
       title={`Show unscheduled (${count})`}
       style={{
-        flex: '0 0 36px',
-        width: 36,
+        flex: '0 0 14px',
+        width: 14,
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: 'flex-start',
-        gap: 12,
-        padding: '12px 0',
+        justifyContent: 'center',
+        padding: 0,
         background: 'var(--surface-card)',
         border: 'none',
         borderRight: '1px solid var(--border)',
         cursor: 'pointer',
         font: 'inherit',
-        color: 'var(--fg)',
+        color: 'var(--fg-muted)',
+        transition: 'background var(--dur-fast)',
       }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-subtle)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--surface-card)')}
     >
-      <Icon name="chevron_right" size={16} />
-      <span
-        style={{
-          minWidth: 22,
-          height: 22,
-          padding: '0 6px',
-          borderRadius: 999,
-          background: 'var(--forest)',
-          color: 'var(--off-white)',
-          fontSize: 11,
-          fontWeight: 800,
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        {count}
-      </span>
-      <span
-        style={{
-          writingMode: 'vertical-rl',
-          transform: 'rotate(180deg)',
-          fontFamily: 'var(--font-subhead)',
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          color: 'var(--fg-muted)',
-          marginTop: 4,
-        }}
-      >
-        Unscheduled
-      </span>
+      <Icon name="chevron_right" size={12} />
     </button>
   );
 }
