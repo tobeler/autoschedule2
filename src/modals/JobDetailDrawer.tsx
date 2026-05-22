@@ -52,6 +52,12 @@ const TAB_LABELS: Record<TabKey, string> = {
   notes: 'Notes',
 };
 
+const TAB_KEYS = Object.keys(TAB_LABELS) as TabKey[];
+
+function isTabKey(v: string | null | undefined): v is TabKey {
+  return !!v && (TAB_KEYS as string[]).includes(v);
+}
+
 const PROJECT_STATUS_COLOR: Record<string, string> = {
   proposed: '#ACAA93',
   sold: '#4FB3E8',
@@ -82,9 +88,15 @@ export function JobDetailDrawer() {
   const [editingSlot, setEditingSlot] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState('');
 
-  // Reset tab and drafts when the selected job changes.
+  // Reset tab and drafts when the selected job changes. If the caller passed
+  // an `initialTab` via selectJob (e.g. dispatch board auto-prompting the
+  // Crew tab after a scheduling drop), honor it once and clear it.
   useEffect(() => {
-    setTab('overview');
+    const requested = useStore.getState().selectedJobInitialTab;
+    setTab(isTabKey(requested) ? requested : 'overview');
+    if (requested) {
+      useStore.setState({ selectedJobInitialTab: null });
+    }
     setEditingSlot(null);
     setNotesDraft(job?.notes ?? '');
   }, [job?.id]);
@@ -147,6 +159,24 @@ export function JobDetailDrawer() {
           <span className="mono small muted">{job.id}</span>
           <JobTypeTag type={job.type} size="lg" />
           <div className="topbar-spacer"></div>
+          {job.status !== 'unscheduled' && (
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={() => {
+                moveJob(job.id, {
+                  date: null,
+                  startHour: null,
+                  crewId: null,
+                  truckId: null,
+                });
+                pushToast(`Moved ${job.id} to Unscheduled`);
+              }}
+              title="Move this job back to the Unscheduled rail"
+            >
+              <Icon name="chevron_left" size={12} /> Move to Unscheduled
+            </button>
+          )}
           <IconButton icon="x" label="Close" onClick={close} />
         </div>
 

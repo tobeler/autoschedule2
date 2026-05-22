@@ -55,6 +55,7 @@ import {
   crewToDTOCreate,
   templateToDTOPatch,
 } from './api/storeMappers';
+import { autoFillSlots } from './lib/assignment';
 
 export type TabId =
   | 'dispatch'
@@ -95,6 +96,7 @@ interface State {
   // ---- ephemeral UI (not persisted) ----
   tab: TabId;
   selectedJobId: string | null;
+  selectedJobInitialTab: string | null;
   sidebarCollapsed: boolean;
   toast: string | null;
   showWizard: boolean;
@@ -114,7 +116,7 @@ interface State {
 
   // ---- actions ----
   setTab: (t: TabId) => void;
-  selectJob: (id: string | null) => void;
+  selectJob: (id: string | null, opts?: { initialTab?: string }) => void;
   collapseSidebar: (v: boolean) => void;
   pushToast: (msg: string) => void;
   clearToast: () => void;
@@ -204,6 +206,7 @@ export const useStore = create<State>()(
 
       tab: 'dispatch',
       selectedJobId: null,
+      selectedJobInitialTab: null,
       sidebarCollapsed: false,
       toast: null,
       showWizard: false,
@@ -217,7 +220,11 @@ export const useStore = create<State>()(
 
       // ---- UI actions ----
       setTab: (t) => set({ tab: t }),
-      selectJob: (id) => set({ selectedJobId: id }),
+      selectJob: (id, opts) =>
+        set({
+          selectedJobId: id,
+          selectedJobInitialTab: opts?.initialTab ?? null,
+        }),
       collapseSidebar: (v) => set({ sidebarCollapsed: v }),
       pushToast: (msg) => {
         set({ toast: msg });
@@ -436,14 +443,36 @@ export const useStore = create<State>()(
         const prev = get().jobs;
         const target = prev.find((j) => j.id === id);
         if (!target) return;
-        const next: Job = {
-          ...target,
-          ...updates,
-          status:
-            target.status === 'unscheduled' && updates.date && updates.startHour != null
-              ? 'scheduled'
-              : target.status,
-        };
+        // Moving back to unscheduled: null out scheduling fields and flip status.
+        const movingToUnscheduled = updates.date === null;
+        const liftingToScheduled =
+          target.status === 'unscheduled' &&
+          updates.date != null &&
+          updates.startHour != null;
+        let next: Job = movingToUnscheduled
+          ? {
+              ...target,
+              ...updates,
+              date: null,
+              startHour: null,
+              crewId: null,
+              truckId: null,
+              status: 'unscheduled',
+            }
+          : {
+              ...target,
+              ...updates,
+              status: liftingToScheduled ? 'scheduled' : target.status,
+            };
+        // When lifting an unscheduled job onto a crew, auto-fill empty slots so
+        // dispatch doesn't have to open the drawer to fill them by hand.
+        if (liftingToScheduled && updates.crewId) {
+          const crews = get().crews;
+          const people = get().people;
+          const crew = crews.find((c) => c.id === updates.crewId);
+          const filled = autoFillSlots(next, crew ?? null, people);
+          next = { ...next, slots: filled };
+        }
         set({ jobs: prev.map((j) => (j.id === id ? next : j)) });
         if (get().apiMode) {
           client.jobs
@@ -453,6 +482,7 @@ export const useStore = create<State>()(
               crewId: next.crewId,
               truckId: next.truckId,
               status: next.status,
+              slots: next.slots,
             })
             .catch((err) => {
               set({ jobs: prev });

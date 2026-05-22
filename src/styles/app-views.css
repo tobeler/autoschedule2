@@ -2553,3 +2553,12 @@ button.wiz-step:disabled { cursor: default; }
 
 /* Inline-only utility helpers used by the ported sections. */
 .multiday { /* marker — see .suggest-cell-fit-time.multiday */ }
+
+/* Phase 15 — Unscheduled rail accepts dropped scheduled jobs.
+   Visual feedback: Jetson-green outline + subtle tint while dragging over. */
+.unscheduled-rail.rail-drag-target {
+  outline: 2px solid var(--jetson-green);
+  outline-offset: -2px;
+  background: rgba(60, 213, 103, 0.08);
+  transition: background var(--dur-fast), outline-color var(--dur-fast);
+}

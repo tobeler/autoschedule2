@@ -67,8 +67,10 @@ export function DayCalendar({
   const allCrews = useStore((s) => s.crews);
   const allTrucks = useStore((s) => s.trucks);
   const allPeople = useStore((s) => s.people);
+  const allJobs = useStore((s) => s.jobs);
   const moveJob = useStore((s) => s.moveJob);
   const resizeJob = useStore((s) => s.resizeJob);
+  const selectJob = useStore((s) => s.selectJob);
   const pushToast = useStore((s) => s.pushToast);
   const showDriveTime = useStore((s) => s.tweaks.showDriveTime);
 
@@ -248,13 +250,35 @@ export function DayCalendar({
   function handleDrop(rowId: string, hour: number, jobId: string) {
     const meta = rowDropMeta(rowId);
     if (!meta) return;
+    // Snapshot the pre-move status so we can detect lifts from unscheduled.
+    const prevJob = allJobs.find((j) => j.id === jobId);
+    const wasUnscheduled = prevJob?.status === 'unscheduled';
+    const previouslyFilledCount =
+      prevJob?.slots.filter((s) => s.assignedTo).length ?? 0;
     moveJob(jobId, {
       date: dateKeyStr,
       startHour: hour,
       crewId: meta.crewId,
       truckId: meta.truckId,
     });
-    pushToast('Scheduled ' + jobId);
+    if (wasUnscheduled) {
+      // moveJob auto-filled empty slots; surface that in the toast and pop the
+      // drawer open on the Crew tab so dispatch can review the suggestions.
+      const updated = useStore.getState().jobs.find((j) => j.id === jobId);
+      const newlyFilledCount =
+        (updated?.slots.filter((s) => s.assignedTo).length ?? 0) -
+        previouslyFilledCount;
+      selectJob(jobId, { initialTab: 'crew' });
+      if (newlyFilledCount > 0) {
+        pushToast(
+          `Scheduled ${jobId} · auto-filled ${newlyFilledCount} slot${newlyFilledCount === 1 ? '' : 's'} — review crew.`,
+        );
+      } else {
+        pushToast(`Scheduled ${jobId} — review crew.`);
+      }
+    } else {
+      pushToast('Scheduled ' + jobId);
+    }
   }
 
   function clearDropAffordances(el: HTMLElement) {

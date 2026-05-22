@@ -18,9 +18,38 @@ interface UnscheduledRailProps {
 
 export function UnscheduledRail({ jobs, onJobClick, onCollapse }: UnscheduledRailProps) {
   const customers = useStore((s) => s.customers);
+  const moveJob = useStore((s) => s.moveJob);
+  const pushToast = useStore((s) => s.pushToast);
 
   return (
-    <div className="unscheduled-rail">
+    <div
+      className="unscheduled-rail"
+      onDragOver={(e) => {
+        // Allow dropping scheduled jobs back onto the rail.
+        if (e.dataTransfer.types.includes('text/job-id')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          e.currentTarget.classList.add('rail-drag-target');
+        }
+      }}
+      onDragLeave={(e) => {
+        const related = e.relatedTarget as Node | null;
+        if (related && e.currentTarget.contains(related)) return;
+        e.currentTarget.classList.remove('rail-drag-target');
+      }}
+      onDrop={(e) => {
+        e.currentTarget.classList.remove('rail-drag-target');
+        const jobId = e.dataTransfer.getData('text/job-id');
+        if (!jobId) return;
+        moveJob(jobId, {
+          date: null,
+          startHour: null,
+          crewId: null,
+          truckId: null,
+        });
+        pushToast(`Moved ${jobId} to Unscheduled`);
+      }}
+    >
       <div className="rail-header">
         <div>
           <div className="rail-title">Unscheduled</div>
