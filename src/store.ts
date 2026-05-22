@@ -187,6 +187,11 @@ interface State {
   setProjects: (projects: Project[]) => void;
   setRegions: (regions: Region[]) => void;
 
+  /** Whether the prototype seed data is loaded. Turning off clears every
+   *  collection so the demo starts empty (HubSpot sync fills it back). */
+  demoDataEnabled: boolean;
+  setDemoDataEnabled: (v: boolean) => void;
+
   resetAll: () => void;
 }
 
@@ -747,6 +752,51 @@ export const useStore = create<State>()(
       setProjects: (projects) => set({ projects }),
       setRegions: (regions) => set({ regions }),
 
+      demoDataEnabled: true,
+      setDemoDataEnabled: (v) => {
+        if (v) {
+          // Repopulate from seed and flag enabled.
+          set({
+            demoDataEnabled: true,
+            jobs: JOBS_SEED,
+            people: PEOPLE,
+            crews: CREWS,
+            trucks: TRUCKS,
+            customers: CUSTOMERS,
+            projects: PROJECTS,
+            regions: REGIONS,
+            timeOff: TIME_OFF,
+            templates: JOB_TEMPLATES,
+            checklists: CHECKLISTS,
+            checklistResponses: CHECKLIST_RESPONSES,
+            selectedJobId: null,
+            showWizard: false,
+            smartScheduleJobId: null,
+          });
+          get().pushToast('Demo data reloaded');
+        } else {
+          // Clear every collection. HubSpot Sync Now can refill it.
+          set({
+            demoDataEnabled: false,
+            jobs: [],
+            people: [],
+            crews: [],
+            trucks: [],
+            customers: [],
+            projects: [],
+            regions: [],
+            timeOff: [],
+            templates: {},
+            checklists: {},
+            checklistResponses: {},
+            selectedJobId: null,
+            showWizard: false,
+            smartScheduleJobId: null,
+          });
+          get().pushToast('Demo data cleared — Sync HubSpot to populate');
+        }
+      },
+
       resetAll: () =>
         set({
           jobs: JOBS_SEED,
@@ -792,6 +842,7 @@ export const useStore = create<State>()(
         hubspotMapping: s.hubspotMapping,
         region: s.region,
         tweaks: s.tweaks,
+        demoDataEnabled: s.demoDataEnabled,
       }),
       version: 1,
     },

@@ -123,7 +123,29 @@ After step 1's admin login, you can invite dispatchers two ways:
 
 ## Findings from the Phase 18 review
 
-_(Filled in by Claude after Phase 18 lands.)_
+Phases 15–17 verified via screenshot pass against `http://localhost:3000/` after dev-server restart. Build + typecheck both clean. Demo-data toggle smoke-tested end-to-end. Console showed 10 expected `500` errors from `/api/v1/*` calls — these are correct demo-mode behavior (`useStoreHydration` falls back to localStorage seed when no `DATABASE_URL`; rolls back optimistic writes with a toast). They go away once you wire Supabase per step 1.
+
+**Verified working:**
+
+- Dispatch board: drag from rail in Day, Week, Month all schedules + auto-fills crew + opens drawer on Crew tab.
+- Dispatch board: drag a scheduled job back onto the Unscheduled rail re-unscheduled it.
+- Trucks page: "+ Add vehicle" header button → modal → save. Per-row "..." → Edit / Delete (with active-job guard).
+- Technicians page: "..." → Edit / Add time off / Delete.
+- Crews page: "+ Add crew" + per-card "Edit / Delete". Members get an "x" to remove via AddMemberPicker.
+- Projects page: "+ New project" header button → modal. Per-row Edit / Delete + ProjectDetailDrawer Edit / Delete.
+- Job drawer: "Move to Unscheduled" + "Reschedule" (SuggestTimePicker overlay) + "Delete job" (with confirm + onsite-status guard) + editable Overview-tab basics (address / notes / driveTimeMin / price / project / HubSpot deal id).
+- Settings → Job templates: per-template Delete with guard.
+- Settings → Integrations: HubSpot card with Test Connection + dev-only Paste-Token + Sync now (hydrates store via setCustomers/setProjects/setRegions in demo mode) + Test push disabled with "Push enabled when DATABASE_URL is set" tooltip. Open-in-HubSpot icon on project + customer references.
+- Settings → Time off and Settings → Regions: full CRUD editors.
+- Settings → Integrations: new **Demo data** card at top — toggle off shows a confirm modal, clears all collections, persists across refresh; toggle on reloads from seed.
+
+**No blockers found.** Three small things you may want to revisit when you have time, but they don't gate the demo:
+
+1. Hydration `/api/v1/*` calls noisily 500 in the dev console while in demo mode. Cosmetic only; the fallback works. Could be quieted by short-circuiting the API client when `NEXTAUTH_SECRET` env var is unset.
+2. The job-drawer "Reschedule" overlay reuses `SuggestTimeOverlay` from Phase 5 — when invoked with no `crewId` change, it briefly shows "weekday-only" hints that are less relevant for an existing job already scheduled to a specific weekend. Functional; could be polished.
+3. Vercel Hobby plan's commercial-use TOS gray area for the Jetson production deploy — not a code finding, but flagged from earlier plan: upgrade to Pro ($20/mo) when putting real dispatchers on it.
+
+All 14+4 = 18 phases of the plan are shipped + committed + pushed to `tobeler/autoschedule2`. Tags: `demo-snapshot-4` pins the latest production snapshot.
 
 ---
 

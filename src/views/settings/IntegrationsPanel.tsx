@@ -309,6 +309,8 @@ export function IntegrationsPanel() {
         <p className="muted small">Connect CRM, payroll, and mapping systems.</p>
       </div>
 
+      <DemoDataCard />
+
       <div className="integ-card">
         <div className="integ-logo">HS</div>
         <div style={{ flex: 1 }}>
@@ -422,6 +424,90 @@ export function IntegrationsPanel() {
         status="not_connected"
         cta={{ label: 'Configure' }}
       />
+    </>
+  );
+}
+
+// =============================================================
+// Demo Data card — toggle the prototype seed dataset on/off.
+// When off, every collection is empty until HubSpot Sync hydrates.
+// =============================================================
+function DemoDataCard() {
+  const enabled = useStore((s) => s.demoDataEnabled);
+  const setEnabled = useStore((s) => s.setDemoDataEnabled);
+  const jobsLen = useStore((s) => s.jobs.length);
+  const peopleLen = useStore((s) => s.people.length);
+  const crewsLen = useStore((s) => s.crews.length);
+  const [confirmingDisable, setConfirmingDisable] = useState(false);
+
+  function handleToggle() {
+    if (enabled) {
+      setConfirmingDisable(true);
+    } else {
+      setEnabled(true);
+    }
+  }
+
+  return (
+    <>
+      <div className="integ-card">
+        <div className="integ-logo" style={{ background: '#3CD567', color: '#0F1F0D' }}>
+          DEMO
+        </div>
+        <div style={{ flex: 1 }}>
+          <div className="row">
+            <h4 style={{ fontSize: 15 }}>Demo data</h4>
+            {enabled
+              ? <span className="badge badge-onsite">Loaded</span>
+              : <span className="badge badge-scheduled">Cleared</span>}
+          </div>
+          <div className="muted small" style={{ marginTop: 2 }}>
+            {enabled
+              ? `Seeded with ${jobsLen} jobs · ${peopleLen} technicians · ${crewsLen} crews. Turn off to clear and start fresh.`
+              : 'All collections empty. Run HubSpot Sync to populate from your real portal.'}
+          </div>
+        </div>
+        <button
+          className={'btn btn-sm ' + (enabled ? 'btn-outline' : 'btn-primary')}
+          onClick={handleToggle}
+        >
+          {enabled ? 'Turn off' : 'Reload demo'}
+        </button>
+      </div>
+      {confirmingDisable && (
+        <div className="modal-backdrop" onClick={() => setConfirmingDisable(false)}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 440 }}
+          >
+            <div className="modal-header">
+              <h3 style={{ margin: 0 }}>Clear demo data?</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                This empties jobs, technicians, crews, trucks, customers, projects, regions, time-off,
+                templates, and checklists. Persisted to localStorage — restart pulls real HubSpot data.
+              </p>
+              <p className="muted small">You can reload the demo from this same toggle later.</p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost btn-sm" onClick={() => setConfirmingDisable(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger btn-sm"
+                onClick={() => {
+                  setEnabled(false);
+                  setConfirmingDisable(false);
+                }}
+              >
+                Clear demo data
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
