@@ -25,6 +25,10 @@ import {
 } from '../data/selectors';
 import { ROLES } from '../data/seed';
 import { addDays, dateKey, fmtTime, TODAY } from '../data/helpers';
+import {
+  effectiveCrewForPerson,
+  effectiveCrewMembers,
+} from '../lib/crewEffective';
 import { useStore } from '../store';
 import type {
   Crew,
@@ -108,6 +112,7 @@ function loanBlocksFor(
   dk: string,
   jobs: Job[],
   people: Person[],
+  overrides: import('../types').CrewRosterOverride[],
 ): Array<{ startHour: number; durationHrs: number; isLoan: true }> {
   const out: Array<{ startHour: number; durationHrs: number; isLoan: true }> = [];
   jobs.forEach((j) => {
@@ -118,9 +123,10 @@ function loanBlocksFor(
       if (!s.assignedTo) return;
       const p = getPerson(people, s.assignedTo);
       if (!p) return;
-      if (p.defaultCrew !== crew.id) return;
+      const slotStart = (j.startHour ?? 0) + (s.start || 0);
+      if (effectiveCrewForPerson(people, overrides, dk, p.id, slotStart) !== crew.id) return;
       out.push({
-        startHour: (j.startHour ?? 0) + (s.start || 0),
+        startHour: slotStart,
         durationHrs: s.hours,
         isLoan: true,
       });
@@ -140,6 +146,7 @@ export function SuggestTimePicker({ job, defaultDate, value, onChange, height = 
   const jobs = useStore((s) => s.jobs);
   const timeOff = useStore((s) => s.timeOff);
   const templates = useStore((s) => s.templates);
+  const rosterOverrides = useStore((s) => s.crewRosterOverrides);
 
   // Snap window start to a Monday on/after defaultDate (skip weekends).
   const [windowStart, setWindowStart] = useState<Date>(() => {
@@ -206,9 +213,20 @@ export function SuggestTimePicker({ job, defaultDate, value, onChange, height = 
             startHour: j.startHour as number,
             durationHrs: j.durationHrs,
           }));
-        const loans = loanBlocksFor(crew, dk, jobs, people);
+        const loans = loanBlocksFor(crew, dk, jobs, people, rosterOverrides);
         const blocks = [...primary, ...loans].sort((a, b) => a.startHour - b.startHour);
-        const leadOff = timeOff.some((t) => t.date === dk && t.personId === crew.lead);
+        const effectiveMembers = effectiveCrewMembers({
+          crews,
+          people,
+          overrides: rosterOverrides,
+          date: dk,
+          crewId: crew.id,
+        });
+        const leadOff = effectiveMembers.some(
+          (m) =>
+            ['hvac_lead', 'electrician', 'plumber', 'fsm', 'service_tech'].includes(m.roles[0]) &&
+            timeOff.some((t) => t.date === dk && t.personId === m.id),
+        );
         return { day: d, dk, blocks, leadOff };
       });
 
@@ -306,7 +324,7 @@ export function SuggestTimePicker({ job, defaultDate, value, onChange, height = 
       });
     });
     return out;
-  }, [visibleCrews, days, duration, businessHours.start, businessHours.end, workdayLen, jobs, people, timeOff]);
+  }, [visibleCrews, days, duration, businessHours.start, businessHours.end, workdayLen, jobs, people, timeOff, crews, rosterOverrides]);
 
   const ranked = useMemo<RankedFit[]>(() => {
     return fits
@@ -598,9 +616,13 @@ export function SuggestTimePicker({ job, defaultDate, value, onChange, height = 
                     const lead = getPerson(people, crew.lead);
                     const truck = getTruck(trucks, crew.truck);
                     const isExpanded = expandedCrewId === crew.id;
-                    const members = crew.members
-                      .map((id) => getPerson(people, id))
-                      .filter((m): m is Person => !!m);
+                    const members = effectiveCrewMembers({
+                      crews,
+                      people,
+                      overrides: rosterOverrides,
+                      date: dateKey(days[0]),
+                      crewId: crew.id,
+                    });
 
                     const selFit =
                       value && value.crewId === crew.id
@@ -939,6 +961,7 @@ function ExactTimePanel({
   const trucks = useStore((s) => s.trucks);
   const customers = useStore((s) => s.customers);
   const timeOff = useStore((s) => s.timeOff);
+  const rosterOverrides = useStore((s) => s.crewRosterOverrides);
   const endHour = time + duration;
 
   const crewStatus = useMemo(() => {
@@ -950,7 +973,14 @@ function ExactTimePanel({
         .filter((j) => j.date === date && j.crewId !== crew.id && j.startHour != null)
         .flatMap((j) =>
           j.slots
-            .filter((s) => s.assignedTo && getPerson(people, s.assignedTo)?.defaultCrew === crew.id)
+            .filter((s) => {
+              if (!s.assignedTo) return false;
+              const slotStart = (j.startHour as number) + (s.start || 0);
+              return (
+                effectiveCrewForPerson(people, rosterOverrides, date, s.assignedTo, slotStart) ===
+                crew.id
+              );
+            })
             .map<ConflictRow>((s) => ({
               startHour: (j.startHour as number) + (s.start || 0),
               durationHrs: s.hours,
@@ -969,14 +999,25 @@ function ExactTimePanel({
         loanPersonName: null,
       }));
       const allRows: ConflictRow[] = [...primaryRows, ...loanRows];
-      const leadOff = timeOff.some((t) => t.date === date && t.personId === crew.lead);
+      const effectiveMembers = effectiveCrewMembers({
+        crews: eligibleCrews,
+        people,
+        overrides: rosterOverrides,
+        date,
+        crewId: crew.id,
+      });
+      const leadOff = effectiveMembers.some(
+        (m) =>
+          ['hvac_lead', 'electrician', 'plumber', 'fsm', 'service_tech'].includes(m.roles[0]) &&
+          timeOff.some((t) => t.date === date && t.personId === m.id),
+      );
       const conflicts = allRows.filter((r) => {
         const rEnd = r.startHour + r.durationHrs;
         return time < rEnd && endHour > r.startHour;
       });
       return { crew, conflicts, leadOff };
     });
-  }, [eligibleCrews, date, time, endHour, jobs, people, customers, timeOff]);
+  }, [eligibleCrews, date, time, endHour, jobs, people, customers, timeOff, rosterOverrides]);
 
   const selected = crewStatus.find((s) => s.crew.id === crewId);
   const selectedConflicts = selected?.conflicts ?? [];
@@ -1063,8 +1104,20 @@ function ExactTimePanel({
           </select>
           {selected && (
             <div className="muted small" style={{ marginTop: 4 }}>
-              {selected.crew.members.length} member
-              {selected.crew.members.length === 1 ? '' : 's'} ·{' '}
+              {effectiveCrewMembers({
+                crews: eligibleCrews,
+                people,
+                overrides: rosterOverrides,
+                date,
+                crewId: selected.crew.id,
+              }).length} member
+              {effectiveCrewMembers({
+                crews: eligibleCrews,
+                people,
+                overrides: rosterOverrides,
+                date,
+                crewId: selected.crew.id,
+              }).length === 1 ? '' : 's'} ·{' '}
               {getTruck(trucks, selected.crew.truck)?.name ?? 'No truck'}
             </div>
           )}

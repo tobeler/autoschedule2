@@ -13,6 +13,7 @@ import { addDays, dateKey, fmtTime, TODAY } from '../../data/helpers';
 import { JOB_TYPES, ROLES } from '../../data/seed';
 import { getCrew, getCustomer, getPerson } from '../../data/selectors';
 import { Avatar } from '../../components/Avatar';
+import { effectiveCrewForPerson } from '../../lib/crewEffective';
 import { useStore } from '../../store';
 
 type GroupKind = 'crew' | 'truck' | 'tech';
@@ -46,13 +47,14 @@ export function MonthCalendar({
   const allPeople = useStore((s) => s.people);
   const allCustomers = useStore((s) => s.customers);
   const allJobs = useStore((s) => s.jobs);
+  const rosterOverrides = useStore((s) => s.crewRosterOverrides);
   const moveJob = useStore((s) => s.moveJob);
   const selectJob = useStore((s) => s.selectJob);
   const pushToast = useStore((s) => s.pushToast);
   const todayKey = dateKey(TODAY);
 
   // Drop handler shared by both the per-tech strip and the 6×7 grid.
-  // `personId` is set in tech-strip mode (resolves crewId via defaultCrew).
+  // `personId` is set in tech-strip mode (resolves crewId via effective roster).
   // In the 6×7 grid we can't resolve a crew from the cell alone, so we drop
   // with crewId=null and let dispatch pick one via the auto-opened drawer.
   function dropOnDay(
@@ -67,7 +69,10 @@ export function MonthCalendar({
     let truckId: string | null = null;
     if (personId) {
       const person = getPerson(allPeople, personId);
-      const crew = getCrew(allCrews, person?.defaultCrew);
+      const effectiveCrewId = person
+        ? effectiveCrewForPerson(allPeople, rosterOverrides, dk, person.id, 8)
+        : null;
+      const crew = getCrew(allCrews, effectiveCrewId ?? person?.defaultCrew);
       crewId = crew?.id ?? null;
       truckId = crew?.truck ?? null;
     }

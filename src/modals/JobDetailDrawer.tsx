@@ -84,6 +84,8 @@ export function JobDetailDrawer() {
   const customers = useStore((s) => s.customers);
   const projects = useStore((s) => s.projects);
   const jobs = useStore((s) => s.jobs);
+  const rosterOverrides = useStore((s) => s.crewRosterOverrides);
+  const timeOff = useStore((s) => s.timeOff);
   const checklists = useStore((s) => s.checklists);
   const checklistResponses = useStore((s) => s.checklistResponses);
 
@@ -129,7 +131,12 @@ export function JobDetailDrawer() {
 
   function autoFillThisJob() {
     if (!job) return;
-    const filled = autoFillSlots(job, crew ?? null, people);
+    const filled = autoFillSlots(job, crew ?? null, people, {
+      crews,
+      rosterOverrides,
+      jobs,
+      timeOff,
+    });
     const updated: Job = { ...job, slots: filled };
     updateJob(updated);
     const filledNow = filled.filter((s) => s.suggested).length;
@@ -422,7 +429,18 @@ export function JobDetailDrawer() {
               onSchedule={(payload) => {
                 // Auto-fill slots from template + crew defaults
                 const crewObj = getCrew(crews, payload.crewId);
-                const slotsFilled = autoFillSlots(job, crewObj ?? null, people);
+                const schedulingProbe: Job = {
+                  ...job,
+                  date: payload.date,
+                  startHour: payload.startHour,
+                  crewId: payload.crewId,
+                };
+                const slotsFilled = autoFillSlots(schedulingProbe, crewObj ?? null, people, {
+                  crews,
+                  rosterOverrides,
+                  jobs,
+                  timeOff,
+                });
                 const duration = Math.max(
                   ...slotsFilled.map((s) => s.start + s.hours),
                   1,

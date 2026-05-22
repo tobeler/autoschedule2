@@ -117,7 +117,7 @@ export function TechniciansView() {
         .filter((j) => j.date === dk)
         .forEach((j) => {
           const leadSlot = j.slots.find((s) =>
-            ['hvac_lead', 'electrician', 'plumber', 'fsm'].includes(s.role),
+            ['hvac_lead', 'electrician', 'plumber', 'fsm', 'service_tech'].includes(s.role),
           );
           const leadId = leadSlot?.assignedTo || null;
           j.slots.forEach((s) => {
@@ -840,4 +840,3 @@ function SkillsMatrixDrawer({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
-

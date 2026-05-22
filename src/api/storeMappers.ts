@@ -9,6 +9,7 @@
 // =============================================================
 import type {
   Crew,
+  CrewRosterOverride,
   Customer,
   Job,
   JobSlot,
@@ -25,6 +26,7 @@ import type {
 } from '../types';
 
 import type { CrewDTO } from './schemas/crew';
+import type { CrewRosterOverrideDTO } from './schemas/crewRosterOverride';
 import type { CustomerDTO } from './schemas/customer';
 import type { JobDTO } from './schemas/job';
 import type { JobSlotDTO } from './schemas/slot';
@@ -59,6 +61,22 @@ export function crewFromDTO(d: CrewDTO): Crew {
     members: d.members,
     truck: d.truck,
     color: d.color,
+  };
+}
+
+export function crewRosterOverrideFromDTO(
+  d: CrewRosterOverrideDTO,
+): CrewRosterOverride {
+  return {
+    id: d.id,
+    date: d.date,
+    personId: d.personId,
+    sourceCrewId: d.sourceCrewId,
+    targetCrewId: d.targetCrewId,
+    startHour: d.startHour,
+    endHour: d.endHour,
+    reason: d.reason,
+    note: d.note,
   };
 }
 
@@ -302,6 +320,27 @@ export function crewToDTOPatch(c: Crew): Partial<CrewDTO> {
 
 export function crewToDTOCreate(c: Crew): Partial<CrewDTO> {
   return { ...crewToDTOPatch(c), id: c.id };
+}
+
+export function crewRosterOverrideToDTOPatch(
+  r: CrewRosterOverride,
+): Partial<CrewRosterOverrideDTO> {
+  return {
+    date: r.date,
+    personId: r.personId,
+    sourceCrewId: r.sourceCrewId,
+    targetCrewId: r.targetCrewId,
+    startHour: r.startHour,
+    endHour: r.endHour,
+    reason: r.reason,
+    note: r.note,
+  };
+}
+
+export function crewRosterOverrideToDTOCreate(
+  r: CrewRosterOverride,
+): Partial<CrewRosterOverrideDTO> {
+  return { ...crewRosterOverrideToDTOPatch(r), id: r.id };
 }
 
 export function truckToDTOPatch(t: Truck): Partial<TruckDTO> {

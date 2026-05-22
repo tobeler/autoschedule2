@@ -15,7 +15,7 @@ interface EditCrewModalProps {
   onClose: () => void;
 }
 
-const CREW_TYPES: CrewType[] = ['install', 'electrical', 'plumbing', 'sales'];
+const CREW_TYPES: CrewType[] = ['install', 'service', 'electrical', 'plumbing', 'sales'];
 
 const COLOR_PALETTE: string[] = [
   '#3CD567',

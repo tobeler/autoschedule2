@@ -21,6 +21,10 @@ import {
   TODAY,
 } from '../../data/helpers';
 import { getCrew, getCustomer, getJobType, getPerson } from '../../data/selectors';
+import {
+  effectiveCrewForPerson,
+  loanEntriesForCrewDay,
+} from '../../lib/crewEffective';
 import { useStore } from '../../store';
 
 type GroupKind = 'crew' | 'truck' | 'tech';
@@ -70,6 +74,7 @@ export function WeekCalendar({
   const allPeople = useStore((s) => s.people);
   const allCustomers = useStore((s) => s.customers);
   const allJobs = useStore((s) => s.jobs);
+  const rosterOverrides = useStore((s) => s.crewRosterOverrides);
   const moveJob = useStore((s) => s.moveJob);
   const selectJob = useStore((s) => s.selectJob);
   const pushToast = useStore((s) => s.pushToast);
@@ -82,7 +87,7 @@ export function WeekCalendar({
   // crew rows → row id is the crew id (truckId comes from the crew's default).
   // truck rows → row id is the truck id (crewId comes from the truck's assignment).
   // tech rows → row id is the person id (crewId from defaultCrew, truck from that crew).
-  function rowAssignment(row: WeekRow): { crewId: string | null; truckId: string | null } {
+  function rowAssignment(row: WeekRow, dk: string): { crewId: string | null; truckId: string | null } {
     if (row.kind === 'crew') {
       const crew = getCrew(allCrews, row.id);
       return { crewId: row.id, truckId: crew?.truck ?? null };
@@ -93,7 +98,10 @@ export function WeekCalendar({
     }
     // tech
     const person = getPerson(allPeople, row.id);
-    const crew = getCrew(allCrews, person?.defaultCrew);
+    const crewId = person
+      ? effectiveCrewForPerson(allPeople, rosterOverrides, dk, person.id)
+      : null;
+    const crew = getCrew(allCrews, crewId);
     return { crewId: crew?.id ?? null, truckId: crew?.truck ?? null };
   }
 
@@ -104,7 +112,7 @@ export function WeekCalendar({
   ) {
     const jobId = e.dataTransfer.getData('text/job-id');
     if (!jobId) return;
-    const { crewId, truckId } = rowAssignment(row);
+    const { crewId, truckId } = rowAssignment(row, dk);
     const prevJob = allJobs.find((j) => j.id === jobId);
     const wasUnscheduled = prevJob?.status === 'unscheduled';
     const previouslyFilledCount =
@@ -268,18 +276,12 @@ export function WeekCalendar({
               });
               const loanBlocks: LoanBlock[] =
                 row.kind === 'crew'
-                  ? jobs.flatMap((j) => {
-                      if (j.date !== dk) return [];
-                      if (j.crewId === row.id) return [];
-                      const out: LoanBlock[] = [];
-                      j.slots.forEach((s) => {
-                        if (!s.assignedTo) return;
-                        const person = getPerson(allPeople, s.assignedTo);
-                        if (!person) return;
-                        if (person.defaultCrew !== row.id) return;
-                        out.push({ job: j, slot: s, person });
-                      });
-                      return out;
+                  ? loanEntriesForCrewDay({
+                      crewId: row.id,
+                      date: dk,
+                      jobs,
+                      people: allPeople,
+                      overrides: rosterOverrides,
                     })
                   : [];
 

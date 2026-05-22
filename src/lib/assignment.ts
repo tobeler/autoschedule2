@@ -1,25 +1,74 @@
 // =============================================================
 // Auto-assignment / crew formation.
 // =============================================================
-import type { Crew, Job, JobSlot, Person, TimeOff } from '../types';
+import type { Crew, CrewRosterOverride, Job, JobSlot, Person, TimeOff } from '../types';
 import { JOB_TEMPLATES } from '../data/seed';
 import { estimateDriveTime } from './routing';
+import {
+  effectiveCrewMembers,
+  personIsAvailableForSlot,
+} from './crewEffective';
 
 const LEVEL_ORDER = ['L1', 'L2', 'L3'] as const;
 
-/** Walk a job's slots and fill empty ones with crew members first, then anyone qualified. */
-export function autoFillSlots(job: Job, crew: Crew | null | undefined, allPeople: Person[]): JobSlot[] {
+export interface AutoFillContext {
+  crews?: Crew[];
+  rosterOverrides?: CrewRosterOverride[];
+  jobs?: Job[];
+  timeOff?: TimeOff[];
+}
+
+/** Walk a job's slots and fill empty ones with effective crew members first, then anyone qualified. */
+export function autoFillSlots(
+  job: Job,
+  crew: Crew | null | undefined,
+  allPeople: Person[],
+  context: AutoFillContext = {},
+): JobSlot[] {
+  const alreadyPicked = new Set(job.slots.map((slot) => slot.assignedTo).filter(Boolean) as string[]);
   return job.slots.map((slot) => {
     if (slot.assignedTo) return slot;
-    const crewMembers = crew ? allPeople.filter((p) => crew.members.includes(p.id)) : [];
-    const candidates = [...crewMembers, ...allPeople.filter((p) => !crewMembers.includes(p))];
+    const effectiveMembers =
+      crew && job.date
+        ? effectiveCrewMembers({
+            crews: context.crews ?? (crew ? [crew] : []),
+            people: allPeople,
+            overrides: context.rosterOverrides ?? [],
+            date: job.date,
+            crewId: crew.id,
+            window:
+              job.startHour == null
+                ? undefined
+                : {
+                    startHour: job.startHour + (slot.start || 0),
+                    endHour: job.startHour + (slot.start || 0) + slot.hours,
+                  },
+          })
+        : crew
+          ? allPeople.filter((p) => crew.members.includes(p.id))
+          : [];
+    const crewIds = new Set(effectiveMembers.map((p) => p.id));
+    const candidates = [
+      ...effectiveMembers,
+      ...allPeople.filter((p) => !crewIds.has(p.id)),
+    ];
     const match = candidates.find(
       (p) =>
+        !alreadyPicked.has(p.id) &&
         p.roles.includes(slot.role) &&
         (slot.role === 'apprentice' ||
-          LEVEL_ORDER.indexOf(p.level) >= LEVEL_ORDER.indexOf((slot.level as typeof LEVEL_ORDER[number]) || 'L1')),
+          LEVEL_ORDER.indexOf(p.level) >= LEVEL_ORDER.indexOf((slot.level as typeof LEVEL_ORDER[number]) || 'L1')) &&
+        personIsAvailableForSlot({
+          person: p,
+          slot,
+          job,
+          jobs: context.jobs ?? [],
+          timeOff: context.timeOff,
+        }),
     );
-    return match ? { ...slot, assignedTo: match.id, suggested: true } : slot;
+    if (!match) return slot;
+    alreadyPicked.add(match.id);
+    return { ...slot, assignedTo: match.id, suggested: true };
   });
 }
 
@@ -35,9 +84,11 @@ interface ScoreInputs {
   allPeople: Person[];
   allJobs: Job[];
   timeOff: TimeOff[];
+  rosterOverrides?: CrewRosterOverride[];
+  crews?: Crew[];
 }
 
-function scoreCrew({ crew, job, allPeople, allJobs, timeOff }: ScoreInputs): CrewSuggestion {
+function scoreCrew({ crew, job, allPeople, allJobs, timeOff, rosterOverrides = [], crews = [] }: ScoreInputs): CrewSuggestion {
   const tpl = JOB_TEMPLATES[job.type as string];
   const reasons: string[] = [];
   let score = 0;
@@ -45,7 +96,19 @@ function scoreCrew({ crew, job, allPeople, allJobs, timeOff }: ScoreInputs): Cre
   if (!tpl) return { crewId: crew.id, score, reasons: ['no template'] };
 
   // 1) Skill coverage
-  const members = allPeople.filter((p) => crew.members.includes(p.id));
+  const members = job.date
+    ? effectiveCrewMembers({
+        crews: crews.length ? crews : [crew],
+        people: allPeople,
+        overrides: rosterOverrides,
+        date: job.date,
+        crewId: crew.id,
+        window:
+          job.startHour == null
+            ? undefined
+            : { startHour: job.startHour, endHour: job.startHour + job.durationHrs },
+      })
+    : allPeople.filter((p) => crew.members.includes(p.id));
   const requiredSlots = tpl.slots.filter((s) => !s.optional);
   const covered = requiredSlots.filter((slot) =>
     members.some(
@@ -76,7 +139,7 @@ function scoreCrew({ crew, job, allPeople, allJobs, timeOff }: ScoreInputs): Cre
     const dayLoad = allJobs
       .filter((j) => j.date === job.date && j.crewId === crew.id)
       .reduce((a, j) => a + j.durationHrs, 0);
-    const out = timeOff.filter((t) => t.date === job.date && crew.members.includes(t.personId));
+    const out = timeOff.filter((t) => t.date === job.date && members.some((m) => m.id === t.personId));
     if (dayLoad < 8) {
       score += 10;
       reasons.push(`${Math.max(0, 8 - dayLoad).toFixed(1)}h available`);
@@ -105,8 +168,17 @@ function scoreCrew({ crew, job, allPeople, allJobs, timeOff }: ScoreInputs): Cre
   return { crewId: crew.id, score: Math.round(score), reasons };
 }
 
-export function suggestCrewForJob(job: Job, crews: Crew[], allPeople: Person[], allJobs: Job[], timeOff: TimeOff[]): CrewSuggestion[] {
+export function suggestCrewForJob(
+  job: Job,
+  crews: Crew[],
+  allPeople: Person[],
+  allJobs: Job[],
+  timeOff: TimeOff[],
+  rosterOverrides: CrewRosterOverride[] = [],
+): CrewSuggestion[] {
   return crews
-    .map((crew) => scoreCrew({ crew, job, allPeople, allJobs, timeOff }))
+    .map((crew) =>
+      scoreCrew({ crew, job, allPeople, allJobs, timeOff, rosterOverrides, crews }),
+    )
     .sort((a, b) => b.score - a.score);
 }

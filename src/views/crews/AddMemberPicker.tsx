@@ -22,6 +22,7 @@ interface AddMemberPickerProps {
 // when the candidate already has a default crew assigned elsewhere.
 const CREW_TYPE_ROLES: Record<string, RoleKey[]> = {
   install: ['hvac_lead', 'hvac_installer', 'apprentice', 'electrician'],
+  service: ['service_tech', 'hvac_lead', 'hvac_installer', 'apprentice'],
   electrical: ['electrician', 'apprentice'],
   plumbing: ['plumber', 'apprentice'],
   sales: ['fsm'],

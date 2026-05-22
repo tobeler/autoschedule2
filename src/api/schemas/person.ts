@@ -4,7 +4,15 @@
 import { z } from './common';
 
 export const RoleKeySchema = z
-  .enum(['hvac_lead', 'hvac_installer', 'apprentice', 'electrician', 'plumber', 'fsm'])
+  .enum([
+    'hvac_lead',
+    'hvac_installer',
+    'apprentice',
+    'service_tech',
+    'electrician',
+    'plumber',
+    'fsm',
+  ])
   .openapi('RoleKey');
 
 export const LevelSchema = z.enum(['L1', 'L2', 'L3']).openapi('Level');

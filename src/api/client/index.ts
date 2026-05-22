@@ -21,6 +21,7 @@ import type {
 } from '../schemas/apiKey';
 import type { ChecklistResponseDTO, ChecklistDTO } from '../schemas/checklist';
 import type { CrewDTO } from '../schemas/crew';
+import type { CrewRosterOverrideDTO } from '../schemas/crewRosterOverride';
 import type { CustomerDTO } from '../schemas/customer';
 import type { Customer, Project, Region } from '../../types';
 import type { JobDTO } from '../schemas/job';
@@ -89,6 +90,14 @@ interface JobListFilters extends ListFilters {
   status?: JobDTO['status'];
   customer?: string;
   projectId?: string;
+}
+
+interface CrewRosterOverrideFilters extends ListFilters {
+  date?: string;
+  from?: string;
+  to?: string;
+  personId?: string;
+  targetCrewId?: string;
 }
 
 export function createApiClient(opts: ClientOptions = {}) {
@@ -207,6 +216,30 @@ export function createApiClient(opts: ClientOptions = {}) {
         request<CrewDTO>('PATCH', `/crews/${encodeURIComponent(id)}`, { body }),
       remove: (id: string) =>
         request<{ ok: true }>('DELETE', `/crews/${encodeURIComponent(id)}`),
+    },
+
+    crewRosterOverrides: {
+      list: (f: CrewRosterOverrideFilters = {}) =>
+        request<PagedResponse<CrewRosterOverrideDTO>>('GET', '/crew-roster-overrides', {
+          ...f,
+          query: {
+            date: f.date,
+            from: f.from,
+            to: f.to,
+            personId: f.personId,
+            targetCrewId: f.targetCrewId,
+            limit: f.limit?.toString(),
+            offset: f.offset?.toString(),
+          },
+        }),
+      get: (id: string) =>
+        request<CrewRosterOverrideDTO>('GET', `/crew-roster-overrides/${encodeURIComponent(id)}`),
+      create: (body: Partial<CrewRosterOverrideDTO>) =>
+        request<CrewRosterOverrideDTO>('POST', '/crew-roster-overrides', { body }),
+      update: (id: string, body: Partial<CrewRosterOverrideDTO>) =>
+        request<CrewRosterOverrideDTO>('PATCH', `/crew-roster-overrides/${encodeURIComponent(id)}`, { body }),
+      remove: (id: string) =>
+        request<{ ok: true }>('DELETE', `/crew-roster-overrides/${encodeURIComponent(id)}`),
     },
 
     trucks: {

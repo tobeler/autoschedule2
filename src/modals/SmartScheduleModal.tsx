@@ -19,6 +19,7 @@ import {
 } from '../data/selectors';
 import { addDays, dateKey, fmtDate, fmtTime, parseDateKey, TODAY } from '../data/helpers';
 import { autoFillSlots, suggestCrewForJob } from '../lib/assignment';
+import { effectiveCrewMemberIds } from '../lib/crewEffective';
 import { useStore } from '../store';
 import type { Job } from '../types';
 
@@ -31,6 +32,7 @@ export function SmartScheduleModal() {
   const customers = useStore((s) => s.customers);
   const trucks = useStore((s) => s.trucks);
   const timeOff = useStore((s) => s.timeOff);
+  const rosterOverrides = useStore((s) => s.crewRosterOverrides);
   const updateJob = useStore((s) => s.updateJob);
   const pushToast = useStore((s) => s.pushToast);
 
@@ -54,8 +56,8 @@ export function SmartScheduleModal() {
   const suggestions = useMemo(() => {
     if (!job) return [];
     const probe: Job = { ...job, date, startHour };
-    return suggestCrewForJob(probe, crews, people, jobs, timeOff).slice(0, 6);
-  }, [job, date, startHour, crews, people, jobs, timeOff]);
+    return suggestCrewForJob(probe, crews, people, jobs, timeOff, rosterOverrides).slice(0, 6);
+  }, [job, date, startHour, crews, people, jobs, timeOff, rosterOverrides]);
 
   // Auto-pick the top suggestion.
   useEffect(() => {
@@ -72,7 +74,13 @@ export function SmartScheduleModal() {
   function schedule() {
     if (!job || !crewChoice) return;
     const crew = getCrew(crews, crewChoice);
-    const filledSlots = autoFillSlots(job, crew ?? null, people);
+    const probe: Job = { ...job, date, startHour, crewId: crewChoice };
+    const filledSlots = autoFillSlots(probe, crew ?? null, people, {
+      crews,
+      rosterOverrides,
+      jobs,
+      timeOff,
+    });
     const duration = Math.max(...filledSlots.map((s) => s.start + s.hours), 1);
     const updated: Job = {
       ...job,
@@ -226,7 +234,14 @@ export function SmartScheduleModal() {
                       </div>
                     </div>
                     <div className="row" style={{ gap: 4 }}>
-                      {crew.members.slice(0, 4).map((m) => (
+                      {effectiveCrewMemberIds({
+                        crews,
+                        people,
+                        overrides: rosterOverrides,
+                        date,
+                        crewId: crew.id,
+                        window: { startHour, endHour: startHour + job.durationHrs },
+                      }).slice(0, 4).map((m) => (
                         <Avatar key={m} person={m} size="xs" />
                       ))}
                     </div>

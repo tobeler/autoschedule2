@@ -14,6 +14,7 @@ import type {
   Project,
   Region,
   TimeOff,
+  CrewRosterOverride,
   ChecklistSection,
   ChecklistResponses,
   Job,
@@ -38,6 +39,7 @@ export const ROLES: Record<RoleKey, RoleDef> = {
   hvac_lead: { label: 'HVAC Lead', short: 'Lead', needsTruck: true, levels: ['L1', 'L2', 'L3'] },
   hvac_installer: { label: 'HVAC Installer', short: 'Install', needsTruck: false, levels: ['L1', 'L2'] },
   apprentice: { label: 'Apprentice', short: 'Appr.', needsTruck: false, levels: ['L1'] },
+  service_tech: { label: 'Service Technician', short: 'Service', needsTruck: true, levels: ['L1', 'L2', 'L3'] },
   electrician: { label: 'Electrician', short: 'Elec.', needsTruck: true, levels: ['L1', 'L2', 'L3'] },
   plumber: { label: 'Plumber', short: 'Plumb.', needsTruck: true, levels: ['L1', 'L2'] },
   fsm: { label: 'Field Sales', short: 'FSM', needsTruck: false, levels: ['L1', 'L2'] },
@@ -78,17 +80,17 @@ export const JOB_TEMPLATES: Record<string, JobTemplate> = {
   },
   service: {
     label: 'Service · Care Plus',
-    slots: [{ role: 'hvac_installer', level: 'L2', hours: 2, start: 0 }],
+    slots: [{ role: 'service_tech', level: 'L2', hours: 2, start: 0 }],
     truckCount: 1,
   },
   warranty: {
     label: 'Service · Warranty',
-    slots: [{ role: 'hvac_installer', level: 'L2', hours: 2, start: 0 }],
+    slots: [{ role: 'service_tech', level: 'L2', hours: 2, start: 0 }],
     truckCount: 1,
   },
   callback: {
     label: 'Service · Callback',
-    slots: [{ role: 'hvac_lead', level: 'L2', hours: 1.5, start: 0 }],
+    slots: [{ role: 'service_tech', level: 'L2', hours: 1.5, start: 0 }],
     truckCount: 1,
   },
   walkthrough: {
@@ -125,6 +127,8 @@ export const PEOPLE: Person[] = [
   { id: 'p18', name: 'Reuben Marsh', initials: 'RM', roles: ['plumber'], level: 'L1', defaultCrew: 'c9' },
   { id: 'p19', name: 'Camille Rivera', initials: 'CR', roles: ['fsm'], level: 'L2', defaultCrew: 'c10' },
   { id: 'p20', name: 'Theo Marchetti', initials: 'TM', roles: ['fsm'], level: 'L1', defaultCrew: 'c10' },
+  { id: 'p21', name: 'Lena Morales', initials: 'LM', roles: ['service_tech'], level: 'L3', defaultCrew: 'c11', certs: ['EPA 608', 'Care Plus'] },
+  { id: 'p22', name: 'Owen Brooks', initials: 'OB', roles: ['service_tech'], level: 'L2', defaultCrew: 'c12', certs: ['EPA 608'] },
 ];
 
 // ============ CREWS ============
@@ -139,6 +143,8 @@ export const CREWS: Crew[] = [
   { id: 'c8', name: 'Walsh Electric', type: 'electrical', lead: 'p16', members: ['p16'], truck: 't8', color: '#C53030' },
   { id: 'c9', name: 'Doyle Plumbing', type: 'plumbing', lead: 'p17', members: ['p17', 'p18'], truck: 't9', color: '#2A6F94' },
   { id: 'c10', name: 'Sales Team', type: 'sales', lead: 'p19', members: ['p19', 'p20'], truck: null, color: '#ACAA93' },
+  { id: 'c11', name: 'Morales Service', type: 'service', lead: 'p21', members: ['p21'], truck: 't12', color: '#01867A' },
+  { id: 'c12', name: 'Brooks Service', type: 'service', lead: 'p22', members: ['p22'], truck: 't13', color: '#515A9B' },
 ];
 
 // ============ TRUCKS ============
@@ -154,6 +160,8 @@ export const TRUCKS: Truck[] = [
   { id: 't9', name: 'Van 08', plate: 'JTN-V008', kind: 'plumbing', capacity: 'Plumb + tank rig', assignedCrew: 'c9', vin: '1GCRW...08' },
   { id: 't10', name: 'Truck 18', plate: 'JTN-0018', kind: 'install', capacity: 'Heat pump + tools', assignedCrew: null, vin: '1FTBR1Y8...18', status: 'shop' },
   { id: 't11', name: 'Van 10', plate: 'JTN-V010', kind: 'electrical', capacity: 'Spare van', assignedCrew: null, vin: '1GCRW...10', status: 'available' },
+  { id: 't12', name: 'Van 15', plate: 'JTN-V015', kind: 'service', capacity: 'Service kit + diagnostic tools', assignedCrew: 'c11', vin: '1GCRW...15' },
+  { id: 't13', name: 'Van 16', plate: 'JTN-V016', kind: 'service', capacity: 'Service kit + diagnostic tools', assignedCrew: 'c12', vin: '1GCRW...16' },
 ];
 
 // ============ CUSTOMERS ============
@@ -340,20 +348,20 @@ export const JOBS_SEED: Job[] = [
   }),
   makeJob({
     id: 'J-2630', type: 'service', status: 'scheduled', customer: 'cu6', address: '23 Hawthorne Ct · Arlington',
-    date: T, startHour: 10, crewId: 'c4', truckId: 't4',
-    slots: [{ role: 'hvac_installer', level: 'L2', hours: 2, start: 0, assignedTo: 'p9' }],
+    date: T, startHour: 10, crewId: 'c11', truckId: 't12',
+    slots: [{ role: 'service_tech', level: 'L2', hours: 2, start: 0, assignedTo: 'p21' }],
     notes: 'Annual Care Plus tune-up',
   }),
   makeJob({
     id: 'J-2631', type: 'warranty', status: 'scheduled', customer: 'cu7', address: '76 Beech St · Watertown',
-    date: T, startHour: 13, crewId: 'c4', truckId: 't4',
-    slots: [{ role: 'hvac_installer', level: 'L2', hours: 2, start: 0, assignedTo: 'p9' }],
+    date: T, startHour: 13, crewId: 'c11', truckId: 't12',
+    slots: [{ role: 'service_tech', level: 'L2', hours: 2, start: 0, assignedTo: 'p21' }],
     notes: 'Capacitor replacement under warranty',
   }),
   makeJob({
     id: 'J-2632', type: 'callback', status: 'callback', customer: 'cu8', address: '210 Pleasant St · Belmont',
-    date: T, startHour: 15.5, crewId: 'c5', truckId: 't5',
-    slots: [{ role: 'hvac_lead', level: 'L2', hours: 1.5, start: 0, assignedTo: 'p5' }],
+    date: T, startHour: 15.5, crewId: 'c12', truckId: 't13',
+    slots: [{ role: 'service_tech', level: 'L2', hours: 1.5, start: 0, assignedTo: 'p22' }],
     notes: 'Returning to fix noisy fan — completed install 5/14',
   }),
   makeJob({
@@ -415,8 +423,11 @@ export const JOBS_SEED: Job[] = [
   }),
   makeJob({
     id: 'J-2663', type: 'service', status: 'scheduled', customer: 'cu8', address: '210 Pleasant St · Belmont',
-    date: Tp1, startHour: 10, crewId: 'c5', truckId: 't5',
-    slots: [{ role: 'hvac_installer', level: 'L2', hours: 2, start: 0, assignedTo: 'p10' }],
+    date: Tp1, startHour: 10, crewId: 'c12', truckId: 't13',
+    slots: [
+      { role: 'service_tech', level: 'L2', hours: 2, start: 0, assignedTo: 'p22' },
+      { role: 'service_tech', level: 'L1', hours: 2, start: 0, assignedTo: 'p21', optional: true },
+    ],
   }),
   makeJob({
     id: 'J-2664', type: 'walkthrough', status: 'scheduled', customer: 'cu12', address: '17 Cedar Ct · Medford',
@@ -435,8 +446,8 @@ export const JOBS_SEED: Job[] = [
   }),
   makeJob({
     id: 'J-2581', type: 'service', status: 'complete', customer: 'cu3', address: '305 Walnut St · Cambridge',
-    date: Tm1, startHour: 14, crewId: 'c4', truckId: 't4',
-    slots: [{ role: 'hvac_installer', level: 'L2', hours: 2, start: 0, assignedTo: 'p9' }],
+    date: Tm1, startHour: 14, crewId: 'c11', truckId: 't12',
+    slots: [{ role: 'service_tech', level: 'L2', hours: 2, start: 0, assignedTo: 'p21' }],
   }),
   // ===== Tp2 / Tp3 / Tp4 =====
   makeJob({
@@ -481,9 +492,23 @@ export const JOBS_SEED: Job[] = [
   }),
   makeJob({
     id: 'J-2675', type: 'service', status: 'scheduled', customer: 'cu7', address: '76 Beech St · Watertown',
-    date: Tp2, startHour: 14, crewId: 'c4', truckId: 't4',
-    slots: [{ role: 'hvac_installer', level: 'L2', hours: 2, start: 0, assignedTo: 'p9' }],
+    date: Tp2, startHour: 14, crewId: 'c11', truckId: 't12',
+    slots: [{ role: 'service_tech', level: 'L2', hours: 2, start: 0, assignedTo: 'p21' }],
   }),
+];
+
+export const CREW_ROSTER_OVERRIDES: CrewRosterOverride[] = [
+  {
+    id: 'cro1',
+    date: Tp1,
+    personId: 'p21',
+    sourceCrewId: 'c11',
+    targetCrewId: 'c12',
+    startHour: 10,
+    endHour: 12,
+    reason: 'service_pair',
+    note: 'Pair Lena with Owen for warranty diagnostic.',
+  },
 ];
 
 // Stitch jobs → projects

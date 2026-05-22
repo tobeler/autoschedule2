@@ -39,6 +39,7 @@ export type RoleKey =
   | 'hvac_lead'
   | 'hvac_installer'
   | 'apprentice'
+  | 'service_tech'
   | 'electrician'
   | 'plumber'
   | 'fsm';
@@ -62,9 +63,28 @@ export interface Person {
   certs?: string[];
 }
 
+export type CrewRosterOverrideReason =
+  | 'loan'
+  | 'sick_cover'
+  | 'training'
+  | 'service_pair'
+  | 'manual';
+
+export interface CrewRosterOverride {
+  id: string;
+  date: string;
+  personId: string;
+  sourceCrewId: string | null;
+  targetCrewId: string;
+  startHour: number | null;
+  endHour: number | null;
+  reason: CrewRosterOverrideReason;
+  note?: string;
+}
+
 // ---- Crews & trucks ----------------------------------------------------------
 
-export type CrewType = 'install' | 'electrical' | 'plumbing' | 'sales' | string;
+export type CrewType = 'install' | 'service' | 'electrical' | 'plumbing' | 'sales' | string;
 
 export interface Crew {
   id: string;

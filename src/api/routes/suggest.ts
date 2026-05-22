@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import {
   crewMembers,
+  crewRosterOverrides,
   crews as crewsTable,
   jobs as jobsTable,
   people as peopleTable,
@@ -19,6 +20,7 @@ import {
 } from '@/db/schema';
 import type { Crew, Job, JobSlot, Person, RoleKey, TimeOff } from '@/types';
 import { suggestCrewForJob } from '@/lib/assignment';
+import { effectiveCrewMembers } from '@/lib/crewEffective';
 
 import { ProblemResponses, jsonContent, z } from '../schemas/common';
 import {
@@ -37,6 +39,7 @@ async function loadAllForSuggestions() {
   const roleRows = await db.select().from(personRoles);
   const jobRows = await db.select().from(jobsTable);
   const timeOffRows = await db.select().from(timeOff);
+  const rosterRows = await db.select().from(crewRosterOverrides);
 
   const rolesByPerson = new Map<string, RoleKey[]>();
   for (const r of roleRows) {
@@ -97,7 +100,19 @@ async function loadAllForSuggestions() {
     label: t.label,
   }));
 
-  return { allCrews, allPeople, allJobs, allTimeOff };
+  const allRosterOverrides = rosterRows.map((r) => ({
+    id: r.id,
+    date: r.date,
+    personId: r.personId,
+    sourceCrewId: r.sourceCrewId,
+    targetCrewId: r.targetCrewId,
+    startHour: r.startHour == null ? null : Number(r.startHour),
+    endHour: r.endHour == null ? null : Number(r.endHour),
+    reason: r.reason,
+    note: r.note ?? undefined,
+  }));
+
+  return { allCrews, allPeople, allJobs, allTimeOff, allRosterOverrides };
 }
 
 const suggestCrewRoute = createRoute({
@@ -130,7 +145,8 @@ const WORK_END = 17;
 export function registerSuggestRoutes(app: OpenAPIHono<ApiEnv>): void {
   app.openapi(suggestCrewRoute, async (c) => {
     const body = c.req.valid('json');
-    const { allCrews, allPeople, allJobs, allTimeOff } = await loadAllForSuggestions();
+    const { allCrews, allPeople, allJobs, allTimeOff, allRosterOverrides } =
+      await loadAllForSuggestions();
     let job: Job;
     if ('jobId' in body) {
       const found = allJobs.find((j) => j.id === body.jobId);
@@ -157,14 +173,22 @@ export function registerSuggestRoutes(app: OpenAPIHono<ApiEnv>): void {
         projectId: draft.projectId ?? null,
       };
     }
-    const suggestions = suggestCrewForJob(job, allCrews, allPeople, allJobs, allTimeOff);
+    const suggestions = suggestCrewForJob(
+      job,
+      allCrews,
+      allPeople,
+      allJobs,
+      allTimeOff,
+      allRosterOverrides,
+    );
     return c.json({ suggestions }, 200);
   });
 
   app.openapi(suggestTimeRoute, async (c) => {
     const { jobType, durationHrs, requiredRoles, anchorDate, daysAhead } =
       c.req.valid('json');
-    const { allCrews, allPeople, allJobs, allTimeOff } = await loadAllForSuggestions();
+    const { allCrews, allPeople, allJobs, allTimeOff, allRosterOverrides } =
+      await loadAllForSuggestions();
 
     const today = anchorDate ?? new Date().toISOString().slice(0, 10);
     const startDate = new Date(today + 'T00:00:00');
@@ -179,10 +203,19 @@ export function registerSuggestRoutes(app: OpenAPIHono<ApiEnv>): void {
 
     // Crew must have at least one member per required role.
     for (const crew of allCrews) {
-      const members = allPeople.filter((p) => crew.members.includes(p.id));
+      const membersForRoles =
+        anchorDate
+          ? effectiveCrewMembers({
+              crews: allCrews,
+              people: allPeople,
+              overrides: allRosterOverrides,
+              date: anchorDate,
+              crewId: crew.id,
+            })
+          : allPeople.filter((p) => crew.members.includes(p.id));
       const okRoles =
         requiredRoles.length === 0 ||
-        requiredRoles.every((rr) => members.some((m) => m.roles.includes(rr.role)));
+        requiredRoles.every((rr) => membersForRoles.some((m) => m.roles.includes(rr.role)));
       if (!okRoles) continue;
       for (let d = 0; d < daysAhead; d += 1) {
         const date = new Date(startDate);
@@ -191,9 +224,14 @@ export function registerSuggestRoutes(app: OpenAPIHono<ApiEnv>): void {
         const dayJobs = allJobs.filter(
           (j) => j.date === day && j.crewId === crew.id && j.startHour != null,
         );
-        const onLeave = allTimeOff.some(
-          (t) => t.date === day && crew.members.includes(t.personId),
-        );
+        const members = effectiveCrewMembers({
+          crews: allCrews,
+          people: allPeople,
+          overrides: allRosterOverrides,
+          date: day,
+          crewId: crew.id,
+        });
+        const onLeave = allTimeOff.some((t) => t.date === day && members.some((m) => m.id === t.personId));
         if (onLeave) continue;
         const used: Array<[number, number]> = dayJobs
           .map((j) => [j.startHour as number, (j.startHour as number) + j.durationHrs] as [number, number])

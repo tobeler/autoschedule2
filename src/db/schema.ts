@@ -34,6 +34,7 @@ export const roleKeyEnum = pgEnum('role_key', [
   'hvac_lead',
   'hvac_installer',
   'apprentice',
+  'service_tech',
   'electrician',
   'plumber',
   'fsm',
@@ -89,6 +90,14 @@ export const vehicleModeEnum = pgEnum('vehicle_mode', [
   'fleet',
   'personal',
   'none',
+]);
+
+export const crewRosterOverrideReasonEnum = pgEnum('crew_roster_override_reason', [
+  'loan',
+  'sick_cover',
+  'training',
+  'service_pair',
+  'manual',
 ]);
 
 export const checklistItemTypeEnum = pgEnum('checklist_item_type', [
@@ -262,6 +271,26 @@ export const crewMembers = pgTable(
     pk: primaryKey({ columns: [t.crewId, t.personId] }),
   }),
 );
+
+export const crewRosterOverrides = pgTable('crew_roster_overrides', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull(),
+  personId: text('personId')
+    .notNull()
+    .references(() => people.id, { onDelete: 'cascade' }),
+  sourceCrewId: text('sourceCrewId').references(() => crews.id, {
+    onDelete: 'set null',
+  }),
+  targetCrewId: text('targetCrewId')
+    .notNull()
+    .references(() => crews.id, { onDelete: 'cascade' }),
+  startHour: numeric('startHour', { precision: 6, scale: 2 }),
+  endHour: numeric('endHour', { precision: 6, scale: 2 }),
+  reason: crewRosterOverrideReasonEnum('reason').notNull().default('manual'),
+  note: text('note'),
+  createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const customers = pgTable('customers', {
   id: text('id').primaryKey(),
@@ -561,6 +590,7 @@ export type NewUser = typeof users.$inferInsert;
 export type Profile = typeof profiles.$inferSelect;
 export type DbPerson = typeof people.$inferSelect;
 export type DbCrew = typeof crews.$inferSelect;
+export type DbCrewRosterOverride = typeof crewRosterOverrides.$inferSelect;
 export type DbTruck = typeof trucks.$inferSelect;
 export type DbCustomer = typeof customers.$inferSelect;
 export type DbProject = typeof projects.$inferSelect;

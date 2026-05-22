@@ -1729,6 +1729,443 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/crew-roster-overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List crew roster overrides */
+        get: {
+            parameters: {
+                query?: {
+                    date?: string;
+                    from?: string;
+                    to?: string;
+                    personId?: string;
+                    targetCrewId?: string;
+                    limit?: string;
+                    offset?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Crew roster override page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: components["schemas"]["CrewRosterOverride"][];
+                            total: number;
+                            limit: number;
+                            offset: number;
+                        };
+                    };
+                };
+                /** @description Validation error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Server error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Create a crew roster override */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description Override fields */
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["CrewRosterOverrideCreate"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CrewRosterOverride"];
+                    };
+                };
+                /** @description Validation error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Server error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crew-roster-overrides/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a crew roster override */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Entity identifier. */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Crew roster override */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CrewRosterOverride"];
+                    };
+                };
+                /** @description Validation error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Server error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Delete a crew roster override */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Entity identifier. */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {boolean} */
+                            ok: true;
+                        };
+                    };
+                };
+                /** @description Validation error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Server error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Update a crew roster override */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Entity identifier. */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            /** @description Patch fields */
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["CrewRosterOverrideUpdate"];
+                };
+            };
+            responses: {
+                /** @description Updated */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CrewRosterOverride"];
+                    };
+                };
+                /** @description Validation error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Server error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/v1/trucks": {
         parameters: {
             query?: never;
@@ -4890,7 +5327,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Pull HubSpot contacts/projects/deals into our DB (Phase 13) */
+        /** Pull HubSpot service areas, contacts, projects, deals, and legacy installations into our DB. */
         post: {
             parameters: {
                 query?: never;
@@ -4900,13 +5337,103 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Sync result */
+                /** @description Sync result. Shape depends on DATABASE_URL: DB mode returns row counts, demo mode returns parsed entities. */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["HubspotSyncResult"];
+                        "application/json": components["schemas"]["HubspotSyncResult"] | components["schemas"]["HubspotSyncDemoResult"];
+                    };
+                };
+                /** @description Validation error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Server error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hubspot/ping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify the configured HUBSPOT_TOKEN by hitting /account-info/v3/details. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Ping ok */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HubspotPingResult"];
                     };
                 };
                 /** @description Validation error */
@@ -4980,7 +5507,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Push one job to the HubSpot Job custom object (Phase 13) */
+        /** Push one job to the HubSpot Job custom object. */
         post: {
             parameters: {
                 query?: never;
@@ -5072,7 +5599,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Push one project lifecycle update to HubSpot (Phase 13) */
+        /** Push one project lifecycle update to the HubSpot Project record. */
         post: {
             parameters: {
                 query?: never;
@@ -5349,7 +5876,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List audit entries (admin-only) */
+        /** List audit entries (admin + manager) */
         get: {
             parameters: {
                 query?: {
@@ -5357,6 +5884,9 @@ export interface paths {
                     entityId?: string;
                     actorUserId?: string;
                     since?: string;
+                    from?: string;
+                    to?: string;
+                    cursor?: string;
                     limit?: string;
                     offset?: string;
                 };
@@ -5705,6 +6235,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Identity + role for the current actor */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Me */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Me"];
+                    };
+                };
+                /** @description Validation error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Server error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -5759,7 +6379,7 @@ export interface components {
             suggested?: boolean;
         };
         /** @enum {string} */
-        RoleKey: "hvac_lead" | "hvac_installer" | "apprentice" | "electrician" | "plumber" | "fsm";
+        RoleKey: "hvac_lead" | "hvac_installer" | "apprentice" | "service_tech" | "electrician" | "plumber" | "fsm";
         /** @enum {string} */
         Level: "L1" | "L2" | "L3";
         /** @enum {string} */
@@ -5914,6 +6534,40 @@ export interface components {
             members?: string[];
             truck?: string | null;
             color?: string;
+        };
+        CrewRosterOverride: {
+            id: string;
+            date: string;
+            personId: string;
+            sourceCrewId: string | null;
+            targetCrewId: string;
+            startHour: number | null;
+            endHour: number | null;
+            reason: components["schemas"]["CrewRosterOverrideReason"];
+            note?: string;
+        };
+        /** @enum {string} */
+        CrewRosterOverrideReason: "loan" | "sick_cover" | "training" | "service_pair" | "manual";
+        CrewRosterOverrideCreate: {
+            date: string;
+            personId: string;
+            sourceCrewId: string | null;
+            targetCrewId: string;
+            startHour: number | null;
+            endHour: number | null;
+            reason: components["schemas"]["CrewRosterOverrideReason"];
+            note?: string;
+            id?: string;
+        };
+        CrewRosterOverrideUpdate: {
+            date?: string;
+            personId?: string;
+            sourceCrewId?: string | null;
+            targetCrewId?: string;
+            startHour?: number | null;
+            endHour?: number | null;
+            reason?: components["schemas"]["CrewRosterOverrideReason"];
+            note?: string;
         };
         Truck: {
             id: string;
@@ -6175,6 +6829,23 @@ export interface components {
             finishedAt: string;
             errors: string[];
         };
+        HubspotSyncDemoResult: {
+            ok: boolean;
+            /** @enum {boolean} */
+            demo: true;
+            customers: unknown[];
+            projects: unknown[];
+            regions: unknown[];
+            lastSyncedAt: string;
+            errors: string[];
+        };
+        HubspotPingResult: {
+            ok: boolean;
+            portalId: number;
+            accountType: string;
+            timeZone: string;
+            currency: string;
+        };
         HubspotPushResult: {
             ok: boolean;
             message: string;
@@ -6224,6 +6895,13 @@ export interface components {
         ApiKeyCreate: {
             name: string;
             scopes: components["schemas"]["ApiKeyScope"][];
+        };
+        Me: {
+            userId: string;
+            role: string;
+            displayName: string | null;
+            /** @enum {string} */
+            source: "session" | "api_key" | "demo";
         };
     };
     responses: never;

@@ -61,6 +61,7 @@ export function CrewsView() {
   }, [jobs, weekDays]);
 
   const installCount = crews.filter((c) => c.type === 'install').length;
+  const serviceCount = crews.filter((c) => c.type === 'service').length;
   const electricalCount = crews.filter((c) => c.type === 'electrical').length;
   const plumbingCount = crews.filter((c) => c.type === 'plumbing').length;
   const salesCount = crews.filter((c) => c.type === 'sales').length;
@@ -105,7 +106,7 @@ export function CrewsView() {
             <div className="kpi-label">Crews</div>
             <div className="kpi-value">{crews.length}</div>
             <div className="kpi-meta">
-              {installCount} install · {electricalCount} electrical · {plumbingCount} plumbing
+              {installCount} install · {serviceCount} service · {electricalCount} electrical · {plumbingCount} plumbing
               {salesCount > 0 ? ' · ' + salesCount + ' sales' : ''}
             </div>
           </div>

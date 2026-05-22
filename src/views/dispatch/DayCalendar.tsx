@@ -14,6 +14,11 @@ import { fmtTime } from '../../data/helpers';
 import { ROLES } from '../../data/seed';
 import { useStore } from '../../store';
 import { estimateDriveTime } from '../../lib/routing';
+import {
+  effectiveCrewForPerson,
+  effectiveCrewMemberIds,
+  loanEntriesForCrewDay,
+} from '../../lib/crewEffective';
 import { JobBlock } from './JobBlock';
 import { LoanBlock } from './LoanBlock';
 
@@ -52,7 +57,7 @@ const HOUR_END = 20;
 const COLS = HOUR_END - HOUR_START;
 
 function leadRoles(): string[] {
-  return ['hvac_lead', 'electrician', 'plumber', 'fsm'];
+  return ['hvac_lead', 'electrician', 'plumber', 'fsm', 'service_tech'];
 }
 
 export function DayCalendar({
@@ -68,6 +73,7 @@ export function DayCalendar({
   const allTrucks = useStore((s) => s.trucks);
   const allPeople = useStore((s) => s.people);
   const allJobs = useStore((s) => s.jobs);
+  const rosterOverrides = useStore((s) => s.crewRosterOverrides);
   const moveJob = useStore((s) => s.moveJob);
   const resizeJob = useStore((s) => s.resizeJob);
   const selectJob = useStore((s) => s.selectJob);
@@ -100,16 +106,20 @@ export function DayCalendar({
     if (groupBy === 'crew') {
       return allCrews.map((c) => {
         const truck = allTrucks.find((t) => t.id === c.truck) ?? null;
+        const effectiveIds = effectiveCrewMemberIds({
+          crews: allCrews,
+          people: allPeople,
+          overrides: rosterOverrides,
+          date: dateKeyStr,
+          crewId: c.id,
+        });
         const rowJobs = jobs.filter((j) => j.crewId === c.id);
-        const loans: LoanEntry[] = [];
-        jobs.forEach((j) => {
-          if (j.crewId === c.id) return;
-          j.slots.forEach((s) => {
-            if (!s.assignedTo) return;
-            const person = allPeople.find((p) => p.id === s.assignedTo);
-            if (!person || person.defaultCrew !== c.id) return;
-            loans.push({ job: j, slot: s, person });
-          });
+        const loans: LoanEntry[] = loanEntriesForCrewDay({
+          crewId: c.id,
+          date: dateKeyStr,
+          jobs,
+          people: allPeople,
+          overrides: rosterOverrides,
         });
         return {
           id: 'crew-' + c.id,
@@ -129,7 +139,7 @@ export function DayCalendar({
               )}
             </>
           ),
-          avatars: c.members.slice(0, 4).map((m) => (
+          avatars: effectiveIds.slice(0, 4).map((m) => (
             <Avatar key={m} person={m} size="xs" />
           )),
           jobs: rowJobs,
@@ -156,7 +166,13 @@ export function DayCalendar({
               </>
             ),
             avatars: crew
-              ? crew.members
+              ? effectiveCrewMemberIds({
+                  crews: allCrews,
+                  people: allPeople,
+                  overrides: rosterOverrides,
+                  date: dateKeyStr,
+                  crewId: crew.id,
+                })
                   .slice(0, 4)
                   .map((m) => <Avatar key={m} person={m} size="xs" />)
               : [],
@@ -205,7 +221,13 @@ export function DayCalendar({
           )}
         </>
       );
-      const homeCrew = allCrews.find((c) => c.id === p.defaultCrew);
+      const effectiveCrewId = effectiveCrewForPerson(
+        allPeople,
+        rosterOverrides,
+        dateKeyStr,
+        p.id,
+      );
+      const homeCrew = allCrews.find((c) => c.id === (effectiveCrewId ?? p.defaultCrew));
       return {
         id: 'tech-' + p.id,
         name: p.name,
@@ -218,10 +240,10 @@ export function DayCalendar({
         truck: null,
       };
     });
-  }, [groupBy, allCrews, allTrucks, allPeople, jobs]);
+  }, [groupBy, allCrews, allTrucks, allPeople, jobs, dateKeyStr, rosterOverrides]);
 
   // ===== Drop handling =====
-  function rowDropMeta(rowId: string): {
+  function rowDropMeta(rowId: string, hour?: number): {
     crewId: string | null;
     truckId: string | null;
   } | null {
@@ -241,14 +263,21 @@ export function DayCalendar({
       const personId = rowId.slice('tech-'.length);
       const person = allPeople.find((p) => p.id === personId);
       if (!person) return null;
-      const crew = allCrews.find((c) => c.id === person.defaultCrew);
-      return { crewId: person.defaultCrew, truckId: crew?.truck ?? null };
+      const crewId = effectiveCrewForPerson(
+        allPeople,
+        rosterOverrides,
+        dateKeyStr,
+        person.id,
+        hour ?? null,
+      );
+      const crew = allCrews.find((c) => c.id === crewId);
+      return { crewId, truckId: crew?.truck ?? null };
     }
     return null;
   }
 
   function handleDrop(rowId: string, hour: number, jobId: string) {
-    const meta = rowDropMeta(rowId);
+    const meta = rowDropMeta(rowId, hour);
     if (!meta) return;
     // Snapshot the pre-move status so we can detect lifts from unscheduled.
     const prevJob = allJobs.find((j) => j.id === jobId);

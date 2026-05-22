@@ -14,7 +14,7 @@ interface AddCrewModalProps {
   onClose: () => void;
 }
 
-const CREW_TYPES: CrewType[] = ['install', 'electrical', 'plumbing', 'sales'];
+const CREW_TYPES: CrewType[] = ['install', 'service', 'electrical', 'plumbing', 'sales'];
 
 const COLOR_PALETTE: string[] = [
   '#3CD567', // jetson green
@@ -25,7 +25,7 @@ const COLOR_PALETTE: string[] = [
   '#1A6F2E', // forest
 ];
 
-const LEAD_ROLES = ['hvac_lead', 'electrician', 'plumber', 'fsm'];
+const LEAD_ROLES = ['hvac_lead', 'service_tech', 'electrician', 'plumber', 'fsm'];
 
 export function AddCrewModal({ onClose }: AddCrewModalProps) {
   const people = useStore((s) => s.people);
@@ -167,7 +167,7 @@ export function AddCrewModal({ onClose }: AddCrewModalProps) {
                 ))}
               </select>
               <div className="muted small" style={{ marginTop: 4 }}>
-                Must be an HVAC Lead, Electrician, Plumber, or FSM.
+                Must be an HVAC Lead, Service Technician, Electrician, Plumber, or FSM.
               </div>
             </div>
 

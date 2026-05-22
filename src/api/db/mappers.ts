@@ -7,6 +7,7 @@
 // =============================================================
 import type {
   DbCrew,
+  DbCrewRosterOverride,
   DbCustomer,
   DbJob,
   DbJobSlot,
@@ -19,6 +20,7 @@ import type {
 import type { RoleKey } from '@/types';
 
 import type { CrewDTO } from '../schemas/crew';
+import type { CrewRosterOverrideDTO } from '../schemas/crewRosterOverride';
 import type { CustomerDTO } from '../schemas/customer';
 import type { JobDTO } from '../schemas/job';
 import type { JobSlotDTO } from '../schemas/slot';
@@ -76,6 +78,22 @@ export function crewToDTO(row: DbCrew, members: string[]): CrewDTO {
     members,
     truck: row.truckId,
     color: row.color,
+  };
+}
+
+export function crewRosterOverrideToDTO(
+  row: DbCrewRosterOverride,
+): CrewRosterOverrideDTO {
+  return {
+    id: row.id,
+    date: row.date,
+    personId: row.personId,
+    sourceCrewId: row.sourceCrewId,
+    targetCrewId: row.targetCrewId,
+    startHour: numOrNull(row.startHour),
+    endHour: numOrNull(row.endHour),
+    reason: row.reason,
+    note: row.note ?? undefined,
   };
 }
 

@@ -17,6 +17,7 @@ import { useStore } from '../store';
 import { subscribe, type EventPayload, type EventTopic } from '../lib/events';
 import {
   crewFromDTO,
+  crewRosterOverrideFromDTO,
   jobFromDTO,
   personFromDTO,
 } from '../api/storeMappers';
@@ -90,6 +91,32 @@ export function useStoreRealtime(): void {
       subscribe('crews.deleted', (p) => {
         const id = extractId(p);
         if (id) useStore.getState().applyCrewRemove(id);
+      }),
+    );
+
+    // ---- crew roster overrides -------------------------------------------
+    const onCrewRosterOverrideChange = async (p: EventPayload): Promise<void> => {
+      const id = extractId(p);
+      if (!id) return;
+      try {
+        const dto = await client.crewRosterOverrides.get(id);
+        useStore.getState().applyCrewRosterOverride(crewRosterOverrideFromDTO(dto));
+      } catch (err) {
+        if ((err as { status?: number }).status === 404) {
+          useStore.getState().applyCrewRosterOverrideRemove(id);
+          return;
+        }
+        // eslint-disable-next-line no-console
+        console.warn('Realtime crew roster override refresh failed', err);
+      }
+    };
+    (['crew_roster_overrides.updated', 'crew_roster_overrides.created'] as const).forEach((t) => {
+      unsubs.push(subscribe(t, onCrewRosterOverrideChange));
+    });
+    unsubs.push(
+      subscribe('crew_roster_overrides.deleted', (p) => {
+        const id = extractId(p);
+        if (id) useStore.getState().applyCrewRosterOverrideRemove(id);
       }),
     );
 

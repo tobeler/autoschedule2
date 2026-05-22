@@ -10,8 +10,9 @@ import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
 
 import { addDays, dateKey, fmtTime, TODAY } from '../../data/helpers';
-import { getCrew, getPerson } from '../../data/selectors';
+import { getCrew } from '../../data/selectors';
 import { ROLES } from '../../data/seed';
+import { autoFillSlots } from '../../lib/assignment';
 import { useStore } from '../../store';
 import type { Customer, Job, JobSlot, VehicleMode } from '../../types';
 
@@ -33,6 +34,9 @@ export function NewJobWizard() {
   const templates = useStore((s) => s.templates);
   const crews = useStore((s) => s.crews);
   const people = useStore((s) => s.people);
+  const jobs = useStore((s) => s.jobs);
+  const rosterOverrides = useStore((s) => s.crewRosterOverrides);
+  const timeOff = useStore((s) => s.timeOff);
 
   const [step, setStep] = useState(0);
   const [customer, setCustomer] = useState<Customer | null>(null);
@@ -87,27 +91,11 @@ export function NewJobWizard() {
   function commit() {
     if (!customer || !type || !slot) return;
     const crew = getCrew(crews, slot.crewId);
-    const filledSlots: JobSlot[] = templateSlots.map((s) => ({ ...s }));
-    if (crew) {
-      filledSlots.forEach((s) => {
-        if (s.assignedTo) return;
-        const member = crew.members
-          .map((id) => getPerson(people, id))
-          .find((p) => !!p && p.roles.includes(s.role));
-        if (member) {
-          s.assignedTo = member.id;
-          return;
-        }
-        const fallback = people.find((p) => p.roles.includes(s.role));
-        if (fallback) s.assignedTo = fallback.id;
-      });
-    }
-
     const vehicleMode: VehicleMode = vehicle.mode;
     const truckId =
       vehicleMode === 'fleet' ? (crew?.truck ?? null) : null;
 
-    const newJob: Job = {
+    const newJobBase: Job = {
       id: 'J-' + (2700 + Math.floor(Math.random() * 99)),
       type,
       status: 'scheduled',
@@ -117,12 +105,12 @@ export function NewJobWizard() {
       startHour: slot.startHour,
       durationHrs:
         slot.daysSpanned > 1
-          ? Math.max(...filledSlots.map((s) => (s.start || 0) + s.hours), 1)
+          ? Math.max(...templateSlots.map((s) => (s.start || 0) + s.hours), 1)
           : slot.endHour - slot.startHour,
       crewId: slot.crewId,
       extraCrewIds: extraCrews,
       truckId,
-      slots: filledSlots,
+      slots: templateSlots.map((s) => ({ ...s })),
       notes: '',
       hubspotDealId: 'DEAL-' + (44300 + Math.floor(Math.random() * 99)),
       driveTimeMin: 18,
@@ -132,6 +120,13 @@ export function NewJobWizard() {
       endHour: slot.endHour,
       daysSpanned: slot.daysSpanned || 1,
     };
+    const filledSlots = autoFillSlots(newJobBase, crew ?? null, people, {
+      crews,
+      rosterOverrides,
+      jobs,
+      timeOff,
+    });
+    const newJob: Job = { ...newJobBase, slots: filledSlots };
     addJob(newJob);
 
     const whenStr =

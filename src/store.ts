@@ -20,6 +20,7 @@ import type {
   Job,
   Person,
   Crew,
+  CrewRosterOverride,
   Truck,
   Customer,
   Project,
@@ -35,6 +36,7 @@ import type {
 import {
   PEOPLE,
   CREWS,
+  CREW_ROSTER_OVERRIDES,
   TRUCKS,
   CUSTOMERS,
   PROJECTS,
@@ -53,6 +55,9 @@ import {
   personToDTOCreate,
   crewToDTOPatch,
   crewToDTOCreate,
+  crewRosterOverrideFromDTO,
+  crewRosterOverrideToDTOPatch,
+  crewRosterOverrideToDTOCreate,
   templateToDTOPatch,
   truckToDTOPatch,
   truckToDTOCreate,
@@ -87,6 +92,7 @@ interface State {
   jobs: Job[];
   people: Person[];
   crews: Crew[];
+  crewRosterOverrides: CrewRosterOverride[];
   trucks: Truck[];
   customers: Customer[];
   projects: Project[];
@@ -144,6 +150,8 @@ interface State {
   applyJobRemove: (id: string) => void;
   applyCrew: (crew: Crew) => void;
   applyCrewRemove: (id: string) => void;
+  applyCrewRosterOverride: (override: CrewRosterOverride) => void;
+  applyCrewRosterOverrideRemove: (id: string) => void;
   applyPerson: (p: Person) => void;
   applyPersonRemove: (id: string) => void;
 
@@ -157,6 +165,9 @@ interface State {
   addCrew: (c: Crew) => void;
   updateCrew: (c: Crew) => void;
   removeCrew: (id: string) => void;
+  addCrewRosterOverride: (r: CrewRosterOverride) => void;
+  updateCrewRosterOverride: (r: CrewRosterOverride) => void;
+  removeCrewRosterOverride: (id: string) => void;
   // Phase 16 — full CRUD coverage
   addTruck: (t: Truck) => void;
   updateTruck: (t: Truck) => void;
@@ -219,6 +230,7 @@ export const useStore = create<State>()(
       jobs: JOBS_SEED,
       people: PEOPLE,
       crews: CREWS,
+      crewRosterOverrides: CREW_ROSTER_OVERRIDES,
       trucks: TRUCKS,
       customers: CUSTOMERS,
       projects: PROJECTS,
@@ -292,6 +304,18 @@ export const useStore = create<State>()(
         }),
       applyCrewRemove: (id) =>
         set((s) => ({ crews: s.crews.filter((c) => c.id !== id) })),
+      applyCrewRosterOverride: (override) =>
+        set((s) => {
+          const idx = s.crewRosterOverrides.findIndex((r) => r.id === override.id);
+          if (idx === -1) return { crewRosterOverrides: [...s.crewRosterOverrides, override] };
+          const next = s.crewRosterOverrides.slice();
+          next[idx] = override;
+          return { crewRosterOverrides: next };
+        }),
+      applyCrewRosterOverrideRemove: (id) =>
+        set((s) => ({
+          crewRosterOverrides: s.crewRosterOverrides.filter((r) => r.id !== id),
+        })),
       applyPerson: (p) =>
         set((s) => {
           const idx = s.people.findIndex((x) => x.id === p.id);
@@ -379,6 +403,7 @@ export const useStore = create<State>()(
       removePerson: (id) => {
         const prevPeople = get().people;
         const prevCrews = get().crews;
+        const prevOverrides = get().crewRosterOverrides;
         set({
           people: prevPeople.filter((x) => x.id !== id),
           crews: prevCrews.map((c) => ({
@@ -386,10 +411,11 @@ export const useStore = create<State>()(
             members: c.members.filter((m) => m !== id),
             lead: c.lead === id ? '' : c.lead,
           })),
+          crewRosterOverrides: prevOverrides.filter((r) => r.personId !== id),
         });
         if (get().apiMode) {
           client.people.remove(id).catch((err) => {
-            set({ people: prevPeople, crews: prevCrews });
+            set({ people: prevPeople, crews: prevCrews, crewRosterOverrides: prevOverrides });
             get().pushToast('Could not remove technician — restored');
             logApiError('removePerson', err);
           });
@@ -423,16 +449,69 @@ export const useStore = create<State>()(
       removeCrew: (id) => {
         const prev = get().crews;
         const prevPeople = get().people;
+        const prevOverrides = get().crewRosterOverrides;
         // Members of the deleted crew lose their defaultCrew (not cascade-deleted)
         const nextPeople = prevPeople.map((p) =>
           p.defaultCrew === id ? { ...p, defaultCrew: '' } : p,
         );
-        set({ crews: prev.filter((x) => x.id !== id), people: nextPeople });
+        set({
+          crews: prev.filter((x) => x.id !== id),
+          people: nextPeople,
+          crewRosterOverrides: prevOverrides.filter(
+            (r) => r.sourceCrewId !== id && r.targetCrewId !== id,
+          ),
+        });
         if (get().apiMode) {
           client.crews.remove(id).catch((err) => {
-            set({ crews: prev, people: prevPeople });
+            set({ crews: prev, people: prevPeople, crewRosterOverrides: prevOverrides });
             get().pushToast('Could not remove crew — restored');
             logApiError('removeCrew', err);
+          });
+        }
+      },
+
+      addCrewRosterOverride: (r) => {
+        const prev = get().crewRosterOverrides;
+        set({ crewRosterOverrides: [...prev, r] });
+        if (get().apiMode) {
+          client.crewRosterOverrides
+            .create(crewRosterOverrideToDTOCreate(r))
+            .then((dto) => {
+              const saved = crewRosterOverrideFromDTO(dto);
+              set((s) => ({
+                crewRosterOverrides: s.crewRosterOverrides.map((x) =>
+                  x.id === r.id ? saved : x,
+                ),
+              }));
+            })
+            .catch((err) => {
+              set({ crewRosterOverrides: prev });
+              get().pushToast('Could not save crew move — undone');
+              logApiError('addCrewRosterOverride', err);
+            });
+        }
+      },
+      updateCrewRosterOverride: (r) => {
+        const prev = get().crewRosterOverrides;
+        set({ crewRosterOverrides: prev.map((x) => (x.id === r.id ? r : x)) });
+        if (get().apiMode) {
+          client.crewRosterOverrides
+            .update(r.id, crewRosterOverrideToDTOPatch(r))
+            .catch((err) => {
+              set({ crewRosterOverrides: prev });
+              get().pushToast('Crew move update failed — restored');
+              logApiError('updateCrewRosterOverride', err);
+            });
+        }
+      },
+      removeCrewRosterOverride: (id) => {
+        const prev = get().crewRosterOverrides;
+        set({ crewRosterOverrides: prev.filter((r) => r.id !== id) });
+        if (get().apiMode) {
+          client.crewRosterOverrides.remove(id).catch((err) => {
+            set({ crewRosterOverrides: prev });
+            get().pushToast('Could not remove crew move — restored');
+            logApiError('removeCrewRosterOverride', err);
           });
         }
       },
@@ -681,7 +760,12 @@ export const useStore = create<State>()(
           const crews = get().crews;
           const people = get().people;
           const crew = crews.find((c) => c.id === updates.crewId);
-          const filled = autoFillSlots(next, crew ?? null, people);
+          const filled = autoFillSlots(next, crew ?? null, people, {
+            crews,
+            rosterOverrides: get().crewRosterOverrides,
+            jobs: get().jobs,
+            timeOff: get().timeOff,
+          });
           next = { ...next, slots: filled };
         }
         set({ jobs: prev.map((j) => (j.id === id ? next : j)) });
@@ -761,6 +845,7 @@ export const useStore = create<State>()(
             jobs: JOBS_SEED,
             people: PEOPLE,
             crews: CREWS,
+            crewRosterOverrides: CREW_ROSTER_OVERRIDES,
             trucks: TRUCKS,
             customers: CUSTOMERS,
             projects: PROJECTS,
@@ -781,6 +866,7 @@ export const useStore = create<State>()(
             jobs: [],
             people: [],
             crews: [],
+            crewRosterOverrides: [],
             trucks: [],
             customers: [],
             projects: [],
@@ -802,6 +888,7 @@ export const useStore = create<State>()(
           jobs: JOBS_SEED,
           people: PEOPLE,
           crews: CREWS,
+          crewRosterOverrides: CREW_ROSTER_OVERRIDES,
           trucks: TRUCKS,
           customers: CUSTOMERS,
           projects: PROJECTS,
@@ -831,6 +918,7 @@ export const useStore = create<State>()(
         jobs: s.jobs,
         people: s.people,
         crews: s.crews,
+        crewRosterOverrides: s.crewRosterOverrides,
         trucks: s.trucks,
         customers: s.customers,
         projects: s.projects,

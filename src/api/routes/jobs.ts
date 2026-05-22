@@ -13,6 +13,7 @@ import type { SQL } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import {
   crewMembers,
+  crewRosterOverrides,
   crews,
   jobExtraCrews,
   jobSlots,
@@ -435,6 +436,17 @@ export function registerJobRoutes(app: OpenAPIHono<ApiEnv>): void {
 
     const peopleRows = await db.select().from(people);
     const roleRows = await db.select().from(personRoles);
+    const rosterOverrideRows = jobShape.date
+      ? await db.select().from(crewRosterOverrides).where(eq(crewRosterOverrides.date, jobShape.date))
+      : [];
+    const timeOffRows = jobShape.date
+      ? await db.select().from(timeOff).where(eq(timeOff.date, jobShape.date))
+      : [];
+    const dayJobRows = jobShape.date
+      ? await db.select().from(jobs).where(eq(jobs.date, jobShape.date))
+      : [];
+    const dayJobDTOs = await loadJobsListBundle(dayJobRows);
+    const crewRows = await db.select().from(crews);
     const rolesByPerson = new Map<string, RoleKey[]>();
     for (const r of roleRows) {
       const arr = rolesByPerson.get(r.personId) ?? [];
@@ -451,7 +463,53 @@ export function registerJobRoutes(app: OpenAPIHono<ApiEnv>): void {
       certs: (p.certs as string[] | null | undefined) ?? undefined,
     }));
 
-    const filledSlots = autoFillSlots(jobShape, crew, allPeople);
+    const filledSlots = autoFillSlots(jobShape, crew, allPeople, {
+      crews: crewRows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        type: row.type,
+        lead: row.leadPersonId ?? '',
+        members: row.id === crew?.id ? crew.members : [],
+        truck: row.truckId,
+        color: row.color,
+      })),
+      rosterOverrides: rosterOverrideRows.map((row) => ({
+        id: row.id,
+        date: row.date,
+        personId: row.personId,
+        sourceCrewId: row.sourceCrewId,
+        targetCrewId: row.targetCrewId,
+        startHour: row.startHour == null ? null : Number(row.startHour),
+        endHour: row.endHour == null ? null : Number(row.endHour),
+        reason: row.reason,
+        note: row.note ?? undefined,
+      })),
+      jobs: dayJobDTOs.map((d) => ({
+        id: d.id,
+        type: d.type,
+        status: d.status,
+        customer: d.customer,
+        date: d.date,
+        startHour: d.startHour,
+        durationHrs: d.durationHrs,
+        crewId: d.crewId,
+        extraCrewIds: d.extraCrewIds,
+        truckId: d.truckId,
+        slots: d.slots as JobSlot[],
+        notes: d.notes,
+        address: d.address,
+        hubspotDealId: d.hubspotDealId,
+        driveTimeMin: d.driveTimeMin,
+        price: d.price,
+      })),
+      timeOff: timeOffRows.map((row) => ({
+        id: row.id,
+        personId: row.personId,
+        date: row.date,
+        type: row.type,
+        label: row.label,
+      })),
+    });
     await writeJobSlots(id, filledSlots);
     await publish({ topic: 'jobs.updated', payload: { id, reason: 'auto-fill' } });
     const fresh = await loadJobBundle(id);
@@ -459,8 +517,6 @@ export function registerJobRoutes(app: OpenAPIHono<ApiEnv>): void {
     return c.json(fresh, 200);
   });
 
-  // Reference: type-only to satisfy lint when unused.
-  void timeOff;
 }
 
 export type { TimeOff };
