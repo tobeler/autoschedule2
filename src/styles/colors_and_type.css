@@ -1,0 +1,267 @@
+/* =============================================================
+   Jetson Design System — Colors & Type
+   ============================================================= */
+
+/* --- Fonts: MNKY Jane family (local woff2) --- */
+@font-face {
+  font-family: 'MNKY Jane';
+  src: url('assets/fonts/mnkyjane-regular.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'MNKY Jane';
+  src: url('assets/fonts/mnkyjane-italic.woff2') format('woff2');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'MNKY Jane';
+  src: url('assets/fonts/mnkyjane-medium.woff2') format('woff2');
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'MNKY Jane';
+  src: url('assets/fonts/mnkyjane-semibold.woff2') format('woff2');
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'MNKY Jane';
+  src: url('assets/fonts/mnkyjane-bold.woff2') format('woff2');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'MNKY Jane';
+  src: url('assets/fonts/mnkyjane-black.woff2') format('woff2');
+  font-weight: 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'MNKY Jane';
+  src: url('assets/fonts/mnkyjane-light.woff2') format('woff2');
+  font-weight: 300; font-style: normal; font-display: swap;
+}
+
+@font-face {
+  font-family: 'MNKY Jane SemiCondensed';
+  src: url('assets/fonts/mnkyjanesemicondensed-regular.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'MNKY Jane SemiCondensed';
+  src: url('assets/fonts/mnkyjanesemicondensed-medium.woff2') format('woff2');
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'MNKY Jane SemiCondensed';
+  src: url('assets/fonts/mnkyjanesemicondensed-bold.woff2') format('woff2');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'MNKY Jane SemiCondensed';
+  src: url('assets/fonts/mnkyjanesemicondensed-black.woff2') format('woff2');
+  font-weight: 900; font-style: normal; font-display: swap;
+}
+
+@font-face {
+  font-family: 'MNKY Jane Condensed';
+  src: url('assets/fonts/mnkyjanecondensed-bold.woff2') format('woff2');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'MNKY Jane Condensed';
+  src: url('assets/fonts/mnkyjanecondensed-black.woff2') format('woff2');
+  font-weight: 900; font-style: normal; font-display: swap;
+}
+
+/* --- Variable font (single file for all weights) --- */
+@font-face {
+  font-family: 'MNKY Jane Variable';
+  src: url('assets/fonts/mnkyjane-variable.woff2') format('woff2-variations'),
+       url('assets/fonts/mnkyjane-variable.woff2') format('woff2');
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
+
+:root {
+  /* ============= PRIMARY PALETTE ============= */
+  --jetson-green:     #3CD567;  /* Hero */
+  --forest:           #0F1F0D;  /* Deep grounding */
+  --fern:             #113823;  /* Supporting dark green */
+  --lime:             #CBFF8A;  /* Accent highlight */
+  --off-white:        #FBFAF1;  /* Primary light bg */
+
+  /* ============= NEUTRAL PALETTE ============= */
+  --dark-gray:        #666858;
+  --mid-gray:         #ACAA93;
+  --soft-gray:        #E2E1D3;
+  --light-gray:       #F2F0E4;
+
+  /* ============= SEMANTIC — SURFACES ============= */
+  --bg:               var(--off-white);
+  --bg-subtle:        var(--light-gray);
+  --bg-muted:         var(--soft-gray);
+  --bg-hero:          var(--jetson-green);
+  --bg-dark:          var(--forest);
+  --bg-dark-2:        var(--fern);
+  --surface-card:     #ffffff;
+
+  /* ============= SEMANTIC — TEXT ============= */
+  --fg:               var(--forest);      /* primary text */
+  --fg-muted:         var(--dark-gray);   /* secondary text */
+  --fg-subtle:        var(--mid-gray);    /* tertiary/meta */
+  --fg-on-dark:       var(--off-white);
+  --fg-on-green:      var(--forest);
+  --fg-accent:        var(--fern);
+  --fg-link:          var(--fern);
+
+  /* ============= SEMANTIC — BORDERS ============= */
+  --border:           var(--soft-gray);
+  --border-strong:    var(--mid-gray);
+  --border-on-dark:   rgba(251, 250, 241, 0.16);
+
+  /* ============= TYPE FAMILIES ============= */
+  --font-display:     'MNKY Jane Condensed', 'MNKY Jane', system-ui, sans-serif;
+  --font-subhead:     'MNKY Jane SemiCondensed', 'MNKY Jane', system-ui, sans-serif;
+  --font-body:        'MNKY Jane', system-ui, -apple-system, sans-serif;
+  --font-mono:        ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* ============= TYPE SCALE — fluid ============= */
+  --t-display-xl:     clamp(64px, 9vw, 144px);
+  --t-display:        clamp(48px, 6.5vw, 104px);
+  --t-h1:             clamp(40px, 4.5vw, 72px);
+  --t-h2:             clamp(32px, 3.4vw, 56px);
+  --t-h3:             28px;
+  --t-h4:             22px;
+  --t-subhead:        20px;
+  --t-body:           17px;
+  --t-small:          15px;
+  --t-eyebrow:        13px;
+  --t-caption:        12px;
+
+  /* ============= SPACING ============= */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --space-10: 128px;
+
+  /* ============= RADII ============= */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+
+  /* ============= SHADOWS ============= */
+  --shadow-sm: 0 1px 2px rgba(15, 31, 13, 0.06), 0 1px 3px rgba(15, 31, 13, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 31, 13, 0.08), 0 2px 4px rgba(15, 31, 13, 0.04);
+  --shadow-lg: 0 12px 32px rgba(15, 31, 13, 0.12), 0 4px 8px rgba(15, 31, 13, 0.06);
+  --shadow-xl: 0 24px 60px rgba(15, 31, 13, 0.18);
+  --shadow-green: 0 10px 24px rgba(60, 213, 103, 0.35);
+
+  /* ============= MOTION ============= */
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 140ms;
+  --dur-base: 220ms;
+  --dur-slow: 360ms;
+}
+
+/* ============= BASE / RESET-ISH ============= */
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-body);
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+  text-rendering: optimizeLegibility;
+}
+
+/* ============= SEMANTIC TYPE STYLES ============= */
+.display-xl, h1.display {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--t-display-xl);
+  line-height: 0.9;      /* 85–100% */
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.display {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--t-display);
+  line-height: 0.92;
+  letter-spacing: -0.005em;
+  margin: 0;
+}
+h1, .h1 {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--t-h1);
+  line-height: 0.95;
+  margin: 0;
+}
+h2, .h2 {
+  font-family: var(--font-subhead);
+  font-weight: 700;
+  font-size: var(--t-h2);
+  line-height: 1;
+  margin: 0;
+}
+h3, .h3 {
+  font-family: var(--font-subhead);
+  font-weight: 700;
+  font-size: var(--t-h3);
+  line-height: 1.05;
+  margin: 0;
+}
+h4, .h4 {
+  font-family: var(--font-subhead);
+  font-weight: 700;
+  font-size: var(--t-h4);
+  line-height: 1.15;
+  margin: 0;
+}
+.subhead {
+  font-family: var(--font-subhead);
+  font-weight: 700;
+  font-size: var(--t-subhead);
+  line-height: 1.2;
+}
+p, .body {
+  font-size: var(--t-body);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+.body-bold { font-weight: 700; }
+.small { font-size: var(--t-small); }
+.eyebrow {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: var(--t-eyebrow);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.caption {
+  font-size: var(--t-caption);
+  color: var(--fg-muted);
+}
+code, .mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* ============= LINKS ============= */
+a {
+  color: var(--fg-link);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+  transition: color var(--dur-fast) var(--ease-standard);
+}
+a:hover { color: var(--jetson-green); }

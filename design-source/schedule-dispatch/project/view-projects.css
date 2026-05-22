@@ -1,0 +1,506 @@
+/* =============================================================
+   Projects view — list + detail drawer
+   ============================================================= */
+
+.proj-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-subtle);
+}
+
+/* Toolbar */
+.proj-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 24px;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+.proj-toolbar .search { width: 320px; }
+
+/* Summary row */
+.proj-summary {
+  display: flex;
+  gap: 24px;
+  padding: 14px 24px;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border);
+}
+.proj-summary-stat .l {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.proj-summary-stat .v {
+  font-family: var(--font-subhead);
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  margin-top: 3px;
+}
+
+/* Table */
+.proj-table {
+  background: var(--surface-card);
+  margin: 16px 24px 24px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.proj-table-header,
+.proj-row {
+  display: grid;
+  grid-template-columns: 2fr 1.8fr 1.2fr 1.4fr 1.2fr 1fr 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+  min-height: 56px;
+}
+.proj-table-header {
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  min-height: 40px;
+}
+.proj-row {
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  transition: background var(--dur-fast);
+}
+.proj-row:last-child { border-bottom: none; }
+.proj-row:hover { background: var(--bg-subtle); }
+.proj-row.selected {
+  background: rgba(60,213,103,0.06);
+  box-shadow: inset 3px 0 0 var(--jetson-green);
+}
+
+.proj-row .col-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.proj-row-stripe {
+  width: 4px;
+  align-self: stretch;
+  border-radius: 2px;
+  min-height: 32px;
+}
+.proj-row-id {
+  font-size: 10px;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.proj-row-name {
+  font-family: var(--font-subhead);
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.2;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proj-row .col-cust {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.proj-row .col-cust > div {
+  min-width: 0;
+}
+
+.proj-row .col-status { display: flex; align-items: center; gap: 4px; }
+
+.proj-jobs-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.proj-jobs-track {
+  flex: 1;
+  height: 4px;
+  background: var(--bg-muted);
+  border-radius: 999px;
+  overflow: hidden;
+  min-width: 40px;
+}
+.proj-jobs-fill {
+  height: 100%;
+  background: var(--jetson-green);
+  border-radius: 999px;
+}
+
+.proj-empty {
+  text-align: center;
+  padding: 60px 24px;
+  color: var(--fg-muted);
+}
+
+/* =============================================================
+   Project Detail Drawer
+   ============================================================= */
+/* =============================================================
+   Project Detail Drawer
+   ============================================================= */
+
+/* Multi-day badge inside job blocks */
+.multiday-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(15,31,13,0.18);
+  color: rgba(15,31,13,0.85);
+  letter-spacing: 0.04em;
+  margin-left: 4px;
+  font-family: var(--font-mono);
+}
+.multiday-chip.continuation {
+  background: rgba(255,182,39,0.32);
+  color: #6F4400;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Multi-day group inside project drawer */
+.proj-multiday-group {
+  border: 1.5px solid rgba(60,213,103,0.4);
+  border-radius: 12px;
+  padding: 8px;
+  margin-bottom: 6px;
+  background: rgba(60,213,103,0.04);
+}
+.proj-multiday-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1A6F2E;
+}
+.proj-multiday-group-head .badge-count {
+  background: var(--jetson-green);
+  color: var(--forest);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.proj-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 16px 20px;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+.proj-detail-stat .l {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.proj-detail-stat .v {
+  font-family: var(--font-subhead);
+  font-weight: 700;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  margin-top: 4px;
+}
+
+.proj-jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.proj-job-row {
+  display: grid;
+  grid-template-columns: 4px 60px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color var(--dur-fast);
+  overflow: hidden;
+}
+.proj-job-row:hover { border-color: var(--border-strong); background: var(--bg-subtle); }
+.proj-job-accent {
+  align-self: stretch;
+  min-height: 36px;
+  border-radius: 2px;
+}
+.proj-job-when {
+  text-align: left;
+}
+
+.proj-other-row {
+  display: grid;
+  grid-template-columns: 4px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+/* "Part of project" link inside JobDetailDrawer */
+.job-project-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  margin-bottom: 12px;
+  transition: border-color var(--dur-fast);
+}
+.job-project-link:hover { border-color: var(--border-strong); background: var(--surface-card); }
+.job-project-link .stripe {
+  width: 4px;
+  align-self: stretch;
+  min-height: 28px;
+  border-radius: 2px;
+}
+.job-project-link .eyebrow {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.job-project-link .name {
+  font-family: var(--font-subhead);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.2;
+}
+.job-project-link .meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-top: 2px;
+}
+
+/* =============================================================
+   Unscheduled-job hero inside JobDetailDrawer
+   ============================================================= */
+.job-schedule-hero {
+  border: 1.5px solid rgba(60,213,103,0.5);
+  background:
+    linear-gradient(180deg, rgba(60,213,103,0.07) 0%, var(--surface-card) 100%);
+  border-radius: 14px;
+  padding: 14px 16px 16px;
+  margin: 0 0 16px;
+}
+.job-schedule-hero-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.job-schedule-hero-head .hero-icon {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  background: var(--jetson-green);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.job-schedule-hero .hero-eyebrow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #1A6F2E;
+}
+.job-schedule-hero .hero-title {
+  font-family: var(--font-subhead);
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1.1;
+  margin-top: 2px;
+}
+.job-schedule-hero-summary {
+  display: flex;
+  gap: 24px;
+  padding: 10px 12px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+.job-schedule-hero-summary .k {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.job-schedule-hero-summary .v {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.job-schedule-hero-selected {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-top: 12px;
+  background: rgba(60,213,103,0.12);
+  border: 1px solid rgba(60,213,103,0.4);
+  border-radius: 10px;
+}
+
+
+/* =============================================================
+   Weekly crew composition view
+   ============================================================= */
+.crew-wanderers {
+  background: rgba(255,182,39,0.08);
+  border: 1px solid rgba(255,182,39,0.4);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+.crew-wanderers-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+  color: #8A5500; margin-bottom: 10px;
+}
+.crew-wanderers-list { display: flex; flex-direction: column; gap: 6px; }
+.crew-wanderer-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.lead-pair-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px 2px 2px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+}
+.lead-pair-chip.on-loan {
+  background: rgba(255,182,39,0.15);
+  color: #8A5500;
+  border-color: rgba(255,182,39,0.4);
+}
+
+.crew-week-grid {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.crew-week-grid-head {
+  display: grid; grid-template-columns: 200px repeat(5, 1fr);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+.crew-week-grid-corner {
+  padding: 10px 14px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--fg-muted);
+  border-right: 1px solid var(--border);
+}
+.crew-week-grid-day {
+  padding: 8px 12px; text-align: center;
+  border-right: 1px solid var(--border);
+}
+.crew-week-grid-day:last-child { border-right: none; }
+.crew-week-grid-day.today { background: rgba(60,213,103,0.08); }
+.crew-week-grid-day .weekday {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.crew-week-grid-day.today .weekday { color: var(--jetson-green); }
+.crew-week-grid-day .date {
+  font-family: var(--font-subhead); font-weight: 700; font-size: 18px; margin-top: 2px;
+}
+
+.crew-week-grid-row {
+  display: grid; grid-template-columns: 200px repeat(5, 1fr);
+  border-bottom: 1px solid var(--border);
+  min-height: 80px;
+}
+.crew-week-grid-row:last-child { border-bottom: none; }
+.crew-week-grid-label {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-card);
+}
+.crew-week-grid-label .stripe {
+  width: 3px; align-self: stretch; border-radius: 2px; min-height: 32px;
+}
+.crew-week-grid-label .name {
+  font-family: var(--font-subhead); font-weight: 700; font-size: 13px; line-height: 1.2;
+}
+
+.crew-week-grid-cell {
+  padding: 8px;
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--surface-card);
+}
+.crew-week-grid-cell:last-child { border-right: none; }
+.crew-week-grid-cell.empty {
+  background: var(--bg-subtle);
+  align-items: center; justify-content: center;
+}
+
+.crew-week-member {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px 3px 3px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  white-space: nowrap;
+}
+.crew-week-member .name { letter-spacing: -0.01em; }
+.crew-week-member.on-loan {
+  background: rgba(255,182,39,0.15);
+  border-color: rgba(255,182,39,0.4);
+  color: #8A5500;
+}

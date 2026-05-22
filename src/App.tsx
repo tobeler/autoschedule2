@@ -1,0 +1,196 @@
+import { useEffect } from 'react';
+import { useStore } from './store';
+import { Icon, type IconName } from './components/Icon';
+import { IconButton } from './components/IconButton';
+import { Avatar } from './components/Avatar';
+import { RegionPicker } from './components/RegionPicker';
+import { AttentionPill } from './components/AttentionPill';
+import { Toast } from './components/Toast';
+import { TweaksPanel } from './components/tweaks/TweaksPanel';
+import { unscheduledJobs } from './data/selectors';
+
+import { DispatchView } from './views/dispatch/DispatchView';
+import { AttentionView, buildAttentionItems } from './views/attention/AttentionView';
+import { JobsView } from './views/jobs/JobsView';
+import { ProjectsView } from './views/projects/ProjectsView';
+import { CrewsView } from './views/crews/CrewsView';
+import { FleetView } from './views/fleet/FleetView';
+import { TimesheetsView } from './views/timesheets/TimesheetsView';
+import { ReportsView } from './views/reports/ReportsView';
+import { SettingsView } from './views/settings/SettingsView';
+
+import { JobDetailDrawer } from './modals/JobDetailDrawer';
+import { NewJobWizard } from './modals/NewJobWizard/NewJobWizard';
+import { SmartScheduleModal } from './modals/SmartScheduleModal';
+
+import logoOffWhite from './assets/logos/Jetson-Logo-Off-White.png';
+
+interface NavItem {
+  id: import('./store').TabId;
+  label: string;
+  icon: IconName;
+  badge?: number | null;
+}
+
+export default function App() {
+  const tab = useStore((s) => s.tab);
+  const setTab = useStore((s) => s.setTab);
+  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+  const collapseSidebar = useStore((s) => s.collapseSidebar);
+  const selectedJobId = useStore((s) => s.selectedJobId);
+  const selectJob = useStore((s) => s.selectJob);
+  const showWizard = useStore((s) => s.showWizard);
+  const smartScheduleJobId = useStore((s) => s.smartScheduleJobId);
+  const region = useStore((s) => s.region);
+  const setRegion = useStore((s) => s.setRegion);
+
+  const jobs = useStore((s) => s.jobs);
+  const projects = useStore((s) => s.projects);
+
+  // Keyboard: Escape closes drawer
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape' && selectedJobId) selectJob(null);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedJobId, selectJob]);
+
+  const attentionItems = buildAttentionItems();
+  const urgentCount = attentionItems.filter((i) => i.sev === 'urgent').length;
+  const totalAttention = attentionItems.length;
+
+  const navItems: NavItem[] = [
+    { id: 'dispatch', label: 'Dispatch', icon: 'calendar', badge: unscheduledJobs(jobs).length || null },
+    { id: 'projects', label: 'Projects', icon: 'home', badge: projects.length },
+    { id: 'jobs', label: 'Jobs', icon: 'briefcase', badge: jobs.length },
+    { id: 'crews', label: 'Crews', icon: 'users' },
+    { id: 'fleet', label: 'Trucks', icon: 'truck' },
+    { id: 'timesheets', label: 'Timesheets', icon: 'timer', badge: 8 },
+    { id: 'reports', label: 'Reports', icon: 'bar_chart' },
+    { id: 'settings', label: 'Settings', icon: 'settings' },
+  ];
+
+  return (
+    <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '')}>
+      {/* SIDEBAR */}
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <img src={logoOffWhite} alt="Jetson" />
+          {!sidebarCollapsed && (
+            <div className="sidebar-brand-text">
+              Schedule
+              <small>+ Dispatch</small>
+            </div>
+          )}
+        </div>
+
+        {!sidebarCollapsed && <div className="sidebar-section">Workspace</div>}
+        {navItems.map((item) => (
+          <button
+            key={item.id}
+            className={'nav-item' + (tab === item.id ? ' active' : '')}
+            onClick={() => setTab(item.id)}
+            title={item.label}
+          >
+            <Icon name={item.icon} size={18} className="nav-icon" />
+            {!sidebarCollapsed && (
+              <>
+                <span>{item.label}</span>
+                {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
+              </>
+            )}
+          </button>
+        ))}
+
+        {!sidebarCollapsed && <div className="sidebar-section">Quick filters</div>}
+        {!sidebarCollapsed && (
+          <>
+            <button className="nav-item">
+              <span
+                className="dot"
+                style={{ width: 8, height: 8, background: 'var(--jt-heatpump)', borderRadius: '50%' }}
+              />
+              Heat pumps today<span className="nav-badge">{jobs.filter((j) => j.type === 'heatpump' && j.date != null).length}</span>
+            </button>
+            <button className="nav-item">
+              <span
+                className="dot"
+                style={{ width: 8, height: 8, background: 'var(--jt-callback)', borderRadius: '50%' }}
+              />
+              Callbacks<span className="nav-badge">{jobs.filter((j) => j.status === 'callback').length}</span>
+            </button>
+            <button className="nav-item">
+              <Icon name="user" size={16} className="nav-icon" />
+              Unfilled slots
+              <span className="nav-badge">
+                {jobs.filter((j) => j.slots.some((s) => !s.assignedTo && !s.optional)).length}
+              </span>
+            </button>
+          </>
+        )}
+
+        <div className="sidebar-footer">
+          <Avatar person={{ id: 'me', initials: 'JR', name: 'Jordan Rivera', roles: [], level: 'L2', defaultCrew: '' } as never} />
+          {!sidebarCollapsed && (
+            <div className="sidebar-user">
+              <div>Jordan Rivera</div>
+              <small>Dispatcher · Watertown</small>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* MAIN */}
+      <main className="main">
+        <div className="topbar">
+          <IconButton
+            icon={sidebarCollapsed ? 'chevron_right' : 'chevron_left'}
+            label="Toggle sidebar"
+            onClick={() => collapseSidebar(!sidebarCollapsed)}
+            variant="ghost"
+          />
+          <div className="topbar-title">{navItems.find((n) => n.id === tab)?.label || 'Schedule'}</div>
+          <span className="muted small" style={{ marginLeft: 4, marginRight: 4 }}>
+            ·
+          </span>
+          <RegionPicker value={region} onChange={(r) => r && setRegion(r)} />
+
+          <div className="topbar-spacer" />
+
+          <div className="search">
+            <Icon name="search" size={14} />
+            <input placeholder="Search jobs, customers, techs…" />
+            <span className="kbd">⌘ K</span>
+          </div>
+          <AttentionPill urgentCount={urgentCount} totalCount={totalAttention} active={tab === 'attention'} />
+          <span
+            className="badge"
+            style={{ background: 'rgba(255,122,89,0.12)', color: '#9F3D24', marginLeft: 4 }}
+          >
+            <Icon name="hubspot" size={11} /> HubSpot
+          </span>
+        </div>
+
+        <div className="content">
+          {tab === 'dispatch' && <DispatchView />}
+          {tab === 'attention' && <AttentionView />}
+          {tab === 'jobs' && <JobsView />}
+          {tab === 'projects' && <ProjectsView />}
+          {tab === 'crews' && <CrewsView />}
+          {tab === 'fleet' && <FleetView />}
+          {tab === 'timesheets' && <TimesheetsView />}
+          {tab === 'reports' && <ReportsView />}
+          {tab === 'settings' && <SettingsView />}
+        </div>
+      </main>
+
+      {selectedJobId && <JobDetailDrawer />}
+      {showWizard && <NewJobWizard />}
+      {smartScheduleJobId && <SmartScheduleModal />}
+
+      <TweaksPanel />
+      <Toast />
+    </div>
+  );
+}
