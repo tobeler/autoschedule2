@@ -855,3 +855,176 @@
   border: 2px solid white;
   box-shadow: var(--shadow-sm);
 }
+
+/* ============= MODAL (Phase 3 — Smart-schedule + future wizards) ============= */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,31,13,0.5);
+  backdrop-filter: blur(4px);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: drawer-fade var(--dur-base) var(--ease-standard);
+}
+.modal {
+  background: var(--surface-card);
+  border-radius: 20px;
+  width: 720px;
+  max-width: 96vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  animation: modal-in var(--dur-base) var(--ease-emphasized);
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.modal-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-body { flex: 1; overflow: auto; padding: 20px; }
+.modal-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-subtle);
+}
+
+/* ============= SMART-SCHEDULE SUGGESTION CARDS ============= */
+.suggestion-list { display: flex; flex-direction: column; gap: 8px; }
+.suggestion {
+  display: grid;
+  grid-template-columns: 40px 1fr auto auto;
+  gap: 12px;
+  padding: 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-card);
+  align-items: center;
+  cursor: pointer;
+  transition: all var(--dur-fast);
+}
+.suggestion:hover { border-color: var(--border-strong); }
+.suggestion.best { border-color: var(--jetson-green); background: rgba(60,213,103,0.04); }
+.suggestion.selected { border-color: var(--forest); background: var(--bg-subtle); }
+.suggestion-rank {
+  font-family: var(--font-subhead);
+  font-weight: 900;
+  font-size: 22px;
+  color: var(--fg-muted);
+  text-align: center;
+}
+.suggestion.best .suggestion-rank { color: var(--jetson-green); }
+.suggestion-reasons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.reason-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  color: var(--fg-muted);
+}
+.reason-chip.good { background: rgba(60,213,103,0.12); color: #1A6F2E; }
+.reason-chip.warn { background: rgba(255,182,39,0.15); color: #6F4400; }
+.reason-chip.bad  { background: rgba(197,48,48,0.1); color: #781E1E; }
+
+/* ============= COMPLETED FORM VIEW (Phase 3 — drawer completion tab) ============= */
+.form-summary {
+  background: var(--bg-subtle);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.form-summary-row { display: flex; align-items: center; gap: 10px; }
+.form-progress { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.form-progress-track {
+  flex: 1; height: 6px; background: var(--bg-muted); border-radius: 999px; overflow: hidden;
+}
+.form-progress-fill { height: 100%; background: var(--jetson-green); border-radius: 999px; }
+
+.form-section {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.form-section-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+.form-section-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; flex: 1; }
+.form-section-tick {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--bg-muted);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--off-white);
+  font-size: 11px; font-weight: 800;
+}
+.form-section-tick.done { background: var(--jetson-green); color: var(--forest); }
+.form-section-tick.fail { background: var(--jt-callback); color: white; }
+
+.form-fields { padding: 4px 12px; }
+.form-field-display {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.form-field-display:last-child { border-bottom: none; }
+.form-field-display.fail { background: rgba(197,48,48,0.04); margin: 0 -12px; padding: 10px 12px; }
+.form-field-label { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--fg-muted); }
+.form-field-tick {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--bg-muted);
+  color: var(--off-white);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 800;
+  flex-shrink: 0;
+}
+.form-field-tick.done { background: var(--jetson-green); color: var(--forest); }
+.form-field-tick.fail { background: var(--jt-callback); color: white; }
+.form-field-tick.partial { background: var(--jt-electrical); color: var(--forest); }
+.form-field-tick.empty { background: var(--bg-muted); }
+.form-field-answer { font-size: 13px; padding-left: 24px; color: var(--fg); line-height: 1.4; }
+
+/* Photo placeholders used in the completion form */
+.tech-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.tech-photo {
+  aspect-ratio: 1;
+  background: #E2E1D3;
+  border-radius: 8px;
+  background-size: cover;
+  background-position: center;
+  position: relative;
+  overflow: hidden;
+  min-height: 64px;
+}
+.tech-photo-label {
+  position: absolute;
+  bottom: 4px; left: 4px;
+  font-size: 9px; font-weight: 800; text-transform: uppercase;
+  color: white;
+  background: rgba(0,0,0,0.4);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
