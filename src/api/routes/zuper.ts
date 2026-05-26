@@ -21,6 +21,7 @@ import {
 } from '@/integrations/zuper/client';
 import { bootstrapActiveJobsFromZuper } from '@/integrations/zuper/bootstrap';
 import { bootstrapTechniciansFromZuper } from '@/integrations/zuper/bootstrap-technicians';
+import { enrichZuperJobs } from '@/integrations/zuper/enrich';
 
 import { ApiError } from '../middleware/error';
 import { ProblemResponses, jsonContent, z } from '../schemas/common';
@@ -48,6 +49,20 @@ const ZuperBootstrapResultSchema = z
     errors: z.array(z.string()),
   })
   .openapi('ZuperBootstrapResult');
+
+const ZuperEnrichResultSchema = z
+  .object({
+    ok: z.boolean(),
+    startedAt: z.string(),
+    finishedAt: z.string(),
+    candidates: z.number(),
+    fetched: z.number(),
+    addressUpdated: z.number(),
+    customerLinked: z.number(),
+    customersUpserted: z.number(),
+    errors: z.array(z.string()),
+  })
+  .openapi('ZuperEnrichResult');
 
 const ZuperBootstrapTechniciansResultSchema = z
   .object({
@@ -89,6 +104,18 @@ const bootstrapRoute = createRoute({
   summary: 'One-time pull of ACTIVE Zuper jobs to seed the dispatcher. Not a recurring sync.',
   responses: {
     200: jsonContent(ZuperBootstrapResultSchema, 'Bootstrap result'),
+    ...ProblemResponses,
+  },
+});
+
+const enrichRoute = createRoute({
+  method: 'post',
+  path: '/zuper/enrich',
+  tags: ['zuper'],
+  summary:
+    'One-time enrichment: fill in real addresses + customer names on Zuper-sourced jobs by calling Zuper /jobs/{uid}. Read-only against Zuper.',
+  responses: {
+    200: jsonContent(ZuperEnrichResultSchema, 'Enrichment result'),
     ...ProblemResponses,
   },
 });
@@ -168,6 +195,22 @@ export function registerZuperRoutes(app: OpenAPIHono<ApiEnv>): void {
     }
     try {
       const result = await bootstrapActiveJobsFromZuper();
+      return c.json(result, 200);
+    } catch (err) {
+      translateZuperError(err);
+    }
+  });
+
+  app.openapi(enrichRoute, async (c) => {
+    if (!isZuperConfigured()) {
+      throw new ApiError({
+        status: 503,
+        title: 'Zuper not configured',
+        detail: 'Set ZUPER_API_KEY in the server environment.',
+      });
+    }
+    try {
+      const result = await enrichZuperJobs();
       return c.json(result, 200);
     } catch (err) {
       translateZuperError(err);

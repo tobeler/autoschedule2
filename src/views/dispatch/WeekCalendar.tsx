@@ -32,14 +32,25 @@ interface WeekCalendarProps {
   onJobClick: (job: Job) => void;
 }
 
-type RowKind = 'crew' | 'truck' | 'tech';
+type RowKind = 'crew' | 'truck' | 'tech' | 'zuper-team';
 interface WeekRow {
   id: string;
   name: string;
   color: string;
   meta: string;
   kind: RowKind;
+  /** For zuper-team rows: the Zuper team_name used to filter jobs. */
+  zuperTeamName?: string;
 }
+
+// Region accent palette for Zuper team rows. Same colors as DayCalendar.
+const REGION_ACCENT: Record<string, string> = {
+  CO: '#0EA5E9',
+  MA: '#10B981',
+  NY: '#8B5CF6',
+  BC: '#F59E0B',
+  CA: '#F97316',
+};
 
 interface LoanBlock {
   job: Job;
@@ -82,6 +93,8 @@ export function WeekCalendar({
   // crew rows → row id is the crew id (truckId comes from the crew's default).
   // truck rows → row id is the truck id (crewId comes from the truck's assignment).
   // tech rows → row id is the person id (crewId from defaultCrew, truck from that crew).
+  // zuper-team rows → no dispatcher crew exists; drop with null so the drawer
+  //   opens for review (same convention as MonthCalendar 6×7 grid).
   function rowAssignment(row: WeekRow): { crewId: string | null; truckId: string | null } {
     if (row.kind === 'crew') {
       const crew = getCrew(allCrews, row.id);
@@ -90,6 +103,9 @@ export function WeekCalendar({
     if (row.kind === 'truck') {
       const truck = allTrucks.find((t) => t.id === row.id);
       return { crewId: truck?.assignedCrew ?? null, truckId: row.id };
+    }
+    if (row.kind === 'zuper-team') {
+      return { crewId: null, truckId: null };
     }
     // tech
     const person = getPerson(allPeople, row.id);
@@ -167,13 +183,61 @@ export function WeekCalendar({
         kind: 'tech',
       }));
   } else {
-    rows = allCrews.map<WeekRow>((c: Crew) => ({
+    // crew mode: prepend virtual Zuper-team rows for any scheduled jobs in
+    // the week whose crewId isn't in the dispatcher's allCrews list. This
+    // matches DayCalendar.tsx so all 1,127 Zuper-sourced jobs stay visible.
+    const crewIds = new Set(allCrews.map((c) => c.id));
+    const teamSet = new Set<string>();
+    for (const j of jobs) {
+      if (j.date == null || !weekKeys.includes(j.date)) continue;
+      if (j.startHour == null) continue;
+      if (j.crewId && crewIds.has(j.crewId)) continue;
+      const t = j.zuperTeamName?.trim();
+      if (t) teamSet.add(t);
+    }
+    const teamRows: WeekRow[] = Array.from(teamSet)
+      .sort((a, b) => a.localeCompare(b))
+      .map((teamName) => {
+        const prefix = teamName.split('-')[0]?.toUpperCase() ?? '';
+        return {
+          id: 'zup-team-' + teamName,
+          name: teamName,
+          color: REGION_ACCENT[prefix] ?? 'var(--mid-gray)',
+          meta: 'Zuper team',
+          kind: 'zuper-team',
+          zuperTeamName: teamName,
+        };
+      });
+    // Any jobs in the week with neither a dispatcher crew nor a Zuper team
+    // get one tail row so they remain visible.
+    const hasNoTeamUnassigned = jobs.some(
+      (j) =>
+        j.date != null &&
+        weekKeys.includes(j.date) &&
+        j.startHour != null &&
+        (!j.crewId || !crewIds.has(j.crewId)) &&
+        !(j.zuperTeamName?.trim()),
+    );
+    const noTeamRow: WeekRow[] = hasNoTeamUnassigned
+      ? [
+          {
+            id: 'zup-no-team',
+            name: 'Unassigned (no team)',
+            color: 'var(--mid-gray)',
+            meta: 'No Zuper team',
+            kind: 'zuper-team',
+            zuperTeamName: '',
+          },
+        ]
+      : [];
+    const crewRows = allCrews.map<WeekRow>((c: Crew) => ({
       id: c.id,
       name: c.name,
       color: c.color,
       meta: c.type,
       kind: 'crew',
     }));
+    rows = [...teamRows, ...noTeamRow, ...crewRows];
   }
 
   return (
@@ -264,6 +328,15 @@ export function WeekCalendar({
                 if (row.kind === 'truck') return j.truckId === row.id;
                 if (row.kind === 'tech')
                   return j.slots.some((s) => s.assignedTo === row.id);
+                if (row.kind === 'zuper-team') {
+                  // Only count jobs whose crew isn't a real dispatcher crew —
+                  // otherwise we'd double-count when both a crewId and team
+                  // exist. Match by exact team name (empty string = no-team row).
+                  const isUnassigned = !j.crewId || !allCrews.some((c) => c.id === j.crewId);
+                  if (!isUnassigned) return false;
+                  const t = j.zuperTeamName?.trim() || '';
+                  return t === (row.zuperTeamName ?? '');
+                }
                 return j.crewId === row.id;
               });
               const loanBlocks: LoanBlock[] =

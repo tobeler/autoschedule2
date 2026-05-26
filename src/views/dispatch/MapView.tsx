@@ -47,27 +47,75 @@ export function MapView({ date, jobs, onJobClick }: MapViewProps) {
     [jobs, date],
   );
 
+  // Region accent palette mirrors DayCalendar. Used when synthesizing a
+  // pseudo-Crew for Zuper-team jobs (which have crewId=null).
+  const REGION_ACCENT: Record<string, string> = {
+    CO: '#0EA5E9',
+    MA: '#10B981',
+    NY: '#8B5CF6',
+    BC: '#F59E0B',
+    CA: '#F97316',
+  };
+
   const crewRoutes = useMemo<CrewRoute[]>(() => {
-    const map = new Map<string, Job[]>();
+    const realMap = new Map<string, Job[]>();
+    const zupMap = new Map<string, Job[]>();
     dayJobs.forEach((j) => {
-      if (!j.crewId) return;
-      const arr = map.get(j.crewId);
+      if (j.crewId) {
+        const arr = realMap.get(j.crewId);
+        if (arr) arr.push(j);
+        else realMap.set(j.crewId, [j]);
+        return;
+      }
+      // No dispatcher crew — group by Zuper team_name so these jobs stay
+      // visible on the map (synthesize a virtual crew below).
+      const team = j.zuperTeamName?.trim();
+      if (!team) return;
+      const arr = zupMap.get(team);
       if (arr) arr.push(j);
-      else map.set(j.crewId, [j]);
+      else zupMap.set(team, [j]);
     });
     const out: CrewRoute[] = [];
-    map.forEach((js, crewId) => {
+    realMap.forEach((js, crewId) => {
       const crew = getCrew(allCrews, crewId);
       if (!crew) return;
       if (selectedCrew !== 'all' && crew.id !== selectedCrew) return;
       out.push({ crew, jobs: js });
     });
+    zupMap.forEach((js, team) => {
+      const id = 'zup-team-' + team;
+      if (selectedCrew !== 'all' && selectedCrew !== id) return;
+      const prefix = team.split('-')[0]?.toUpperCase() ?? '';
+      // Minimal stub — only id, name, color are used by the route list and
+      // pins. Filling the remaining required fields with safe defaults so we
+      // satisfy the Crew interface without an unchecked cast.
+      const virtual: Crew = {
+        id,
+        name: team,
+        color: REGION_ACCENT[prefix] ?? 'var(--mid-gray)',
+        type: 'install',
+        lead: '',
+        members: [],
+        truck: null,
+      };
+      out.push({ crew: virtual, jobs: js });
+    });
     return out;
   }, [dayJobs, allCrews, selectedCrew]);
 
+  // Crew chips: real crew ids first, then synthesized 'zup-team-…' ids.
   const allCrewIds = useMemo(() => {
-    return Array.from(new Set(dayJobs.map((j) => j.crewId).filter(Boolean)));
-  }, [dayJobs]) as string[];
+    const real = Array.from(new Set(dayJobs.map((j) => j.crewId).filter(Boolean))) as string[];
+    const zup = Array.from(
+      new Set(
+        dayJobs
+          .filter((j) => !j.crewId)
+          .map((j) => j.zuperTeamName?.trim())
+          .filter(Boolean),
+      ),
+    ).map((t) => 'zup-team-' + t);
+    return [...real, ...zup];
+  }, [dayJobs]);
 
   const totalDriveMinutes = useMemo(() => {
     let total = 0;
@@ -227,7 +275,14 @@ export function MapView({ date, jobs, onJobClick }: MapViewProps) {
               All crews
             </button>
             {allCrewIds.map((cid) => {
-              const c = getCrew(allCrews, cid);
+              // Real crews come from the store; virtual Zuper-team crews
+              // surface via the synthesized 'zup-team-{name}' id and pick
+              // up name + color from crewRoutes.
+              const real = getCrew(allCrews, cid);
+              const fromRoutes = !real
+                ? crewRoutes.find((r) => r.crew.id === cid)?.crew
+                : null;
+              const c = real ?? fromRoutes;
               if (!c) return null;
               return (
                 <button

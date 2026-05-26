@@ -106,6 +106,8 @@
   overflow: hidden;
 }
 .dispatch-main.no-rail { grid-template-columns: 14px 1fr; }
+/* Kanban / Gantt / Map — no rail and no stub, content takes full width. */
+.dispatch-main.no-rail-no-stub { grid-template-columns: 1fr; }
 .unscheduled-rail {
   border-right: 1px solid var(--border);
   background: var(--surface-card);

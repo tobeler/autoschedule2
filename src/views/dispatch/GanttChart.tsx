@@ -34,6 +34,15 @@ interface GanttRow {
 const DAY_W = 140;
 const DAYS = 7;
 
+// Region accent palette mirrors DayCalendar / WeekCalendar.
+const REGION_ACCENT: Record<string, string> = {
+  CO: '#0EA5E9',
+  MA: '#10B981',
+  NY: '#8B5CF6',
+  BC: '#F59E0B',
+  CA: '#F97316',
+};
+
 export function GanttChart({
   startDate,
   groupBy,
@@ -62,13 +71,54 @@ export function GanttChart({
         };
       });
   } else {
-    rows = allCrews.map<GanttRow>((c: Crew) => ({
+    // Prepend virtual Zuper-team rows for scheduled jobs whose crewId isn't
+    // a real dispatcher crew (same pattern as DayCalendar / WeekCalendar).
+    const crewIds = new Set(allCrews.map((c) => c.id));
+    const byTeam = new Map<string, Job[]>();
+    const noTeam: Job[] = [];
+    for (const j of jobs) {
+      if (j.startHour == null || j.date == null) continue;
+      if (j.crewId && crewIds.has(j.crewId)) continue;
+      const t = j.zuperTeamName?.trim() || '';
+      if (t) {
+        if (!byTeam.has(t)) byTeam.set(t, []);
+        byTeam.get(t)!.push(j);
+      } else {
+        noTeam.push(j);
+      }
+    }
+    const teamRows: GanttRow[] = Array.from(byTeam.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([teamName, teamJobs]) => {
+        const prefix = teamName.split('-')[0]?.toUpperCase() ?? '';
+        return {
+          id: 'zup-team-' + teamName,
+          name: teamName,
+          color: REGION_ACCENT[prefix] ?? 'var(--mid-gray)',
+          meta: 'Zuper team',
+          jobs: teamJobs,
+        };
+      });
+    const noTeamRow: GanttRow[] =
+      noTeam.length > 0
+        ? [
+            {
+              id: 'zup-no-team',
+              name: 'Unassigned (no team)',
+              color: 'var(--mid-gray)',
+              meta: 'No Zuper team',
+              jobs: noTeam,
+            },
+          ]
+        : [];
+    const crewRows = allCrews.map<GanttRow>((c: Crew) => ({
       id: c.id,
       name: c.name,
       color: c.color,
       meta: c.type,
       jobs: jobs.filter((j) => j.crewId === c.id),
     }));
+    rows = [...teamRows, ...noTeamRow, ...crewRows];
   }
 
   return (

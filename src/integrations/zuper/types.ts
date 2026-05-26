@@ -61,6 +61,13 @@ export interface ZuperCustomer {
   customer_first_name?: string;
   customer_last_name?: string;
   customer_uid?: string;
+  customer_email?: string | null;
+  customer_contact_no?: Record<string, string | null> | null;
+  /**
+   * Present on the single-job endpoint (`GET /api/jobs/{uid}`) but absent
+   * from the bulk listing — the same shape as `ZuperPropertyAddress`.
+   */
+  customer_address?: ZuperPropertyAddress | null;
 }
 
 export interface ZuperPropertyAddress {
