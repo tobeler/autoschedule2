@@ -138,8 +138,19 @@ export function CrewsView() {
               </>
             ) : (
               <>
-                <div className="kpi-value">84%</div>
-                <div className="kpi-meta up">+6 pts vs last week</div>
+                {/*
+                  Utilization needs real crew→hours assignment data. With 0
+                  crews defined and Zuper-sourced jobs all having crewId=null,
+                  there's nothing to compute against. Show an honest "—"
+                  instead of the prior hard-coded 84%. We'll wire real
+                  utilization once crews are created in the dispatcher.
+                */}
+                <div className="kpi-value">—</div>
+                <div className="kpi-meta">
+                  {crews.length === 0
+                    ? 'Create a crew to start tracking utilization'
+                    : 'Awaiting crew assignment'}
+                </div>
               </>
             )}
           </div>

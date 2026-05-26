@@ -21,6 +21,7 @@ export function DispatchBrief({ date, jobs, onNewJob, onHide }: DispatchBriefPro
   const crews = useStore((s) => s.crews);
   const updateJob = useStore((s) => s.updateJob);
   const pushToast = useStore((s) => s.pushToast);
+  const currentUserName = useStore((s) => s.currentUserName);
 
   const todayKey = dateKey(date);
 
@@ -74,7 +75,12 @@ export function DispatchBrief({ date, jobs, onNewJob, onHide }: DispatchBriefPro
     <div className="brief">
       <div className="brief-row">
         <div>
-          <div className="brief-greeting">Good morning, Jordan.</div>
+          <div className="brief-greeting">{(() => {
+            const hr = new Date().getHours();
+            const greet = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
+            const first = (currentUserName || '').split(' ')[0] || 'there';
+            return greet + ', ' + first + '.';
+          })()}</div>
           <div className="brief-sub">
             {kpi.total} jobs on the board · {kpi.onsite} on site · sunny, 64°F
           </div>
@@ -85,10 +91,29 @@ export function DispatchBrief({ date, jobs, onNewJob, onHide }: DispatchBriefPro
             <div className="brief-stat-label">Jobs today</div>
           </div>
           <div className="brief-stat">
-            <div className="brief-stat-value good">
-              {Math.round((kpi.capUsed / 80) * 100)}%
-            </div>
-            <div className="brief-stat-label">Capacity used</div>
+            {(() => {
+              // Capacity = active crews × 8 hour shift. Without crews
+              // defined this metric is meaningless — show an honest "—"
+              // rather than dividing-by-80 hardcoded denominator that
+              // produces nonsense like "129%" on a board with no crews.
+              const installCapHrs = crews.length * 8;
+              if (installCapHrs === 0) {
+                return (
+                  <>
+                    <div className="brief-stat-value">—</div>
+                    <div className="brief-stat-label">Capacity used</div>
+                  </>
+                );
+              }
+              const pct = Math.round((kpi.capUsed / installCapHrs) * 100);
+              const cls = pct > 100 ? 'alert' : pct > 85 ? 'warn' : 'good';
+              return (
+                <>
+                  <div className={'brief-stat-value ' + cls}>{pct}%</div>
+                  <div className="brief-stat-label">Capacity used</div>
+                </>
+              );
+            })()}
           </div>
           <div className="brief-stat">
             <div

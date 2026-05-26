@@ -146,97 +146,64 @@ export function buildAttentionItems(): AttentionItem[] {
       });
     });
 
-  // 3. MISSING COMMISSIONING (synthetic, anchored to J-2614)
-  items.push({
-    id: 'mc-J-2614',
-    sev: 'urgent',
-    cat: 'field',
-    icon: 'info',
-    title: 'Commissioning photos overdue on J-2614',
-    desc:
-      "Tyree's heat pump install at Margaret Chen is past the 4-hour mark · no commissioning photos uploaded yet",
-    meta: [
-      { kind: 'due', label: 'On site 4h+' },
-      { kind: 'tag', label: 'HP Install' },
-    ],
-    context: [
-      ['Job', 'J-2614 · Heat pump install'],
-      ['Crew', 'Holloway Crew · Tyree Booker (lead)'],
-      ['Customer', 'Margaret Chen · Newton'],
-      ['Status', 'On site since 8:00a'],
-      ['Photos', 'Before (4) · During (6) · After (0)'],
-    ],
-    resolutions: [
-      { primary: true, icon: 'phone', title: 'Ping Tyree on his phone', sub: 'Send "submit commissioning photos" prompt' },
-      { icon: 'bell', title: 'Add note to job', sub: 'Visible in the mobile tech app' },
-      { icon: 'check', title: 'Mark not required', sub: 'Customer agreed to skip docs' },
-    ],
-    jobId: 'J-2614',
-  });
+  // Items 3, 3b, 4 (Commissioning, Spillover, Late ETA) used to be hard-
+  // coded synthetic placeholders anchored to fictional jobs J-2611/2614/2630.
+  // Removed for the HVAC review pass — they were demo content, not real
+  // signals. The unfilled-slot scan (#1), callback scan (#2), unscheduled-
+  // queue rollup (#5), people-out from timeOff (#7), and the per-job
+  // computed bits below are all real-data driven.
 
-  // 3b. SPILLOVER REQUEST (synthetic)
-  items.push({
-    id: 'spill-J-2611',
-    sev: 'urgent',
-    cat: 'schedule',
-    icon: 'refresh',
-    title: 'Spillover: Bennett Crew needs to continue tomorrow',
-    desc:
-      "Bennett flagged J-2611 at Rachel Sondheim's at 3:42p · electrical pull running long, won't finish today · needs continuation slot",
-    meta: [
-      { kind: 'due', label: 'Confirm by 5p' },
-      { kind: 'tag', label: 'Continuation' },
-    ],
-    context: [
-      ['Job', 'J-2611 · Heat pump install'],
-      ['Crew', 'Bennett Crew · Aaliyah Bennett (lead)'],
-      ['Customer', 'Rachel Sondheim · Cambridge'],
-      ['Status', 'On site · ~6h remaining of 8h scope'],
-      ['Reason', 'Electrical pull running 2.5h longer than expected'],
-      ['Crew availability tomorrow', 'Free 8a–12p · Highland Pl walk-through 2p'],
-    ],
-    resolutions: [
-      {
-        primary: true,
-        icon: 'sparkle',
-        title: 'Create continuation · tomorrow 8a–12p',
-        sub: 'Same crew · auto-links as J-2611 cont.',
-        action: 'create_continuation',
-      },
-      { icon: 'calendar', title: 'Pick a different slot', sub: 'Open Suggest-a-Time with Bennett constraints' },
-      { icon: 'user', title: 'Hand off to Reyes Crew', sub: 'They have 9a–12p free tomorrow' },
-      { icon: 'bell', title: 'Ask Bennett for ETA estimate', sub: 'Maybe they can still finish today' },
-    ],
-    jobId: 'J-2611',
-  });
-
-  // 4. LATE ETA (synthetic — Park Crew behind)
-  items.push({
-    id: 'late-park',
-    sev: 'warn',
-    cat: 'field',
-    icon: 'clock',
-    title: 'Park Crew running 25 min behind',
-    desc:
-      'Annual tune-up at Garrett & Sasha M. set for 10:00a · ETA now 10:25a from prior stop',
-    meta: [
-      { kind: 'soft', label: 'ETA 10:25a' },
-      { kind: 'tag', label: 'Service' },
-    ],
-    context: [
-      ['Job', 'J-2630 · Care Plus tune-up'],
-      ['Crew', 'Park Crew · Noor Khan'],
-      ['Customer', 'Garrett & Sasha M. · Arlington'],
-      ['Window', '10:00a – 12:00p'],
-      ['Projected', '10:25a · 25 min late'],
-    ],
-    resolutions: [
-      { primary: true, icon: 'bell', title: 'Send "running late" SMS', sub: 'Templated · arrival in ~25 min' },
-      { icon: 'refresh', title: 'Reassign to nearer crew', sub: 'Reyes Crew is 8 min from the address' },
-      { icon: 'calendar', title: 'Reschedule for afternoon', sub: "Move to Park's 13:00 slot" },
-    ],
-    jobId: 'J-2630',
-  });
+  // 3. OVERDUE — past-dated jobs still in a non-terminal status. This is
+  // the single biggest blind spot for HVAC ops: jobs scheduled for last
+  // Tuesday that never got marked complete or cancelled. Bucket them as
+  // one rollup with a count so the topbar doesn't fill with 480 items.
+  const overdueJobs = jobs.filter(
+    (j) =>
+      j.date != null &&
+      j.date < today &&
+      j.status !== 'complete' &&
+      j.status !== 'cancelled',
+  );
+  if (overdueJobs.length > 0) {
+    const oldest = overdueJobs.reduce<string | null>(
+      (m, j) => (m == null || (j.date && j.date < m) ? j.date! : m),
+      null,
+    );
+    items.push({
+      id: 'overdue-rollup',
+      sev: 'urgent',
+      cat: 'schedule',
+      icon: 'alert_circle',
+      title: overdueJobs.length + ' overdue jobs need closeout',
+      desc:
+        'These jobs were scheduled for a past date but are still marked active ' +
+        '— probably need to be marked complete or rescheduled. Oldest: ' +
+        (oldest ?? '—') +
+        '.',
+      meta: [
+        { kind: 'due', label: 'Past' },
+        { kind: 'tag', label: overdueJobs.length + ' jobs' },
+      ],
+      context: [
+        ['Count', String(overdueJobs.length)],
+        ['Oldest date', oldest ?? '—'],
+        ['Statuses', Array.from(new Set(overdueJobs.map((j) => j.status))).join(', ')],
+      ],
+      resolutions: [
+        {
+          primary: true,
+          icon: 'check',
+          title: 'Review and mark complete',
+          sub: 'Open Jobs tab → filter past-dated active',
+        },
+        {
+          icon: 'calendar',
+          title: 'Bulk reschedule',
+          sub: 'For jobs still on the calendar but not yet done',
+        },
+      ],
+    });
+  }
 
   // 5. UNSCHEDULED QUEUE — bucket non-callback unscheduled
   const unsched = jobs.filter((j) => j.status === 'unscheduled' && j.type !== 'callback');
@@ -272,31 +239,9 @@ export function buildAttentionItems(): AttentionItem[] {
     });
   }
 
-  // 6. TIGHT DRIVE WINDOW (synthetic)
-  items.push({
-    id: 'drive-J-2641',
-    sev: 'warn',
-    cat: 'field',
-    icon: 'truck',
-    title: 'Tight drive window into J-2641',
-    desc:
-      'Reyes Crew ends Brookline install at 4:30p · sales walk-through at Highland Pl starts 4:30p · only 18 min of buffer',
-    meta: [
-      { kind: 'soft', label: '18 min buffer' },
-      { kind: 'tag', label: 'Conflict' },
-    ],
-    context: [
-      ['Stop 1', 'J-2615 · Brookline · ends 4:30p'],
-      ['Stop 2', 'J-2641 · Highland Pl · starts 4:30p'],
-      ['Drive', '18 min via I-90 E'],
-      ['Risk', 'Customer waiting, no slack'],
-    ],
-    resolutions: [
-      { primary: true, icon: 'refresh', title: 'Push J-2641 to 5:00p', sub: 'Notify customer · 30 min buffer' },
-      { icon: 'user', title: 'Reassign walk-through to Theo', sub: "He's free at 4:30p in Cambridge" },
-    ],
-    jobId: 'J-2641',
-  });
+  // Item 6 (tight drive window) was a synthetic Brookline → Highland Pl
+  // example. Removed — real drive-time scanning needs the property
+  // address + Google Maps integration, which isn't wired yet.
 
   // 7. PEOPLE OUT — derive from timeOff
   timeOff.forEach((t) => {
@@ -365,55 +310,9 @@ export function buildAttentionItems(): AttentionItem[] {
     });
   });
 
-  // 8. WEATHER (info)
-  items.push({
-    id: 'wx-fri',
-    sev: 'info',
-    cat: 'heads_up',
-    icon: 'sparkle',
-    title: 'Rain forecast Friday afternoon',
-    desc:
-      '3 outdoor unit installs scheduled · 60% chance of heavy rain after 2p · plan for tarps + delays',
-    meta: [
-      { kind: 'soft', label: 'Fri May 22' },
-      { kind: 'tag', label: '3 jobs' },
-    ],
-    context: [
-      ['Forecast', 'Heavy rain, 60% PM · NWS'],
-      ['Affected jobs', 'J-2664 · J-2670 · J-2673'],
-      ['Crews', 'Bennett · Holloway · Sales'],
-    ],
-    resolutions: [
-      { primary: true, icon: 'calendar', title: 'Move outdoor work to AM', sub: 'Reorder Friday stops · indoor jobs last' },
-      { icon: 'bell', title: 'Notify affected customers', sub: 'Templated weather alert' },
-    ],
-  });
-
-  // 9. CUSTOMER NOTE (info)
-  items.push({
-    id: 'note-margaret',
-    sev: 'info',
-    cat: 'heads_up',
-    icon: 'bell',
-    title: 'Customer note · Margaret Chen',
-    desc:
-      '"Small dog, friendly but skittish — please call before entering side gate." · captured at booking',
-    meta: [
-      { kind: 'soft', label: 'J-2614' },
-      { kind: 'tag', label: 'Note' },
-    ],
-    context: [
-      ['Customer', 'Margaret Chen'],
-      ['Job', 'J-2614 · Heat pump install'],
-      ['Captured', 'May 18 · booking call'],
-      ['Visible to tech?', 'Yes — also in mobile app'],
-    ],
-    resolutions: [
-      { primary: true, icon: 'check', title: 'Acknowledge', sub: 'Mark as seen' },
-      { icon: 'bell', title: 'Add to job notes', sub: 'Forward to Tyree' },
-    ],
-    jobId: 'J-2614',
-  });
+  // Items 8 (weather) and 9 (Margaret Chen customer note) were synthetic
+  // placeholders. Real weather + per-customer notes need NWS + HubSpot
+  // notes-API hookups respectively — out of scope for the read-only pass.
 
   items.sort((a, b) => {
     if (SEV_ORDER[a.sev] !== SEV_ORDER[b.sev]) return SEV_ORDER[a.sev] - SEV_ORDER[b.sev];

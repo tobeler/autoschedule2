@@ -9,6 +9,7 @@ import { RegionPicker } from './components/RegionPicker';
 import { AttentionPill } from './components/AttentionPill';
 import { Toast } from './components/Toast';
 import { unscheduledJobs } from './data/selectors';
+import { dateKey, TODAY } from './data/helpers';
 
 import { DispatchView } from './views/dispatch/DispatchView';
 import { AttentionView, buildAttentionItems } from './views/attention/AttentionView';
@@ -139,7 +140,7 @@ export default function App() {
                 className="dot"
                 style={{ width: 8, height: 8, background: 'var(--jt-heatpump)', borderRadius: '50%' }}
               />
-              Heat pumps today<span className="nav-badge">{jobs.filter((j) => j.type === 'heatpump' && j.date != null).length}</span>
+              Heat pumps today<span className="nav-badge">{jobs.filter((j) => j.type === 'heatpump' && j.date === dateKey(TODAY)).length}</span>
             </button>
             <button className="nav-item">
               <span
