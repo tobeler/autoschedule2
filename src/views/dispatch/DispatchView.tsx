@@ -30,6 +30,7 @@ import { MapView } from './MapView';
 
 export function DispatchView() {
   const jobs = useStore((s) => s.jobs);
+  const projects = useStore((s) => s.projects);
   const selectJob = useStore((s) => s.selectJob);
   const selectedJobId = useStore((s) => s.selectedJobId);
   const openWizard = useStore((s) => s.openWizard);
@@ -43,6 +44,24 @@ export function DispatchView() {
   const [showRail, setShowRail] = useState(true);
   const [showBrief, setShowBrief] = useState(true);
   const [typeFilter, setTypeFilter] = useState<string[]>([]);
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'v1' | 'v2'>('all');
+
+  // Map projectId → source so the V1/V2 chip can filter jobs without
+  // re-scanning the projects collection on every render.
+  const projectSourceById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of projects) if (p.source) m.set(p.id, p.source);
+    return m;
+  }, [projects]);
+
+  function matchesSourceFilter(projectId: string | null | undefined): boolean {
+    if (sourceFilter === 'all') return true;
+    if (!projectId) return false; // Jobs with no project link don't match V1 or V2.
+    const src = projectSourceById.get(projectId);
+    if (sourceFilter === 'v1') return src === 'legacy_installation';
+    // V2 covers native_project AND deal_fallback (both are post-V1 paths).
+    return src === 'native_project' || src === 'deal_fallback';
+  }
 
   const visibleJobs = useMemo(() => {
     let base = jobs;
@@ -61,15 +80,18 @@ export function DispatchView() {
       base = jobs.filter((j) => j.date != null && j.date.startsWith(prefix));
     }
     if (typeFilter.length > 0) base = base.filter((j) => typeFilter.includes(j.type));
+    if (sourceFilter !== 'all') base = base.filter((j) => matchesSourceFilter(j.projectId));
     return base;
-  }, [jobs, date, range, typeFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs, date, range, typeFilter, sourceFilter, projectSourceById]);
 
   const unsched = useMemo(() => {
-    const base = unscheduledJobs(jobs);
-    return typeFilter.length > 0
-      ? base.filter((j) => typeFilter.includes(j.type))
-      : base;
-  }, [jobs, typeFilter]);
+    let base = unscheduledJobs(jobs);
+    if (typeFilter.length > 0) base = base.filter((j) => typeFilter.includes(j.type));
+    if (sourceFilter !== 'all') base = base.filter((j) => matchesSourceFilter(j.projectId));
+    return base;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs, typeFilter, sourceFilter, projectSourceById]);
 
   const dayMode = range === 'day' && layout === 'calendar';
   // Phase 15.1b — surface the Unscheduled rail (and its collapsed strip)
@@ -93,6 +115,8 @@ export function DispatchView() {
         setDensity={setDensity}
         typeFilter={typeFilter}
         setTypeFilter={setTypeFilter}
+        sourceFilter={sourceFilter}
+        setSourceFilter={setSourceFilter}
         visibleJobs={visibleJobs}
       />
 

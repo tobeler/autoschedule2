@@ -13,6 +13,7 @@ import type {
   ZuperJob,
   ZuperListResponse,
   ZuperTeam,
+  ZuperUser,
 } from './types';
 
 const BASE_URL =
@@ -212,6 +213,33 @@ export async function getJob(jobUid: string): Promise<ZuperJob> {
 /** Returns all teams in the Zuper tenant. */
 export async function listTeams(): Promise<ZuperTeam[]> {
   return fetchAllPages<ZuperTeam>('/team');
+}
+
+/**
+ * Returns all users (technicians + back-office) in the Zuper tenant.
+ *
+ * Endpoint quirk: `/user/all` caps page size at 10 regardless of the `count`
+ * param, so we use a dedicated paginator with a higher page ceiling instead
+ * of the generic `fetchAllPages` helper (which assumes count=1000 works).
+ * Production tenant has ~210 users → ~21 pages. We cap at 50 pages
+ * (= 500 users) for safety.
+ */
+export async function listUsers(): Promise<ZuperUser[]> {
+  const out: ZuperUser[] = [];
+  const MAX_USER_PAGES = 50;
+  const PAGE_SIZE = 10; // /user/all silently caps at 10
+
+  for (let page = 1; page <= MAX_USER_PAGES; page += 1) {
+    const query = new URLSearchParams({
+      page: String(page),
+      count: String(PAGE_SIZE),
+    }).toString();
+    const res = await zuperGet<ZuperListResponse<ZuperUser>>(`/user/all?${query}`);
+    out.push(...res.data);
+    if (res.data.length < PAGE_SIZE) break;
+  }
+
+  return out;
 }
 
 // ---- Internals re-exported only for unit tests -----------------------------

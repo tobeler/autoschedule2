@@ -41,6 +41,13 @@ export interface ZuperUser {
   first_name: string;
   last_name: string;
   designation?: string;
+  email?: string | null;
+  emp_code?: string | null;
+  mobile_phone_number?: string | null;
+  work_phone_number?: string | null;
+  profile_picture?: string | null;
+  is_active?: boolean;
+  is_deleted?: boolean;
 }
 
 export interface ZuperTeamRef {

@@ -27,6 +27,9 @@ interface DispatchToolbarProps {
   setDensity: (d: Density) => void;
   typeFilter: string[];
   setTypeFilter: (t: string[]) => void;
+  /** Filter jobs by their project source (V1 = legacy installations, V2 = native projects, all = both) */
+  sourceFilter: 'all' | 'v1' | 'v2';
+  setSourceFilter: (s: 'all' | 'v1' | 'v2') => void;
   /** Visible jobs (for showing per-type counts in the dropdown) */
   visibleJobs: { type: string }[];
 }
@@ -44,6 +47,8 @@ export function DispatchToolbar({
   setDensity,
   typeFilter,
   setTypeFilter,
+  sourceFilter,
+  setSourceFilter,
   visibleJobs,
 }: DispatchToolbarProps) {
   const openWizard = useStore((s) => s.openWizard);
@@ -165,6 +170,43 @@ export function DispatchToolbar({
       )}
 
       <div className="topbar-spacer" />
+
+      {/* V1/V2 SOURCE FILTER — three-way segmented control */}
+      <div
+        className="dispatch-source-filter"
+        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+      >
+        <span
+          className="muted"
+          style={{
+            fontSize: 11,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+          }}
+        >
+          Source
+        </span>
+        <div className="segmented" role="tablist" aria-label="Project source filter">
+          {(['all', 'v1', 'v2'] as const).map((k) => (
+            <button
+              key={k}
+              role="tab"
+              aria-selected={sourceFilter === k}
+              className={sourceFilter === k ? 'active' : ''}
+              onClick={() => setSourceFilter(k)}
+              title={
+                k === 'all'
+                  ? 'Show jobs from both data models'
+                  : k === 'v1'
+                  ? 'Show jobs from V1 — HubSpot Installations (legacy)'
+                  : 'Show jobs from V2 — HubSpot native Projects'
+              }
+            >
+              {k === 'all' ? 'All' : k.toUpperCase()}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* JOB TYPE FILTER */}
       <div className="dispatch-type-filter">

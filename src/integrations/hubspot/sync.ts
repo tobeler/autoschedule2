@@ -322,6 +322,16 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
   let contactRecords: HubspotContact[] = [];
 
   // -------- Fetch phase (network) ------------------------------------------
+  //
+  // V1/V2 toggle: read settings_kv flags so users can disable the legacy
+  // Installations pull (V1) or the native Projects pull (V2) independently
+  // from Settings → Integrations. Service Areas + Contacts + Deals are
+  // shared and always run when either V1 or V2 is on.
+  const { getAllIntegrationFlags } = await import('@/lib/settings');
+  const flags = await getAllIntegrationFlags();
+  result.notes.push(
+    `Flags: V1 installations ${flags.hubspotV1 ? 'on' : 'off'}, V2 native projects ${flags.hubspotV2 ? 'on' : 'off'}.`,
+  );
 
   try {
     serviceAreaRecords = await listServiceAreas();
@@ -330,11 +340,15 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
     result.errors.push('Service areas: ' + describeError(err));
   }
 
-  try {
-    projectRecords = await searchProjects({ limit: opts.limit });
-    result.counts.projects = projectRecords.length;
-  } catch (err) {
-    result.errors.push('Projects: ' + describeError(err));
+  if (flags.hubspotV2) {
+    try {
+      projectRecords = await searchProjects({ limit: opts.limit });
+      result.counts.projects = projectRecords.length;
+    } catch (err) {
+      result.errors.push('Projects: ' + describeError(err));
+    }
+  } else {
+    result.notes.push('Skipped native projects pull (V2 toggle is off).');
   }
 
   for (const proj of projectRecords) {
@@ -379,10 +393,14 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
     result.errors.push('Contacts batch: ' + describeError(err));
   }
 
-  try {
-    installationRecords = await searchInstallations({ limit: opts.limit });
-  } catch (err) {
-    result.errors.push('Installations: ' + describeError(err));
+  if (flags.hubspotV1) {
+    try {
+      installationRecords = await searchInstallations({ limit: opts.limit });
+    } catch (err) {
+      result.errors.push('Installations: ' + describeError(err));
+    }
+  } else {
+    result.notes.push('Skipped legacy installations pull (V1 toggle is off).');
   }
 
   // -------- Write phase (one transaction) ----------------------------------
@@ -670,16 +688,23 @@ export async function pullHubspotForDemo(opts: SyncOptions = {}): Promise<DemoPu
   const contactsByDeal = new Map<string, string[]>();
   let contactRecords: HubspotContact[] = [];
 
+  // V1/V2 flags also apply to the demo pull so the laptop demo matches
+  // what the DB sync would do.
+  const { getAllIntegrationFlags } = await import('@/lib/settings');
+  const flags = await getAllIntegrationFlags();
+
   try {
     serviceAreaRecords = await listServiceAreas();
   } catch (err) {
     out.errors.push('Service areas: ' + describeError(err));
   }
 
-  try {
-    projectRecords = await searchProjects({ limit: opts.limit });
-  } catch (err) {
-    out.errors.push('Projects: ' + describeError(err));
+  if (flags.hubspotV2) {
+    try {
+      projectRecords = await searchProjects({ limit: opts.limit });
+    } catch (err) {
+      out.errors.push('Projects: ' + describeError(err));
+    }
   }
 
   for (const proj of projectRecords) {
@@ -722,10 +747,12 @@ export async function pullHubspotForDemo(opts: SyncOptions = {}): Promise<DemoPu
     out.errors.push('Contacts batch: ' + describeError(err));
   }
 
-  try {
-    installationRecords = await searchInstallations({ limit: opts.limit });
-  } catch (err) {
-    out.errors.push('Installations: ' + describeError(err));
+  if (flags.hubspotV1) {
+    try {
+      installationRecords = await searchInstallations({ limit: opts.limit });
+    } catch (err) {
+      out.errors.push('Installations: ' + describeError(err));
+    }
   }
 
   // -------- Parse phase (pure, no DB) ---------------------------------------

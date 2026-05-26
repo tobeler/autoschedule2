@@ -20,6 +20,7 @@ import {
   pingAccount,
 } from '@/integrations/zuper/client';
 import { bootstrapActiveJobsFromZuper } from '@/integrations/zuper/bootstrap';
+import { bootstrapTechniciansFromZuper } from '@/integrations/zuper/bootstrap-technicians';
 
 import { ApiError } from '../middleware/error';
 import { ProblemResponses, jsonContent, z } from '../schemas/common';
@@ -48,6 +49,18 @@ const ZuperBootstrapResultSchema = z
   })
   .openapi('ZuperBootstrapResult');
 
+const ZuperBootstrapTechniciansResultSchema = z
+  .object({
+    ok: z.boolean(),
+    startedAt: z.string(),
+    finishedAt: z.string(),
+    pulled: z.number(),
+    activeKept: z.number(),
+    upserted: z.number(),
+    errors: z.array(z.string()),
+  })
+  .openapi('ZuperBootstrapTechniciansResult');
+
 const pingRoute = createRoute({
   method: 'post',
   path: '/zuper/ping',
@@ -66,6 +79,21 @@ const bootstrapRoute = createRoute({
   summary: 'One-time pull of ACTIVE Zuper jobs to seed the dispatcher. Not a recurring sync.',
   responses: {
     200: jsonContent(ZuperBootstrapResultSchema, 'Bootstrap result'),
+    ...ProblemResponses,
+  },
+});
+
+const bootstrapTechniciansRoute = createRoute({
+  method: 'post',
+  path: '/zuper/bootstrap-technicians',
+  tags: ['zuper'],
+  summary:
+    'One-time pull of ACTIVE Zuper users into the people table. Not a recurring sync.',
+  responses: {
+    200: jsonContent(
+      ZuperBootstrapTechniciansResultSchema,
+      'Technician bootstrap result',
+    ),
     ...ProblemResponses,
   },
 });
@@ -130,6 +158,22 @@ export function registerZuperRoutes(app: OpenAPIHono<ApiEnv>): void {
     }
     try {
       const result = await bootstrapActiveJobsFromZuper();
+      return c.json(result, 200);
+    } catch (err) {
+      translateZuperError(err);
+    }
+  });
+
+  app.openapi(bootstrapTechniciansRoute, async (c) => {
+    if (!isZuperConfigured()) {
+      throw new ApiError({
+        status: 503,
+        title: 'Zuper not configured',
+        detail: 'Set ZUPER_API_KEY in the server environment.',
+      });
+    }
+    try {
+      const result = await bootstrapTechniciansFromZuper();
       return c.json(result, 200);
     } catch (err) {
       translateZuperError(err);

@@ -368,6 +368,9 @@ export function IntegrationsPanel() {
         </button>
       </div>
 
+      {/* V1/V2 data-model toggles — control which HubSpot sources sync runs */}
+      {connected && <V1V2Toggles />}
+
       {/* Dev-only token paste — surfaces when the server isn't connected. */}
       {dev && !connected && (
         <div
@@ -519,5 +522,144 @@ function DemoDataCard() {
         </div>
       )}
     </>
+  );
+}
+
+// =============================================================
+// V1/V2 data-model toggles. Inset under the HubSpot card so the
+// user can independently enable/disable each source-of-truth model
+// without affecting Contacts/Deals (which are shared).
+// =============================================================
+interface IntegrationFlagsState {
+  hubspotV1: boolean;
+  hubspotV2: boolean;
+  zuperWriteback: boolean;
+}
+
+function V1V2Toggles() {
+  const [flags, setFlags] = useState<IntegrationFlagsState | null>(null);
+  const [pending, setPending] = useState<keyof IntegrationFlagsState | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch('/api/v1/settings/integrations', { credentials: 'include' });
+        if (!r.ok) return;
+        const data = (await r.json()) as IntegrationFlagsState;
+        if (!cancelled) setFlags(data);
+      } catch {
+        // silent — surfaces as "loading…" until retry
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function toggle(key: keyof IntegrationFlagsState) {
+    if (!flags) return;
+    const next = { ...flags, [key]: !flags[key] };
+    setPending(key);
+    setFlags(next); // optimistic
+    try {
+      const r = await fetch('/api/v1/settings/integrations', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ [key]: next[key] }),
+      });
+      if (!r.ok) throw new Error('PUT failed');
+      const updated = (await r.json()) as IntegrationFlagsState;
+      setFlags(updated);
+    } catch {
+      setFlags(flags); // revert
+    } finally {
+      setPending(null);
+    }
+  }
+
+  if (!flags) {
+    return (
+      <div className="muted small" style={{ marginLeft: 60, marginTop: 4 }}>
+        <Icon name="info" size={11} /> Loading data-model toggles…
+      </div>
+    );
+  }
+
+  const Row = ({
+    label,
+    sub,
+    value,
+    flagKey,
+  }: {
+    label: string;
+    sub: string;
+    value: boolean;
+    flagKey: keyof IntegrationFlagsState;
+  }) => (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '6px 0',
+      }}
+    >
+      <button
+        className={'tweak-toggle' + (value ? ' on' : '')}
+        onClick={() => toggle(flagKey)}
+        disabled={pending === flagKey}
+        aria-label={(value ? 'Disable' : 'Enable') + ' ' + label}
+        style={{ flex: '0 0 auto' }}
+      >
+        <span className="tweak-toggle-dot" />
+      </button>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 500 }}>
+          {label}
+          {value ? (
+            <span className="badge badge-onsite" style={{ marginLeft: 8, fontSize: 10 }}>
+              On
+            </span>
+          ) : (
+            <span className="badge badge-scheduled" style={{ marginLeft: 8, fontSize: 10 }}>
+              Off
+            </span>
+          )}
+        </div>
+        <div className="muted small" style={{ marginTop: 1 }}>
+          {sub}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div
+      className="integ-card"
+      style={{
+        marginLeft: 60,
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        gap: 0,
+      }}
+    >
+      <div className="muted small" style={{ marginBottom: 6 }}>
+        <Icon name="info" size={11} /> Data model — toggles control which HubSpot sources the next sync includes. Existing rows are kept; rows from a disabled source go stale until you re-enable + sync.
+      </div>
+      <Row
+        label="V1 — Installations (legacy)"
+        sub="Pulls HubSpot Installation custom object (2-31703261). Currently the primary source: ~2,800 records."
+        value={flags.hubspotV1}
+        flagKey="hubspotV1"
+      />
+      <Row
+        label="V2 — Native Projects"
+        sub="Pulls HubSpot Projects (0-970) + Jobs (2-62483808). Currently small but grows as you move to the new model."
+        value={flags.hubspotV2}
+        flagKey="hubspotV2"
+      />
+    </div>
   );
 }
