@@ -755,7 +755,9 @@ export const useStore = create<State>()(
       demoDataEnabled: true,
       setDemoDataEnabled: (v) => {
         if (v) {
-          // Repopulate from seed and flag enabled.
+          // Entering demo mode: overlay the local store with seed data.
+          // The DB rows in Postgres (if any) are untouched — they reappear
+          // when demo mode is toggled off and the page re-hydrates.
           set({
             demoDataEnabled: true,
             jobs: JOBS_SEED,
@@ -773,27 +775,20 @@ export const useStore = create<State>()(
             showWizard: false,
             smartScheduleJobId: null,
           });
-          get().pushToast('Demo data reloaded');
+          get().pushToast('Demo data loaded · refresh to return to real data');
         } else {
-          // Clear every collection. HubSpot Sync Now can refill it.
+          // Leaving demo mode: just flip the flag. Collections stay as-is
+          // until the next page reload triggers useStoreHydration to refill
+          // from /api/v1/*. We deliberately do NOT wipe collections — this
+          // used to be a destructive operation that nuked synced HubSpot/
+          // Zuper data, which is the opposite of what users want.
           set({
             demoDataEnabled: false,
-            jobs: [],
-            people: [],
-            crews: [],
-            trucks: [],
-            customers: [],
-            projects: [],
-            regions: [],
-            timeOff: [],
-            templates: {},
-            checklists: {},
-            checklistResponses: {},
             selectedJobId: null,
             showWizard: false,
             smartScheduleJobId: null,
           });
-          get().pushToast('Demo data cleared — Sync HubSpot to populate');
+          get().pushToast('Demo mode off · refresh to load real data');
         }
       },
 

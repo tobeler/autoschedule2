@@ -48,6 +48,7 @@ export function statusLabel(s: JobStatus): string {
     onsite: 'On site',
     complete: 'Complete',
     callback: 'Callback',
+    cancelled: 'Cancelled',
   } as const)[s];
 }
 

@@ -11,7 +11,15 @@ import { JobSlotSchema } from './slot';
 export const JobTypeSchema = z.string().openapi('JobTypeKey');
 
 export const JobStatusSchema = z
-  .enum(['unscheduled', 'scheduled', 'enroute', 'onsite', 'complete', 'callback'])
+  .enum([
+    'unscheduled',
+    'scheduled',
+    'enroute',
+    'onsite',
+    'complete',
+    'callback',
+    'cancelled',
+  ])
   .openapi('JobStatus');
 
 export const VehicleModeSchema = z.enum(['fleet', 'personal', 'none']).openapi('VehicleMode');

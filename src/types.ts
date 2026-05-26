@@ -31,7 +31,8 @@ export type JobStatus =
   | 'enroute'
   | 'onsite'
   | 'complete'
-  | 'callback';
+  | 'callback'
+  | 'cancelled';
 
 // ---- Roles & people ----------------------------------------------------------
 

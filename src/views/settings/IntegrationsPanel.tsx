@@ -463,8 +463,8 @@ function DemoDataCard() {
           </div>
           <div className="muted small" style={{ marginTop: 2 }}>
             {enabled
-              ? `Seeded with ${jobsLen} jobs · ${peopleLen} technicians · ${crewsLen} crews. Turn off to clear and start fresh.`
-              : 'All collections empty. Run HubSpot Sync to populate from your real portal.'}
+              ? `Demo overlay active · ${jobsLen} jobs · ${peopleLen} technicians · ${crewsLen} crews. Real DB rows are untouched and reappear on next reload.`
+              : 'Showing real data from Postgres. Toggle on to overlay the local store with seed data (your DB is never modified).'}
           </div>
         </div>
         <button
@@ -482,27 +482,26 @@ function DemoDataCard() {
             style={{ maxWidth: 440 }}
           >
             <div className="modal-header">
-              <h3 style={{ margin: 0 }}>Clear demo data?</h3>
+              <h3 style={{ margin: 0 }}>Turn off demo mode?</h3>
             </div>
             <div className="modal-body">
               <p>
-                This empties jobs, technicians, crews, trucks, customers, projects, regions, time-off,
-                templates, and checklists. Persisted to localStorage — restart pulls real HubSpot data.
+                The local seed overlay is removed; your real DB rows (HubSpot + Zuper sync) reappear on next page reload.
               </p>
-              <p className="muted small">You can reload the demo from this same toggle later.</p>
+              <p className="muted small">No data is deleted — your Postgres tables are untouched.</p>
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost btn-sm" onClick={() => setConfirmingDisable(false)}>
                 Cancel
               </button>
               <button
-                className="btn btn-danger btn-sm"
+                className="btn btn-primary btn-sm"
                 onClick={() => {
                   setEnabled(false);
                   setConfirmingDisable(false);
                 }}
               >
-                Clear demo data
+                Turn off demo
               </button>
             </div>
           </div>

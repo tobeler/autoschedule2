@@ -5747,7 +5747,7 @@ export interface components {
         };
         JobTypeKey: string;
         /** @enum {string} */
-        JobStatus: "unscheduled" | "scheduled" | "enroute" | "onsite" | "complete" | "callback";
+        JobStatus: "unscheduled" | "scheduled" | "enroute" | "onsite" | "complete" | "callback" | "cancelled";
         JobSlot: {
             id: string;
             role: components["schemas"]["RoleKey"];

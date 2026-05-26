@@ -355,6 +355,10 @@ export interface HubspotServiceArea {
   properties: Record<string, string | null>;
 }
 
+// Numeric object type id for Jetson's service_areas custom object — required.
+// HubSpot rejects the fully-qualified string form for this portal.
+const SERVICE_AREA_OBJECT = '2-46037613';
+
 const SA_PROPS = [
   'name', 'service_area_code', 'time_zone', 'status',
   'cities', 'states', 'countries', 'postal_codes',
@@ -365,7 +369,7 @@ const SA_PROPS = [
 
 export function listServiceAreas(): Promise<HubspotServiceArea[]> {
   return pagedSearch<HubspotServiceArea>(
-    '/crm/v3/objects/service_areas/search',
+    '/crm/v3/objects/' + SERVICE_AREA_OBJECT + '/search',
     { filterGroups: [], properties: SA_PROPS },
     100,
   );
@@ -378,7 +382,9 @@ export interface HubspotJob {
   properties: Record<string, string | number | null>;
 }
 
-const JOB_OBJECT = 'jobs';
+// Numeric object type id for Jetson's Jobs custom object — HubSpot
+// rejects the string form "jobs" for this portal (returns 400).
+const JOB_OBJECT = '2-62483808';
 
 /** Build the property bag we write to a HubSpot Job custom-object record. */
 export function serializeJob(job: Job, opts: { jobUrl?: string } = {}): HubspotJob['properties'] {
