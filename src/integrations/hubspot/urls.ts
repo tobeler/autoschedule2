@@ -48,3 +48,21 @@ export function hubspotContactUrl(contactId: string, portalId = hubspotPortalId(
 export function hubspotDealUrl(dealId: string, portalId = hubspotPortalId()): string {
   return 'https://app.hubspot.com/contacts/' + portalId + '/record/0-3/' + dealId;
 }
+
+/** Legacy Installation custom object (objectTypeId 2-31703261). */
+export function hubspotInstallationUrl(
+  installationId: string,
+  portalId = hubspotPortalId(),
+): string {
+  return (
+    'https://app.hubspot.com/contacts/' +
+    portalId +
+    '/record/2-31703261/' +
+    installationId
+  );
+}
+
+/** Zuper deep-link — works against the Jetson tenant. */
+export function zuperJobUrl(jobUid: string): string {
+  return 'https://us-east-1.zuperpro.com/jobs/details/' + jobUid;
+}

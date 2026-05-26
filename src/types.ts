@@ -61,6 +61,8 @@ export interface Person {
   level: Level;
   defaultCrew: string;
   certs?: string[];
+  /** Zuper team this person was last imported from (read-only reference). */
+  zuperPrimaryTeam?: string | null;
 }
 
 // ---- Crews & trucks ----------------------------------------------------------
@@ -227,6 +229,9 @@ export interface Job {
   endDate?: string;
   endHour?: number;
   daysSpanned?: number;
+  // ---- external system reference ids (read-only; set by sync) ----
+  zuperJobUid?: string | null;
+  zuperTeamName?: string | null;
 }
 
 // ---- Time off ---------------------------------------------------------------

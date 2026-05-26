@@ -5742,6 +5742,8 @@ export interface components {
             endDate?: string;
             endHour?: number;
             daysSpanned?: number;
+            zuperJobUid?: string | null;
+            zuperTeamName?: string | null;
             actualsEnRouteAt?: string | null;
             actualsInProgressAt?: string | null;
             actualsCompleteAt?: string | null;
@@ -5873,6 +5875,7 @@ export interface components {
             level: components["schemas"]["Level"];
             defaultCrew: string | null;
             certs?: string[];
+            zuperPrimaryTeam?: string | null;
         };
         PersonCreate: {
             name: string;

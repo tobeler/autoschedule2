@@ -30,7 +30,12 @@ import {
   suggestAssignments,
 } from '../data/selectors';
 import { fmtDate, fmtTime, hoursToStr, parseDateKey } from '../data/helpers';
-import { hubspotProjectUrl } from '../integrations/hubspot/urls';
+import {
+  hubspotDealUrl,
+  hubspotInstallationUrl,
+  hubspotProjectUrl,
+  zuperJobUrl,
+} from '../integrations/hubspot/urls';
 import { autoFillSlots } from '../lib/assignment';
 import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
 import { SuggestTimeOverlay } from './SuggestTimePicker';
@@ -789,6 +794,64 @@ function UnscheduledHero({
   );
 }
 
+// External-system link buttons. We replaced the editable HubSpot/Zuper id
+// inputs (text entries that nobody types into in practice) with clickable
+// deep-link chips. Read-only — the IDs are set by sync, never by hand.
+function ExternalLinksRow({ job }: { job: Job }) {
+  // For Zuper-sourced jobs, the synthetic id has the form `zup-<uid>`. The
+  // canonical zuperJobUid is preferred if present.
+  const zuperUid =
+    job.zuperJobUid ||
+    (typeof job.id === 'string' && job.id.startsWith('zup-')
+      ? job.id.slice(4)
+      : null);
+
+  // For V1 projects we link the linked Installation record. Project id has
+  // the form `hs-i-<id>` for V1 rows.
+  const installationId =
+    job.projectId && job.projectId.startsWith('hs-i-')
+      ? job.projectId.slice('hs-i-'.length)
+      : null;
+
+  const links: Array<{ label: string; href: string }> = [];
+  if (job.hubspotDealId) {
+    links.push({
+      label: 'HubSpot deal',
+      href: hubspotDealUrl(job.hubspotDealId),
+    });
+  }
+  if (installationId) {
+    links.push({
+      label: 'HubSpot installation',
+      href: hubspotInstallationUrl(installationId),
+    });
+  }
+  if (zuperUid) {
+    links.push({ label: 'Zuper job', href: zuperJobUrl(zuperUid) });
+  }
+
+  if (links.length === 0) {
+    return <div className="muted small">No linked external records.</div>;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      {links.map((l) => (
+        <a
+          key={l.href}
+          href={l.href}
+          target="_blank"
+          rel="noreferrer"
+          className="btn btn-outline btn-sm"
+          style={{ textDecoration: 'none' }}
+        >
+          <Icon name="external_link" size={11} /> {l.label}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 // =============================================================
 // TAB: OVERVIEW
 // =============================================================
@@ -894,20 +957,11 @@ function OverviewTab({
               }}
             />
           </div>
-          <div className="field">
-            <label className="label">HubSpot deal id</label>
-            <input
-              className="input mono"
-              value={dealDraft}
-              placeholder="DEAL-…"
-              onChange={(e) => setDealDraft(e.target.value)}
-              onBlur={() => {
-                const next = dealDraft.trim() || null;
-                if (next !== job.hubspotDealId) onPatch({ hubspotDealId: next });
-              }}
-            />
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
+            <label className="label">External links</label>
+            <ExternalLinksRow job={job} />
           </div>
-          <div className="field">
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
             <label className="label">Project</label>
             <select
               className="select"
@@ -919,7 +973,7 @@ function OverviewTab({
               <option value="">— None —</option>
               {projectOptions.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.id} · {p.name}
+                  {p.name || 'Untitled project'}
                 </option>
               ))}
             </select>

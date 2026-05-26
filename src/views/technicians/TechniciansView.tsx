@@ -354,9 +354,11 @@ export function TechniciansView() {
                         <Avatar person={r.person} />
                         <div>
                           <div style={{ fontWeight: 600 }}>{r.person.name}</div>
-                          <div className="muted small mono">
-                            {r.person.id.toUpperCase()}
-                          </div>
+                          {r.person.zuperPrimaryTeam ? (
+                            <div className="muted small">
+                              {r.person.zuperPrimaryTeam}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     </td>

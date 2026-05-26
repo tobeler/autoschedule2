@@ -98,7 +98,35 @@ export function DayCalendar({
   // ===== Build rows =====
   const rows = useMemo<RowModel[]>(() => {
     if (groupBy === 'crew') {
-      return allCrews.map((c) => {
+      // Scheduled jobs whose crewId isn't in the active crews list. They
+      // exist in the DB (e.g. Zuper-sourced rows where the source team
+      // doesn't map to our crew model yet) but would otherwise be invisible
+      // — surface them in a dedicated "Unassigned" row at the top of the
+      // grid so the dispatcher can drag-reassign or at least see they're
+      // pending placement.
+      const crewIds = new Set(allCrews.map((c) => c.id));
+      const unassignedJobs = jobs.filter(
+        (j) => j.startHour != null && (!j.crewId || !crewIds.has(j.crewId)),
+      );
+      const unassignedRow: RowModel | null =
+        unassignedJobs.length > 0
+          ? {
+              id: 'crew-__unassigned__',
+              name: 'Unassigned',
+              color: 'var(--mid-gray)',
+              meta: (
+                <>
+                  <Icon name="alert_circle" size={11} /> {unassignedJobs.length} scheduled, awaiting crew
+                </>
+              ),
+              avatars: [],
+              jobs: unassignedJobs,
+              loans: [],
+              homeCrew: undefined,
+              truck: null,
+            }
+          : null;
+      const crewRows = allCrews.map((c) => {
         const truck = allTrucks.find((t) => t.id === c.truck) ?? null;
         const rowJobs = jobs.filter((j) => j.crewId === c.id);
         const loans: LoanEntry[] = [];
@@ -138,6 +166,7 @@ export function DayCalendar({
           truck,
         };
       });
+      return unassignedRow ? [unassignedRow, ...crewRows] : crewRows;
     }
 
     if (groupBy === 'truck') {

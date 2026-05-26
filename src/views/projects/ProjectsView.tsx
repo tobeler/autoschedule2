@@ -368,8 +368,22 @@ function ProjectRow({
       <div className="col-id">
         <div className="proj-row-stripe" style={{ background: meta.color }}></div>
         <div>
-          <div className="proj-row-id mono">{project.id}</div>
-          <div className="proj-row-name">{project.name}</div>
+          {/*
+            Customer-name + project-type is the primary label. The
+            project's own name (often a verbose deal-name) is a subtitle.
+            We deliberately do NOT surface the synthetic project id here
+            (hs-i-… / hs-p-… / hs-d-…) — Erik doesn't want ID numbers in
+            list views.
+          */}
+          <div className="proj-row-name" style={{ fontWeight: 600 }}>
+            {customer ? customer.name : (project.name || 'Unknown customer')}
+            {project.type ? ' — ' + project.type : ''}
+          </div>
+          {project.name && customer ? (
+            <div className="muted small" style={{ marginTop: 2 }}>
+              {project.name}
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="col-cust">

@@ -47,18 +47,38 @@ export interface BootstrapResult {
   errors: string[];
 }
 
-function hourOf(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return null;
-  return d.getUTCHours() + d.getUTCMinutes() / 60;
+// Zuper returns ISO datetimes in UTC (suffix `Z`). The field crew works in
+// LOCAL time (Pacific / Mountain / Eastern depending on team). We convert
+// the UTC instant to the team's local clock so the dispatch board displays
+// real-world install hours (8am–6pm) instead of UTC (14:00–00:00 for ET).
+//
+// May 2026 is fully in DST; the offset table below covers PDT/MDT/EDT.
+// When DST ends we'll need to extend this. For unknown teams we default to
+// MDT (Denver, our biggest region) as a sensible fallback.
+function teamUtcOffsetHours(teamName: string | null | undefined): number {
+  if (!teamName) return -6;
+  if (teamName.startsWith('BC-') || teamName.startsWith('CA-')) return -7;
+  if (teamName.startsWith('CO-')) return -6;
+  if (teamName.startsWith('MA-') || teamName.startsWith('NY-')) return -4;
+  return -6;
 }
 
-function dateKey(iso: string | null | undefined): string | null {
+function hourOfLocal(iso: string | null | undefined, teamName: string | null | undefined): number | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
+  const offsetMs = teamUtcOffsetHours(teamName) * 60 * 60 * 1000;
+  const local = new Date(d.getTime() + offsetMs);
+  return local.getUTCHours() + local.getUTCMinutes() / 60;
+}
+
+function dateKeyLocal(iso: string | null | undefined, teamName: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const offsetMs = teamUtcOffsetHours(teamName) * 60 * 60 * 1000;
+  const local = new Date(d.getTime() + offsetMs);
+  return local.toISOString().slice(0, 10);
 }
 
 function durationHoursBetween(start: string | null | undefined, end: string | null | undefined): number {
@@ -186,10 +206,11 @@ export async function bootstrapActiveJobsFromZuper(): Promise<BootstrapResult> {
         const status: JobStatus = mapZuperStatus(currentStatus(zJob));
         const start = zJob.scheduled_start_time;
         const end = zJob.scheduled_end_time;
-        const startDate = dateKey(start);
-        const endDate = dateKey(end);
-        const startH = hourOf(start);
-        const endH = hourOf(end);
+        const teamName = zJob.assigned_to_team?.[0]?.team?.team_name ?? null;
+        const startDate = dateKeyLocal(start, teamName);
+        const endDate = dateKeyLocal(end, teamName);
+        const startH = hourOfLocal(start, teamName);
+        const endH = hourOfLocal(end, teamName);
         const daysSpanned =
           startDate && endDate && startDate !== endDate
             ? Math.round(
@@ -199,7 +220,6 @@ export async function bootstrapActiveJobsFromZuper(): Promise<BootstrapResult> {
             : null;
 
         const id = 'zup-' + zJob.job_uid;
-        const teamName = zJob.assigned_to_team?.[0]?.team?.team_name ?? null;
 
         try {
           await tx

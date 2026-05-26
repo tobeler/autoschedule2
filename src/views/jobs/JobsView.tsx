@@ -146,7 +146,6 @@ export function JobsView() {
               <tr>
                 <th>Job</th>
                 <th>Type</th>
-                <th>Customer</th>
                 <th>Date · time</th>
                 <th>Crew</th>
                 <th>Truck</th>
@@ -175,17 +174,21 @@ export function JobsView() {
                     style={{ cursor: 'pointer' }}
                   >
                     <td>
-                      <div className="mono small muted">{j.id}</div>
-                      <div className="muted" style={{ fontSize: 11 }}>
-                        {j.hubspotDealId || ''}
+                      {/* Job label: "{Customer} — {Job type}" per Erik's
+                          spec. Address subtitle when present. Internal id
+                          is no longer surfaced in the list. */}
+                      <div style={{ fontWeight: 600 }}>
+                        {c ? c.name : j.title || 'Unknown customer'}
+                        {JOB_TYPES[j.type]?.label
+                          ? ' — ' + JOB_TYPES[j.type].label
+                          : ''}
                       </div>
+                      {j.address ? (
+                        <div className="muted small">{j.address}</div>
+                      ) : null}
                     </td>
                     <td>
                       <JobTypeTag type={j.type} />
-                    </td>
-                    <td>
-                      <div style={{ fontWeight: 600 }}>{c ? c.name : '—'}</div>
-                      <div className="muted small">{j.address}</div>
                     </td>
                     <td>
                       {j.date ? (

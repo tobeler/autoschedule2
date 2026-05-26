@@ -51,6 +51,7 @@ export function personToDTO(row: DbPerson, roles: RoleKey[]): PersonDTO {
     roles,
     defaultCrew: row.defaultCrewId,
     certs: (row.certs as string[] | null | undefined) ?? undefined,
+    zuperPrimaryTeam: row.zuperPrimaryTeam ?? null,
   };
 }
 
@@ -178,5 +179,7 @@ export function jobToDTO(
     endDate: row.endDate ?? undefined,
     endHour: row.endHour != null ? num(row.endHour) : undefined,
     daysSpanned: row.daysSpanned ?? undefined,
+    zuperJobUid: row.zuperJobUid ?? null,
+    zuperTeamName: row.zuperTeamName ?? null,
   };
 }

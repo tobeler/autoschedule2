@@ -141,9 +141,6 @@ export function JobBlock({
         >
           {jt.short}
         </span>
-        <span className="mono" style={{ opacity: 0.7, fontSize: 10 }}>
-          {job.id.replace('J-', '')}
-        </span>
         {job.multidayGroupId && (
           <span
             className="multiday-chip"
@@ -165,14 +162,19 @@ export function JobBlock({
 
       <div className="job-block-title">
         {(() => {
-          // Display format: "{Customer name} — {Job type}" when both are known.
-          // Falls back through customer-only, type-only, Zuper title verbatim,
-          // address, then 'Untitled'.
+          // "{Customer} — {Job type}" when both are known. When the linked
+          // customer record is missing, parse the verbatim Zuper title — it
+          // almost always begins with "{First Last} - …" — and use that as
+          // the customer name. Falls back to type-only, then the verbatim
+          // title, then address.
           const typeLabel = jt?.short || jt?.label;
-          if (customer?.name && typeLabel) {
-            return customer.name + ' — ' + typeLabel;
-          }
-          if (customer?.name) return customer.name;
+          const name =
+            customer?.name ??
+            (job.title
+              ? job.title.split(/\s[-|]\s/)[0].trim()
+              : null);
+          if (name && typeLabel) return name + ' — ' + typeLabel;
+          if (name) return name;
           if (typeLabel) return typeLabel;
           if (job.title) return job.title;
           if (job.address) return job.address.split('·')[0].trim();

@@ -47,6 +47,7 @@ export function personFromDTO(d: PersonDTO): Person {
     level: d.level,
     defaultCrew: d.defaultCrew ?? '',
     certs: d.certs,
+    zuperPrimaryTeam: d.zuperPrimaryTeam ?? null,
   };
 }
 
@@ -168,6 +169,8 @@ export function jobFromDTO(d: JobDTO): Job {
     endDate: d.endDate,
     endHour: d.endHour,
     daysSpanned: d.daysSpanned,
+    zuperJobUid: d.zuperJobUid ?? null,
+    zuperTeamName: d.zuperTeamName ?? null,
   };
 }
 

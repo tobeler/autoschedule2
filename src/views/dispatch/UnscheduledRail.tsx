@@ -84,7 +84,6 @@ export function UnscheduledRail({ jobs, onJobClick, onCollapse }: UnscheduledRai
             >
               <div className="unsched-card-header">
                 <JobTypeTag type={job.type} />
-                <span className="unsched-card-id mono">{job.id}</span>
                 <Icon
                   name="drag"
                   size={14}
@@ -94,13 +93,21 @@ export function UnscheduledRail({ jobs, onJobClick, onCollapse }: UnscheduledRai
               </div>
               <div className="unsched-card-name">
                 {(() => {
-                  // "{Customer} — {Job type}" when both known. Falls back
-                  // through customer-only / type-only / Zuper title verbatim /
-                  // address. Matches the JobBlock title format.
+                  // Compose "{Customer} — {Job type}" when both are known.
+                  // When the linked customer record is missing, parse the
+                  // upstream Zuper title — it almost always begins with
+                  // "{First Last} - …" or "{First Last} | …" — and use that
+                  // as the customer name. Type takes second priority. The
+                  // verbatim title is the last meaningful fallback.
                   const jt = getJobType(job.type);
                   const typeLabel = jt?.label;
-                  if (c?.name && typeLabel) return c.name + ' — ' + typeLabel;
-                  if (c?.name) return c.name;
+                  const name =
+                    c?.name ??
+                    (job.title
+                      ? job.title.split(/\s[-|]\s/)[0].trim()
+                      : null);
+                  if (name && typeLabel) return name + ' — ' + typeLabel;
+                  if (name) return name;
                   if (typeLabel) return typeLabel;
                   if (job.title) return job.title;
                   if (job.address) return job.address;

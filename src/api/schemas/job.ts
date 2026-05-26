@@ -53,6 +53,8 @@ export const JobSchema = z
     endDate: z.string().optional(),
     endHour: z.number().optional(),
     daysSpanned: z.number().optional(),
+    zuperJobUid: z.string().nullable().optional(),
+    zuperTeamName: z.string().nullable().optional(),
     // Actuals — written by the transition endpoint.
     actualsEnRouteAt: z.string().nullable().optional(),
     actualsInProgressAt: z.string().nullable().optional(),
