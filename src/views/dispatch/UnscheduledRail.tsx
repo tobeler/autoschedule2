@@ -9,6 +9,7 @@ import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
 import { JobTypeTag } from '../../components/JobTypeTag';
 import { useStore } from '../../store';
+import { getJobType } from '../../data/selectors';
 
 interface UnscheduledRailProps {
   jobs: Job[];
@@ -92,7 +93,19 @@ export function UnscheduledRail({ jobs, onJobClick, onCollapse }: UnscheduledRai
                 />
               </div>
               <div className="unsched-card-name">
-                {c?.name ?? job.title ?? job.address ?? 'Untitled'}
+                {(() => {
+                  // "{Customer} — {Job type}" when both known. Falls back
+                  // through customer-only / type-only / Zuper title verbatim /
+                  // address. Matches the JobBlock title format.
+                  const jt = getJobType(job.type);
+                  const typeLabel = jt?.label;
+                  if (c?.name && typeLabel) return c.name + ' — ' + typeLabel;
+                  if (c?.name) return c.name;
+                  if (typeLabel) return typeLabel;
+                  if (job.title) return job.title;
+                  if (job.address) return job.address;
+                  return 'Untitled';
+                })()}
               </div>
               <div className="unsched-card-meta" style={{ marginTop: 4 }}>
                 <Icon name="map_pin" size={11} />

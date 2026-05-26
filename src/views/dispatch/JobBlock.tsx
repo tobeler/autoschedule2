@@ -164,9 +164,20 @@ export function JobBlock({
       </div>
 
       <div className="job-block-title">
-        {customer?.name ??
-          job.title ??
-          (job.address ? job.address.split('·')[0].trim() : 'Untitled')}
+        {(() => {
+          // Display format: "{Customer name} — {Job type}" when both are known.
+          // Falls back through customer-only, type-only, Zuper title verbatim,
+          // address, then 'Untitled'.
+          const typeLabel = jt?.short || jt?.label;
+          if (customer?.name && typeLabel) {
+            return customer.name + ' — ' + typeLabel;
+          }
+          if (customer?.name) return customer.name;
+          if (typeLabel) return typeLabel;
+          if (job.title) return job.title;
+          if (job.address) return job.address.split('·')[0].trim();
+          return 'Untitled';
+        })()}
       </div>
 
       {!compact && (
