@@ -10,12 +10,19 @@ import { PageHeader } from '../../components/PageHeader';
 import { useStore } from '../../store';
 import { TODAY, fmtDate, fmtTime } from '../../data/helpers';
 import { getCustomer, jobsForProject } from '../../data/selectors';
-import type { Project, ProjectStatus } from '../../types';
+import type { Customer, Project, ProjectStatus } from '../../types';
 import { ProjectDetailDrawer } from './ProjectDetailDrawer';
 import { AddProjectModal } from './AddProjectModal';
 import { EditProjectModal } from './EditProjectModal';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import { IconButton } from '../../components/IconButton';
+import {
+  makeSorter,
+  matchesSearch,
+  nextSort,
+  tokenizeQuery,
+  type SortState,
+} from '../../lib/table';
 
 interface ProjectStatusMeta {
   label: string;
@@ -65,6 +72,61 @@ export function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
 }
 
 type StatusFilter = ProjectStatus | 'all';
+type SourceFilter = 'all' | 'v1' | 'v2';
+type RegionFilter = 'all' | 'CO' | 'MA' | 'BC' | 'NY';
+
+type SortKey =
+  | 'customer'
+  | 'type'
+  | 'status'
+  | 'jobs'
+  | 'nextVisit'
+  | 'value'
+  | 'dealId';
+
+// Status filter chips sort by display order, not enum order.
+const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'proposed', label: 'Proposed' },
+  { key: 'sold', label: 'Sold' },
+  { key: 'in_progress', label: 'In progress' },
+  { key: 'complete', label: 'Complete' },
+  { key: 'warranty', label: 'Warranty' },
+  { key: 'cancelled', label: 'Cancelled' },
+];
+
+const SOURCE_FILTERS: { key: SourceFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'v1', label: 'V1' },
+  { key: 'v2', label: 'V2' },
+];
+
+const REGION_FILTERS: { key: RegionFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'CO', label: 'CO' },
+  { key: 'MA', label: 'MA' },
+  { key: 'BC', label: 'BC' },
+  { key: 'NY', label: 'NY' },
+];
+
+const VALID_REGIONS = new Set<RegionFilter>(['CO', 'MA', 'BC', 'NY']);
+
+/**
+ * Pull the 2-letter region code from a customer address. Format from seed
+ * + recent enrichment is "<street> · <city>, <ST>" — fall back to "no
+ * match" if the trailing state token isn't one of our four regions.
+ */
+function regionForCustomer(customer: Customer | undefined): RegionFilter | null {
+  if (!customer?.address) return null;
+  // Grab the segment after the last comma, then the 2-letter state code.
+  const tail = customer.address.split(',').pop()?.trim() ?? '';
+  const code = tail.slice(0, 2).toUpperCase() as RegionFilter;
+  return VALID_REGIONS.has(code) ? code : null;
+}
+
+function sourceBucket(p: Project): 'v1' | 'v2' {
+  return p.source === 'legacy_installation' ? 'v1' : 'v2';
+}
 
 export function ProjectsView() {
   const projects = useStore((s) => s.projects);
@@ -72,7 +134,13 @@ export function ProjectsView() {
   const jobs = useStore((s) => s.jobs);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const [regionFilter, setRegionFilter] = useState<RegionFilter>('all');
   const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<SortState<SortKey> | null>({
+    key: 'customer',
+    dir: 'asc',
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
@@ -87,6 +155,13 @@ export function ProjectsView() {
     );
   }
 
+  // Customer lookup map — O(1) per row instead of an array scan.
+  const customerById = useMemo(() => {
+    const m = new Map<string, Customer>();
+    for (const c of customers) m.set(c.id, c);
+    return m;
+  }, [customers]);
+
   const enriched = useMemo(() => {
     const todayMs = TODAY.getTime();
     return projects.map((p) => {
@@ -99,47 +174,88 @@ export function ProjectsView() {
         )
         .sort((a, b) => (a.date || '').localeCompare(b.date || ''))[0];
       const isStale = !nextJob && p.status === 'in_progress';
-      return { ...p, projJobs, completedJobs, nextJob, isStale };
+      const customer = customerById.get(p.customer);
+      const region = regionForCustomer(customer);
+      return {
+        ...p,
+        projJobs,
+        completedJobs,
+        nextJob,
+        isStale,
+        customer_ref: customer,
+        region,
+      };
     });
-  }, [projects, jobs]);
+  }, [projects, jobs, customerById]);
 
-  const counts = {
-    all: enriched.length,
-    proposed: enriched.filter((p) => p.status === 'proposed').length,
-    sold: enriched.filter((p) => p.status === 'sold').length,
-    in_progress: enriched.filter((p) => p.status === 'in_progress').length,
-    complete: enriched.filter((p) => p.status === 'complete').length,
-    warranty: enriched.filter((p) => p.status === 'warranty').length,
-    cancelled: enriched.filter((p) => p.status === 'cancelled').length,
-  };
+  type EnrichedProject = (typeof enriched)[number];
 
-  const filtered = enriched.filter((p) => {
-    if (statusFilter !== 'all' && p.status !== statusFilter) return false;
-    if (query) {
-      const q = query.toLowerCase();
-      const cust = getCustomer(customers, p.customer);
-      if (
-        !p.name.toLowerCase().includes(q) &&
-        !p.id.toLowerCase().includes(q) &&
-        !(cust?.name || '').toLowerCase().includes(q)
-      )
-        return false;
-    }
-    return true;
-  });
+  const counts = useMemo(
+    () => ({
+      all: enriched.length,
+      proposed: enriched.filter((p) => p.status === 'proposed').length,
+      sold: enriched.filter((p) => p.status === 'sold').length,
+      in_progress: enriched.filter((p) => p.status === 'in_progress').length,
+      complete: enriched.filter((p) => p.status === 'complete').length,
+      warranty: enriched.filter((p) => p.status === 'warranty').length,
+      cancelled: enriched.filter((p) => p.status === 'cancelled').length,
+      v1: enriched.filter((p) => sourceBucket(p) === 'v1').length,
+      v2: enriched.filter((p) => sourceBucket(p) === 'v2').length,
+      CO: enriched.filter((p) => p.region === 'CO').length,
+      MA: enriched.filter((p) => p.region === 'MA').length,
+      BC: enriched.filter((p) => p.region === 'BC').length,
+      NY: enriched.filter((p) => p.region === 'NY').length,
+    }),
+    [enriched],
+  );
 
-  const totalValue = filtered.reduce((s, p) => s + (p.value || 0), 0);
+  const queryTokens = useMemo(() => tokenizeQuery(query), [query]);
 
-  const filters: [StatusFilter, string, number][] = [
-    ['all', 'All', counts.all],
-    ['proposed', 'Proposed', counts.proposed],
-    ['sold', 'Sold', counts.sold],
-    ['in_progress', 'In progress', counts.in_progress],
-    ['warranty', 'Warranty', counts.warranty],
-    ['complete', 'Complete', counts.complete],
-  ];
+  const filtered = useMemo(() => {
+    return enriched.filter((p) => {
+      if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+      if (sourceFilter !== 'all' && sourceBucket(p) !== sourceFilter) return false;
+      if (regionFilter !== 'all' && p.region !== regionFilter) return false;
+      if (queryTokens.length === 0) return true;
+      return matchesSearch(
+        [
+          p.customer_ref?.name,
+          p.name,
+          p.hubspotDealId,
+          p.customer_ref?.address,
+        ],
+        queryTokens,
+      );
+    });
+  }, [enriched, statusFilter, sourceFilter, regionFilter, queryTokens]);
+
+  // Sort extractors — strings sort by locale, numbers/dates natural.
+  const sortExtractors: Record<SortKey, (row: EnrichedProject) => unknown> = useMemo(
+    () => ({
+      customer: (row) => row.customer_ref?.name ?? '',
+      type: (row) => row.type ?? '',
+      status: (row) => row.status,
+      jobs: (row) => row.projJobs.length,
+      nextVisit: (row) => row.nextJob?.date ?? null,
+      value: (row) => row.value ?? null,
+      dealId: (row) => row.hubspotDealId ?? '',
+    }),
+    [],
+  );
+
+  const sorted = useMemo(() => {
+    const sorter = makeSorter(sort, sortExtractors);
+    // toSorted keeps `filtered` immutable for downstream memo stability.
+    return filtered.slice().sort(sorter);
+  }, [filtered, sort, sortExtractors]);
+
+  const totalValue = sorted.reduce((s, p) => s + (p.value || 0), 0);
 
   const selected = selectedId ? projects.find((p) => p.id === selectedId) ?? null : null;
+
+  function handleSort(key: SortKey) {
+    setSort((prev) => nextSort(prev, key));
+  }
 
   return (
     <div className="proj-view">
@@ -163,31 +279,58 @@ export function ProjectsView() {
         >
           <Icon name="search" size={14} />
           <input
-            placeholder="Search by customer, project name, ID…"
+            placeholder="Search customer, project, deal id, address…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <div className="seg" style={{ marginLeft: 'auto' }}>
-          {filters.map(([k, l, c]) => (
-            <button
-              key={k}
-              className={statusFilter === k ? 'active' : ''}
-              onClick={() => setStatusFilter(k)}
-            >
-              {l}{' '}
-              <span className="muted" style={{ marginLeft: 4, fontSize: 10 }}>
-                {c}
-              </span>
-            </button>
-          ))}
-        </div>
+      </div>
+
+      <div
+        className="proj-toolbar"
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 8,
+          rowGap: 6,
+          marginTop: -4,
+        }}
+      >
+        <FilterChipGroup
+          label="Status"
+          options={STATUS_FILTERS}
+          value={statusFilter}
+          onChange={setStatusFilter}
+          counts={counts}
+        />
+        <FilterChipGroup
+          label="Source"
+          options={SOURCE_FILTERS}
+          value={sourceFilter}
+          onChange={setSourceFilter}
+          counts={counts}
+        />
+        <FilterChipGroup
+          label="Region"
+          options={REGION_FILTERS}
+          value={regionFilter}
+          onChange={setRegionFilter}
+          counts={counts}
+        />
       </div>
 
       <div className="proj-summary">
         <div className="proj-summary-stat">
           <div className="l">Showing</div>
-          <div className="v">{filtered.length}</div>
+          <div className="v">
+            {sorted.length}
+            <span
+              className="muted"
+              style={{ fontSize: 13, fontWeight: 500, marginLeft: 6 }}
+            >
+              of {enriched.length}
+            </span>
+          </div>
         </div>
         <div className="proj-summary-stat">
           <div className="l">Pipeline value</div>
@@ -198,25 +341,67 @@ export function ProjectsView() {
           <div
             className="v"
             style={{
-              color: filtered.some((p) => p.isStale) ? '#C53030' : 'var(--fg)',
+              color: sorted.some((p) => p.isStale) ? '#C53030' : 'var(--fg)',
             }}
           >
-            {filtered.filter((p) => p.isStale).length}
+            {sorted.filter((p) => p.isStale).length}
           </div>
         </div>
       </div>
 
       <div className="proj-table">
         <div className="proj-table-header">
-          <div className="col-id">Project</div>
-          <div className="col-cust">Customer</div>
-          <div className="col-status">Status</div>
-          <div className="col-jobs">Jobs</div>
-          <div className="col-next">Next visit</div>
-          <div className="col-value">Value</div>
-          <div className="col-deal">Deal</div>
+          <SortHeaderCell
+            className="col-id"
+            label="Customer / Project"
+            sortKey="customer"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-cust"
+            label="Type"
+            sortKey="type"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-status"
+            label="Status"
+            sortKey="status"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-jobs"
+            label="Jobs"
+            sortKey="jobs"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-next"
+            label="Next visit"
+            sortKey="nextVisit"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-value"
+            label="Value"
+            sortKey="value"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-deal"
+            label="Deal"
+            sortKey="dealId"
+            state={sort}
+            onClick={handleSort}
+          />
         </div>
-        {filtered.map((p) => (
+        {sorted.map((p) => (
           <ProjectRow
             key={p.id}
             project={p}
@@ -240,7 +425,7 @@ export function ProjectsView() {
             }}
           />
         ))}
-        {filtered.length === 0 && (
+        {sorted.length === 0 && (
           <div className="proj-empty">
             <Icon name="briefcase" size={28} stroke="var(--mid-gray)" />
             <div
@@ -248,7 +433,7 @@ export function ProjectsView() {
             >
               No projects match
             </div>
-            <div className="muted small">Try a different status filter or clear search.</div>
+            <div className="muted small">Try a different filter or clear search.</div>
           </div>
         )}
       </div>
@@ -569,4 +754,117 @@ function projMenuStyle(color?: string): React.CSSProperties {
     borderRadius: 6,
     color: color ?? 'var(--fg)',
   };
+}
+
+// -----------------------------------------------------------------
+// Filter chip group — labelled segmented control with live counts.
+// Generic over the chip-value type so each filter (status/source/region)
+// shares one render but keeps strict typing on `value`/`onChange`.
+// -----------------------------------------------------------------
+interface FilterChipGroupProps<V extends string> {
+  label: string;
+  options: { key: V; label: string }[];
+  value: V;
+  onChange: (next: V) => void;
+  counts: Record<string, number>;
+}
+
+function FilterChipGroup<V extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  counts,
+}: FilterChipGroupProps<V>) {
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          color: 'var(--fg-muted)',
+        }}
+      >
+        {label}
+      </span>
+      <div className="seg">
+        {options.map((o) => {
+          const count = counts[o.key];
+          return (
+            <button
+              key={o.key}
+              type="button"
+              className={value === o.key ? 'active' : ''}
+              onClick={() => onChange(o.key)}
+            >
+              {o.label}
+              {typeof count === 'number' && (
+                <span className="muted" style={{ marginLeft: 4, fontSize: 10 }}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------
+// SortHeaderCell — div-grid equivalent of <SortableHeader>. The
+// project list uses a CSS grid header row (not a <table>), so we
+// inline a div-based version that mirrors the same UX: click to
+// toggle asc/desc, chevron when active, faint ↕ when inactive.
+// -----------------------------------------------------------------
+interface SortHeaderCellProps {
+  label: string;
+  sortKey: SortKey;
+  state: SortState<SortKey> | null;
+  onClick: (key: SortKey) => void;
+  className: string;
+}
+
+function SortHeaderCell({
+  label,
+  sortKey,
+  state,
+  onClick,
+  className,
+}: SortHeaderCellProps) {
+  const active = state?.key === sortKey;
+  const dir = active ? state!.dir : null;
+  return (
+    <div
+      className={className}
+      role="button"
+      tabIndex={0}
+      aria-sort={
+        active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'
+      }
+      onClick={() => onClick(sortKey)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick(sortKey);
+        }
+      }}
+      style={{
+        cursor: 'pointer',
+        userSelect: 'none',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+      }}
+    >
+      {label}
+      {active ? (
+        <Icon name={dir === 'asc' ? 'chevron_up' : 'chevron_down'} size={11} />
+      ) : (
+        <span style={{ opacity: 0.3, fontSize: 11 }}>↕</span>
+      )}
+    </div>
+  );
 }

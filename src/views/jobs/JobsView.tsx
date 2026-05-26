@@ -1,6 +1,6 @@
 // =============================================================
 // Jobs view — sortable + filterable table.
-// Type chips, status filters, search, crew composition column.
+// Type chips, status/source/region filters, search, crew composition column.
 // =============================================================
 import { useMemo, useState } from 'react';
 import { Icon } from '../../components/Icon';
@@ -8,6 +8,7 @@ import { PageHeader } from '../../components/PageHeader';
 import { JobTypeTag } from '../../components/JobTypeTag';
 import { StatusBadge } from '../../components/StatusBadge';
 import { RoleChip } from '../../components/RoleChip';
+import { SortableHeader } from '../../components/SortableHeader';
 import { useStore } from '../../store';
 import { fmtTime } from '../../data/helpers';
 import {
@@ -18,21 +19,87 @@ import {
   statusLabel,
 } from '../../data/selectors';
 import { JOB_TYPES } from '../../data/seed';
-import type { JobStatus } from '../../types';
+import {
+  type SortState,
+  chipMatches,
+  makeSorter,
+  matchesSearch,
+  nextSort,
+  tokenizeQuery,
+} from '../../lib/table';
+import type { Crew, Customer, Job, JobStatus, Project, Truck } from '../../types';
 import { PROJECT_STATUS_META } from '../projects/ProjectsView';
 
-type TypeFilter = string | 'all';
-type StatusFilterValue = JobStatus | 'all';
+// Sortable column keys for the jobs table.
+type JobSortKey =
+  | 'customer'
+  | 'type'
+  | 'date'
+  | 'crew'
+  | 'truck'
+  | 'status'
+  | 'project';
 
-const STATUS_FILTERS: StatusFilterValue[] = [
-  'all',
+type TypeFilter = string | 'all';
+
+// Status chips — explicit order. "Cancelled" lives in the type union but
+// isn't part of the default chip strip; we keep it here so cancelled jobs
+// can still be filtered explicitly.
+const STATUS_CHIPS: JobStatus[] = [
   'unscheduled',
   'scheduled',
   'enroute',
   'onsite',
   'complete',
   'callback',
+  'cancelled',
 ];
+
+// Source chips collapse project provenance into the two operational
+// "lanes" the dispatch team thinks in: V1 (legacy HubSpot-installation
+// records) vs V2 (native project records, plus the deal-fallback bucket
+// which behaves like V2 for scheduling).
+type SourceKey = 'v1' | 'v2';
+const SOURCE_CHIPS: { key: SourceKey; label: string }[] = [
+  { key: 'v1', label: 'V1' },
+  { key: 'v2', label: 'V2' },
+];
+
+// Region prefix on zuperTeamName (e.g. "CO-DE-1" → "CO"). Order mirrors
+// the operational hierarchy used elsewhere in the app.
+type RegionKey = 'CO' | 'MA' | 'BC' | 'NY';
+const REGION_CHIPS: RegionKey[] = ['CO', 'MA', 'BC', 'NY'];
+
+function regionOfJob(job: Job): RegionKey | null {
+  const t = job.zuperTeamName;
+  if (!t) return null;
+  // Treat CA- (California Bay Area teams) as BC for now — same offset
+  // bucket and the field guide groups them together.
+  if (t.startsWith('CO-')) return 'CO';
+  if (t.startsWith('MA-')) return 'MA';
+  if (t.startsWith('BC-') || t.startsWith('CA-')) return 'BC';
+  if (t.startsWith('NY-')) return 'NY';
+  return null;
+}
+
+function sourceOfJob(job: Job, projects: Project[]): SourceKey | null {
+  if (!job.projectId) return null;
+  const p = projects.find((pr) => pr.id === job.projectId);
+  if (!p?.source) return null;
+  if (p.source === 'legacy_installation') return 'v1';
+  // native_project + deal_fallback both behave as V2.
+  return 'v2';
+}
+
+// Combine date (ISO YYYY-MM-DD) and startHour into a sortable number.
+// Unscheduled (no date) → null, which compareBy will sink to the end.
+function jobTimestamp(job: Job): number | null {
+  if (!job.date) return null;
+  const d = new Date(job.date + 'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  const hourMs = (job.startHour ?? 0) * 60 * 60 * 1000;
+  return d.getTime() + hourMs;
+}
 
 export function JobsView() {
   const jobs = useStore((s) => s.jobs);
@@ -45,33 +112,122 @@ export function JobsView() {
   const pushToast = useStore((s) => s.pushToast);
 
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
-  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
+  const [statusSet, setStatusSet] = useState<Set<JobStatus>>(() => new Set());
+  const [sourceSet, setSourceSet] = useState<Set<SourceKey>>(() => new Set());
+  const [regionSet, setRegionSet] = useState<Set<RegionKey>>(() => new Set());
   const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<SortState<JobSortKey> | null>({
+    key: 'date',
+    dir: 'desc',
+  });
+
+  // Build lookup maps once per render so the sort comparator doesn't run
+  // a linear find() for every comparison (n*log n * n = O(n^2 log n)).
+  const customerById = useMemo(() => {
+    const m = new Map<string, Customer>();
+    for (const c of customers) m.set(c.id, c);
+    return m;
+  }, [customers]);
+  const crewById = useMemo(() => {
+    const m = new Map<string, Crew>();
+    for (const c of crews) m.set(c.id, c);
+    return m;
+  }, [crews]);
+  const truckById = useMemo(() => {
+    const m = new Map<string, Truck>();
+    for (const t of trucks) m.set(t.id, t);
+    return m;
+  }, [trucks]);
+  const projectById = useMemo(() => {
+    const m = new Map<string, Project>();
+    for (const p of projects) m.set(p.id, p);
+    return m;
+  }, [projects]);
+
+  const tokens = useMemo(() => tokenizeQuery(query), [query]);
 
   const filtered = useMemo(() => {
-    return jobs.filter((j) => {
+    const list = jobs.filter((j) => {
       if (typeFilter !== 'all' && j.type !== typeFilter) return false;
-      if (statusFilter !== 'all' && j.status !== statusFilter) return false;
-      if (query) {
-        const c = getCustomer(customers, j.customer);
-        const hay = (
-          j.id +
-          ' ' +
-          (c?.name || '') +
-          ' ' +
-          (j.address || '')
-        ).toLowerCase();
-        if (!hay.includes(query.toLowerCase())) return false;
+      if (!chipMatches(statusSet, j.status)) return false;
+      if (sourceSet.size > 0) {
+        const src = sourceOfJob(j, projects);
+        if (!chipMatches(sourceSet, src)) return false;
+      }
+      if (regionSet.size > 0) {
+        const reg = regionOfJob(j);
+        if (!chipMatches(regionSet, reg)) return false;
+      }
+      if (tokens.length > 0) {
+        const c = j.customer ? customerById.get(j.customer) : undefined;
+        if (
+          !matchesSearch(
+            [
+              c?.name,
+              j.address,
+              j.title,
+              j.hubspotDealId,
+              j.zuperJobUid,
+              j.id,
+            ],
+            tokens,
+          )
+        ) {
+          return false;
+        }
       }
       return true;
     });
-  }, [jobs, typeFilter, statusFilter, query, customers]);
 
+    const extractors: Record<JobSortKey, (j: Job) => unknown> = {
+      customer: (j) =>
+        (j.customer ? customerById.get(j.customer)?.name : null) ?? j.title ?? '',
+      type: (j) => JOB_TYPES[j.type]?.label ?? j.type,
+      date: (j) => jobTimestamp(j),
+      crew: (j) => (j.crewId ? crewById.get(j.crewId)?.name : null),
+      truck: (j) => (j.truckId ? truckById.get(j.truckId)?.name : null),
+      status: (j) => statusLabel(j.status),
+      project: (j) =>
+        (j.projectId ? projectById.get(j.projectId)?.name : null) ?? '',
+    };
+
+    return [...list].sort(makeSorter<Job, JobSortKey>(sort, extractors));
+  }, [
+    jobs,
+    typeFilter,
+    statusSet,
+    sourceSet,
+    regionSet,
+    tokens,
+    sort,
+    customerById,
+    crewById,
+    truckById,
+    projectById,
+    projects,
+  ]);
+
+  const totalCount = jobs.length;
+  const shownCount = filtered.length;
   const activeCount = jobs.filter(
     (j) => j.status === 'scheduled' || j.status === 'enroute' || j.status === 'onsite',
   ).length;
   const unscheduledCount = jobs.filter((j) => j.status === 'unscheduled').length;
   const completeCount = jobs.filter((j) => j.status === 'complete').length;
+
+  function toggleSort(key: JobSortKey) {
+    setSort((prev) => nextSort(prev, key));
+  }
+  function toggleSet<V>(
+    set: Set<V>,
+    apply: (next: Set<V>) => void,
+    value: V,
+  ): void {
+    const next = new Set(set);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    apply(next);
+  }
 
   return (
     <>
@@ -79,7 +235,10 @@ export function JobsView() {
         eyebrow="Operations"
         title="Jobs"
         subtitle={
-          filtered.length +
+          'Showing ' +
+          shownCount +
+          ' of ' +
+          totalCount +
           ' jobs · ' +
           activeCount +
           ' active, ' +
@@ -89,10 +248,10 @@ export function JobsView() {
           ' complete this quarter'
         }
       >
-        <div className="search" style={{ width: 240 }}>
+        <div className="search" style={{ width: 260 }}>
           <Icon name="search" size={14} />
           <input
-            placeholder="Search id, customer, address…"
+            placeholder="Search customer, address, deal id…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -126,15 +285,60 @@ export function JobsView() {
           </button>
         ))}
       </div>
-      <div className="filter-row" style={{ paddingBottom: 12 }}>
+
+      <div className="filter-row">
         <span className="eyebrow-sm">Status</span>
-        {STATUS_FILTERS.map((s) => (
+        <button
+          className={'filter-chip ' + (statusSet.size === 0 ? 'active' : '')}
+          onClick={() => setStatusSet(new Set())}
+        >
+          All
+        </button>
+        {STATUS_CHIPS.map((s) => (
           <button
             key={s}
-            className={'filter-chip ' + (statusFilter === s ? 'active' : '')}
-            onClick={() => setStatusFilter(s)}
+            className={'filter-chip ' + (statusSet.has(s) ? 'active' : '')}
+            onClick={() => toggleSet(statusSet, setStatusSet, s)}
           >
-            {s === 'all' ? 'All' : statusLabel(s as JobStatus)}
+            {statusLabel(s)}
+          </button>
+        ))}
+      </div>
+
+      <div className="filter-row">
+        <span className="eyebrow-sm">Source</span>
+        <button
+          className={'filter-chip ' + (sourceSet.size === 0 ? 'active' : '')}
+          onClick={() => setSourceSet(new Set())}
+        >
+          All
+        </button>
+        {SOURCE_CHIPS.map((s) => (
+          <button
+            key={s.key}
+            className={'filter-chip ' + (sourceSet.has(s.key) ? 'active' : '')}
+            onClick={() => toggleSet(sourceSet, setSourceSet, s.key)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="filter-row" style={{ paddingBottom: 12 }}>
+        <span className="eyebrow-sm">Region</span>
+        <button
+          className={'filter-chip ' + (regionSet.size === 0 ? 'active' : '')}
+          onClick={() => setRegionSet(new Set())}
+        >
+          All
+        </button>
+        {REGION_CHIPS.map((r) => (
+          <button
+            key={r}
+            className={'filter-chip ' + (regionSet.has(r) ? 'active' : '')}
+            onClick={() => toggleSet(regionSet, setRegionSet, r)}
+          >
+            {r}
           </button>
         ))}
       </div>
@@ -144,14 +348,49 @@ export function JobsView() {
           <table className="table">
             <thead>
               <tr>
-                <th>Job</th>
-                <th>Type</th>
-                <th>Date · time</th>
-                <th>Crew</th>
-                <th>Truck</th>
+                <SortableHeader<JobSortKey>
+                  label="Customer"
+                  sortKey="customer"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<JobSortKey>
+                  label="Type"
+                  sortKey="type"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<JobSortKey>
+                  label="Date · time"
+                  sortKey="date"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<JobSortKey>
+                  label="Crew"
+                  sortKey="crew"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<JobSortKey>
+                  label="Truck"
+                  sortKey="truck"
+                  state={sort}
+                  onClick={toggleSort}
+                />
                 <th>Crew composition</th>
-                <th>Status</th>
-                <th>Project</th>
+                <SortableHeader<JobSortKey>
+                  label="Status"
+                  sortKey="status"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<JobSortKey>
+                  label="Project"
+                  sortKey="project"
+                  state={sort}
+                  onClick={toggleSort}
+                />
               </tr>
             </thead>
             <tbody>

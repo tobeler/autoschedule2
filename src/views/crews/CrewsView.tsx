@@ -8,10 +8,17 @@ import { Avatar } from '../../components/Avatar';
 import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
 import { PageHeader } from '../../components/PageHeader';
+import { SortableHeader } from '../../components/SortableHeader';
 import { useStore } from '../../store';
 import { TODAY, addDays, dateKey, startOfWeek } from '../../data/helpers';
 import { getPerson, getTruck, roleLabel } from '../../data/selectors';
-import type { Crew, Person } from '../../types';
+import {
+  chipMatches,
+  makeSorter,
+  nextSort,
+  type SortState,
+} from '../../lib/table';
+import type { Crew, CrewType, Person } from '../../types';
 import { WeeklyComposition } from './WeeklyComposition';
 import { AddCrewModal } from './AddCrewModal';
 import { AddMemberPicker } from './AddMemberPicker';
@@ -169,8 +176,23 @@ export function CrewsView() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// DEFAULT crews — permanent composition cards
+// DEFAULT crews — permanent composition cards w/ sortable header
+// + filter chips controlling order/visibility of the cards below.
 // ─────────────────────────────────────────────────────────────
+const CREW_TYPE_FILTERS: CrewType[] = ['install', 'electrical', 'sales', 'plumbing'];
+const CREW_REGION_FILTERS = ['CO', 'MA', 'BC', 'NY'] as const;
+type CrewRegion = (typeof CREW_REGION_FILTERS)[number];
+
+function crewRegionOf(name: string): CrewRegion | null {
+  const prefix = name.split('-')[0]?.trim().toUpperCase();
+  if (prefix && (CREW_REGION_FILTERS as readonly string[]).includes(prefix)) {
+    return prefix as CrewRegion;
+  }
+  return null;
+}
+
+type CrewSortKey = 'name' | 'type' | 'members' | 'region' | 'truck';
+
 function CrewsDefaultView() {
   const crews = useStore((s) => s.crews);
   const people = useStore((s) => s.people);
@@ -184,11 +206,46 @@ function CrewsDefaultView() {
   const [editCrew, setEditCrew] = useState<Crew | null>(null);
   const [deleteCrew, setDeleteCrew] = useState<Crew | null>(null);
   const [removeMember, setRemoveMember] = useState<{ crew: Crew; person: Person } | null>(null);
+  const [typeFilter, setTypeFilter] = useState<CrewType | 'all'>('all');
+  const [regionFilter, setRegionFilter] = useState<CrewRegion | 'all'>('all');
+  const [sort, setSort] = useState<SortState<CrewSortKey> | null>({
+    key: 'name',
+    dir: 'asc',
+  });
 
   function activeJobsForCrew(crewId: string) {
     return jobs.filter(
       (j) => j.crewId === crewId && j.status !== 'complete',
     );
+  }
+
+  const activeTypes = useMemo<Set<CrewType>>(
+    () => (typeFilter === 'all' ? new Set() : new Set([typeFilter])),
+    [typeFilter],
+  );
+  const activeRegions = useMemo<Set<CrewRegion>>(
+    () => (regionFilter === 'all' ? new Set() : new Set([regionFilter])),
+    [regionFilter],
+  );
+
+  const visibleCrews = useMemo(() => {
+    const filtered = crews.filter((c) => {
+      if (!chipMatches(activeTypes, c.type)) return false;
+      if (!chipMatches(activeRegions, crewRegionOf(c.name))) return false;
+      return true;
+    });
+    const sorter = makeSorter<Crew, CrewSortKey>(sort, {
+      name: (c) => c.name,
+      type: (c) => c.type,
+      members: (c) => c.members.length,
+      region: (c) => crewRegionOf(c.name) ?? '',
+      truck: (c) => getTruck(trucks, c.truck)?.name ?? '',
+    });
+    return filtered.slice().sort(sorter);
+  }, [crews, trucks, activeTypes, activeRegions, sort]);
+
+  function toggleSort(k: CrewSortKey) {
+    setSort((prev) => nextSort(prev, k));
   }
 
   function confirmRemoveMember() {
@@ -224,8 +281,162 @@ function CrewsDefaultView() {
         </span>
       </div>
 
+      <div
+        className="row"
+        style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}
+      >
+        <button
+          className={'filter-chip ' + (typeFilter === 'all' ? 'active' : '')}
+          onClick={() => setTypeFilter('all')}
+        >
+          All types
+        </button>
+        {CREW_TYPE_FILTERS.map((t) => (
+          <button
+            key={t}
+            className={'filter-chip ' + (typeFilter === t ? 'active' : '')}
+            onClick={() => setTypeFilter(t)}
+            style={{ textTransform: 'capitalize' }}
+          >
+            {t}
+          </button>
+        ))}
+        <span
+          aria-hidden
+          style={{
+            width: 1,
+            height: 18,
+            background: 'var(--border, rgba(15,31,13,0.12))',
+            margin: '0 4px',
+          }}
+        />
+        <button
+          className={'filter-chip ' + (regionFilter === 'all' ? 'active' : '')}
+          onClick={() => setRegionFilter('all')}
+        >
+          All regions
+        </button>
+        {CREW_REGION_FILTERS.map((rg) => (
+          <button
+            key={rg}
+            className={'filter-chip ' + (regionFilter === rg ? 'active' : '')}
+            onClick={() => setRegionFilter(rg)}
+          >
+            {rg}
+          </button>
+        ))}
+      </div>
+
+      {/*
+        Sort bar — applies a column-style ordering to the crew cards
+        below. Same SortableHeader UX as the table views so the toggle
+        cycle (asc → desc) is consistent site-wide.
+      */}
+      <div
+        className="card"
+        style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}
+      >
+        <table className="table" style={{ marginBottom: 0 }}>
+          <thead>
+            <tr>
+              <SortableHeader<CrewSortKey>
+                label="Crew"
+                sortKey="name"
+                state={sort}
+                onClick={toggleSort}
+              />
+              <SortableHeader<CrewSortKey>
+                label="Type"
+                sortKey="type"
+                state={sort}
+                onClick={toggleSort}
+              />
+              <SortableHeader<CrewSortKey>
+                label="Members"
+                sortKey="members"
+                state={sort}
+                onClick={toggleSort}
+                align="right"
+              />
+              <SortableHeader<CrewSortKey>
+                label="Region"
+                sortKey="region"
+                state={sort}
+                onClick={toggleSort}
+              />
+              <SortableHeader<CrewSortKey>
+                label="Truck"
+                sortKey="truck"
+                state={sort}
+                onClick={toggleSort}
+              />
+            </tr>
+          </thead>
+          <tbody>
+            {visibleCrews.map((c) => {
+              const truck = getTruck(trucks, c.truck);
+              const region = crewRegionOf(c.name);
+              return (
+                <tr
+                  key={c.id}
+                  className="clickable"
+                  onClick={() => setEditCrew(c)}
+                >
+                  <td>
+                    <div className="row" style={{ gap: 8 }}>
+                      <span
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                          background: c.color,
+                        }}
+                      />
+                      <span style={{ fontWeight: 600 }}>{c.name}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="tag" style={{ textTransform: 'capitalize' }}>
+                      {c.type}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'right' }} className="mono">
+                    {c.members.length}
+                  </td>
+                  <td>
+                    {region ? (
+                      <span className="mono small">{region}</span>
+                    ) : (
+                      <span className="muted small">—</span>
+                    )}
+                  </td>
+                  <td>
+                    {truck ? (
+                      <span className="row" style={{ gap: 6 }}>
+                        <Icon name="truck" size={12} />
+                        <span>{truck.name}</span>
+                        <span className="mono muted small">{truck.plate}</span>
+                      </span>
+                    ) : (
+                      <span className="muted small">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {visibleCrews.length === 0 && (
+              <tr>
+                <td colSpan={5} style={{ textAlign: 'center', padding: 28 }}>
+                  <span className="muted small">No crews match.</span>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
       <div className="roster-grid">
-        {crews.map((crew) => {
+        {visibleCrews.map((crew) => {
           const truck = getTruck(trucks, crew.truck);
           return (
             <div key={crew.id} className="roster-card">

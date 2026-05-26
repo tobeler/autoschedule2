@@ -10,13 +10,41 @@ import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
 import { JobTypeTag } from '../../components/JobTypeTag';
 import { PageHeader } from '../../components/PageHeader';
+import { SortableHeader } from '../../components/SortableHeader';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import { useStore } from '../../store';
 import { TODAY, dateKey, fmtTime } from '../../data/helpers';
 import { getCrew } from '../../data/selectors';
-import type { Truck } from '../../types';
+import {
+  chipMatches,
+  makeSorter,
+  nextSort,
+  type SortState,
+} from '../../lib/table';
+import type { Truck, TruckKind, TruckStatus } from '../../types';
 import { AddTruckModal } from './AddTruckModal';
 import { EditTruckModal } from './EditTruckModal';
+
+type TruckSortKey =
+  | 'name'
+  | 'plate'
+  | 'kind'
+  | 'capacity'
+  | 'assignedCrew'
+  | 'status'
+  | 'utilization';
+
+const TRUCK_STATUS_FILTERS: TruckStatus[] = ['available', 'shop', 'assigned'];
+const TRUCK_STATUS_LABEL: Record<TruckStatus, string> = {
+  available: 'Available',
+  shop: 'In shop',
+  assigned: 'Assigned',
+};
+const TRUCK_KIND_FILTERS: TruckKind[] = ['install', 'electrical', 'plumbing'];
+
+function effectiveStatus(t: Truck): TruckStatus {
+  return t.status ?? 'assigned';
+}
 
 export function FleetView() {
   const trucks = useStore((s) => s.trucks);
@@ -29,6 +57,12 @@ export function FleetView() {
   const [editTruck, setEditTruck] = useState<Truck | null>(null);
   const [deleteTruck, setDeleteTruck] = useState<Truck | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<TruckStatus | 'all'>('all');
+  const [kindFilter, setKindFilter] = useState<TruckKind | 'all'>('all');
+  const [sort, setSort] = useState<SortState<TruckSortKey> | null>({
+    key: 'name',
+    dir: 'asc',
+  });
 
   const todayDk = dateKey(TODAY);
 
@@ -62,6 +96,37 @@ export function FleetView() {
     return jobs.filter(
       (j) => j.truckId === truckId && j.status !== 'complete',
     );
+  }
+
+  const activeStatuses = useMemo<Set<TruckStatus>>(
+    () => (statusFilter === 'all' ? new Set() : new Set([statusFilter])),
+    [statusFilter],
+  );
+  const activeKinds = useMemo<Set<TruckKind>>(
+    () => (kindFilter === 'all' ? new Set() : new Set([kindFilter])),
+    [kindFilter],
+  );
+
+  const visibleTrucks = useMemo(() => {
+    const filtered = trucks.filter((t) => {
+      if (!chipMatches(activeStatuses, effectiveStatus(t))) return false;
+      if (!chipMatches(activeKinds, t.kind)) return false;
+      return true;
+    });
+    const sorter = makeSorter<Truck, TruckSortKey>(sort, {
+      name: (t) => t.name,
+      plate: (t) => t.plate,
+      kind: (t) => t.kind,
+      capacity: (t) => t.capacity,
+      assignedCrew: (t) => getCrew(crews, t.assignedCrew)?.name ?? '',
+      status: (t) => effectiveStatus(t),
+      utilization: (t) => utilization[t.id] ?? 0,
+    });
+    return filtered.slice().sort(sorter);
+  }, [trucks, crews, utilization, activeStatuses, activeKinds, sort]);
+
+  function toggleSort(k: TruckSortKey) {
+    setSort((prev) => nextSort(prev, k));
   }
 
   function confirmDelete(truck: Truck) {
