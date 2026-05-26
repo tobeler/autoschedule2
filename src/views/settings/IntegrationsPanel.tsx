@@ -16,6 +16,7 @@ import { Icon } from '../../components/Icon';
 import { useStore } from '../../store';
 import { HubspotFieldMapping } from './HubspotFieldMapping';
 import { client } from '../../api/client';
+import type { HubspotEntityMapping } from '../../types';
 
 const LAST_SYNC_STORAGE_KEY = 'jetson-fsm-v1.hubspotSync.lastAt';
 
@@ -99,12 +100,19 @@ export function IntegrationsPanel() {
   const totalMappedFields = hubspotMapping.reduce((n, e) => n + e.fields.length, 0);
   const dev = isDevEnv();
 
+  const setHubspotMapping = useStore((s) => s.setHubspotMapping);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        await client.hubspot.getMapping();
-        if (!cancelled) setConnectionState('connected');
+        const mapping = await client.hubspot.getMapping();
+        if (!cancelled) {
+          // Hydrate the store so the "N fields mapped" badge updates and
+          // future tabs/sessions see the same numbers. The API echoes back
+          // strings for `entity`/`direction`; cast to the typed app shape.
+          setHubspotMapping(mapping as unknown as HubspotEntityMapping[]);
+          setConnectionState('connected');
+        }
       } catch {
         if (!cancelled) setConnectionState('disconnected');
       }
@@ -225,6 +233,9 @@ export function IntegrationsPanel() {
           setLastResult(res.errors[0] ?? 'Sync returned errors.');
         }
         setLastSyncAt(res.finishedAt);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(LAST_SYNC_STORAGE_KEY, res.finishedAt);
+        }
         setDemoMode(false);
       }
     } catch (err) {
