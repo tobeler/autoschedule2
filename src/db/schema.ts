@@ -428,6 +428,12 @@ export const jobs = pgTable('jobs', {
    * in the job drawer for traceability.
    */
   zuperTeamName: text('zuperTeamName'),
+  /**
+   * Crew Model v2: ad-hoc multi-tech assignment. When non-null, takes
+   * precedence over the crewId + job_slots mechanism for service jobs
+   * that need 1-N techs without a persistent crew row.
+   */
+  assignedTechIds: text('assignedTechIds').array(),
   /** Last time this row was reconciled with a Zuper pull. */
   zuperSyncedAt: timestamp('zuperSyncedAt', { withTimezone: true }),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),

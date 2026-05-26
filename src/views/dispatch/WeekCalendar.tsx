@@ -207,7 +207,9 @@ export function WeekCalendar({
           },
         ]
       : [];
-    const crewRows = allCrews.map<WeekRow>((c: Crew) => ({
+    // Crew Model v2: hide ad_hoc crews from the dispatch grid.
+    const dispatchableCrews = allCrews.filter((c) => c.type !== 'ad_hoc');
+    const crewRows = dispatchableCrews.map<WeekRow>((c: Crew) => ({
       id: c.id,
       name: c.name,
       color: c.color,

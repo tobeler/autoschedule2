@@ -47,11 +47,26 @@ function colorFor(teamName: string): string {
   return REGION_COLOR[prefix] ?? '#475569';
 }
 
-function typeFor(teamName: string): 'install' | 'electrical' | 'sales' | 'plumbing' | string {
+function typeFor(teamName: string): 'install' | 'electrical' | 'sales' | 'plumbing' | 'ad_hoc' | string {
   const t = teamName.toLowerCase();
+  // Crew Model v2: operational Zuper labels (office / float / dispatch /
+  // admin / sub / "all" / technicians) go to 'ad_hoc' so they're hidden
+  // from default dispatch lanes. Specialty subs that match electrical /
+  // plumbing keywords still win those types.
   if (t.includes('electrician') || t.includes('-elec')) return 'electrical';
   if (t.includes('plumb')) return 'plumbing';
   if (t.includes('sales') || t.includes('walkthrough')) return 'sales';
+  if (
+    t.includes('office') ||
+    t.includes('float') ||
+    t.includes('dispatch') ||
+    t.includes('admin') ||
+    /-sub(-|$)/.test(t) ||
+    t.includes('technicians') ||
+    t.includes('- all')
+  ) {
+    return 'ad_hoc';
+  }
   return 'install';
 }
 

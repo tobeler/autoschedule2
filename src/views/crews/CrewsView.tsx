@@ -180,7 +180,20 @@ export function CrewsView() {
 // DEFAULT crews — permanent composition cards w/ sortable header
 // + filter chips controlling order/visibility of the cards below.
 // ─────────────────────────────────────────────────────────────
-const CREW_TYPE_FILTERS: CrewType[] = ['install', 'electrical', 'sales', 'plumbing'];
+// Crew Model v2: 'install' first (the day-to-day dispatch crews), then
+// specialty crews, then 'ad_hoc' last (the Pool — office / float / dispatch
+// / admin / sub teams inherited from Zuper). Default filter is 'install'
+// so the dispatcher's primary view isn't cluttered with ad_hoc operational
+// groupings that never own a job.
+const CREW_TYPE_FILTERS: CrewType[] = ['install', 'electrical', 'sales', 'plumbing', 'solo', 'ad_hoc'];
+const CREW_TYPE_LABEL: Record<string, string> = {
+  install: 'Install',
+  electrical: 'Electrical',
+  sales: 'Sales',
+  plumbing: 'Plumbing',
+  solo: 'Solo',
+  ad_hoc: 'Pool',
+};
 const CREW_REGION_FILTERS = ['CO', 'MA', 'BC', 'NY'] as const;
 type CrewRegion = (typeof CREW_REGION_FILTERS)[number];
 
@@ -207,7 +220,9 @@ function CrewsDefaultView() {
   const [editCrew, setEditCrew] = useState<Crew | null>(null);
   const [deleteCrew, setDeleteCrew] = useState<Crew | null>(null);
   const [removeMember, setRemoveMember] = useState<{ crew: Crew; person: Person } | null>(null);
-  const [typeFilter, setTypeFilter] = useState<CrewType | 'all'>('all');
+  // Default to 'install' so the dispatcher's primary view shows real
+  // install crews, not the ~13 ad_hoc operational labels.
+  const [typeFilter, setTypeFilter] = useState<CrewType | 'all'>('install');
   // Region filter is shared with the topbar picker — single source of truth.
   const { region: regionFilter, setRegion: setRegionFilter } = useRegionFilter();
   const [sort, setSort] = useState<SortState<CrewSortKey> | null>({
@@ -298,9 +313,8 @@ function CrewsDefaultView() {
             key={t}
             className={'filter-chip ' + (typeFilter === t ? 'active' : '')}
             onClick={() => setTypeFilter(t)}
-            style={{ textTransform: 'capitalize' }}
           >
-            {t}
+            {CREW_TYPE_LABEL[t] ?? t}
           </button>
         ))}
         <span

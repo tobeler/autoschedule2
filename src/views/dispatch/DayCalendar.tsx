@@ -129,7 +129,13 @@ export function DayCalendar({
       const unassignedRow: RowModel | null = null;
       // teamRows preserved for the layout below; now always empty.
       const teamRows: RowModel[] = [];
-      const crewRows = allCrews.map((c) => {
+      // Crew Model v2: hide ad_hoc crews (office / float / dispatch / admin /
+      // sub) from default dispatch lanes — these are operational labels, not
+      // real install teams. They still exist in `crews` and surface in a
+      // Pool view; we just don't clutter the dispatcher grid with 13 empty
+      // lanes for groups that never actually own a job.
+      const dispatchableCrews = allCrews.filter((c) => c.type !== 'ad_hoc');
+      const crewRows = dispatchableCrews.map((c) => {
         const truck = allTrucks.find((t) => t.id === c.truck) ?? null;
         const rowJobs = jobs.filter((j) => j.crewId === c.id);
         const loans: LoanEntry[] = [];

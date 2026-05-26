@@ -94,7 +94,9 @@ export function GanttChart({
             },
           ]
         : [];
-    const crewRows = allCrews.map<GanttRow>((c: Crew) => ({
+    // Crew Model v2: hide ad_hoc crews from the gantt timeline.
+    const dispatchableCrews = allCrews.filter((c) => c.type !== 'ad_hoc');
+    const crewRows = dispatchableCrews.map<GanttRow>((c: Crew) => ({
       id: c.id,
       name: c.name,
       color: c.color,

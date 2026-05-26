@@ -67,7 +67,25 @@ export interface Person {
 
 // ---- Crews & trucks ----------------------------------------------------------
 
-export type CrewType = 'install' | 'electrical' | 'plumbing' | 'sales' | string;
+/**
+ * Crew Model v2 (HVAC ops feedback, 2026-05-26):
+ *  - `install`  — persistent multi-person install team (default)
+ *  - `solo`     — one tech operating as a 1-person crew (service techs)
+ *  - `ad_hoc`   — office / float / dispatch / admin / "sub" groupings
+ *                 inherited from Zuper. NOT real install crews — hidden
+ *                 from default dispatch lanes; appear in a Pool view.
+ *  - `electrical` / `plumbing` / `sales` — specialty persistent crews.
+ * The trailing `string` fallback keeps Drizzle's `text` column type-
+ * compatible for any future values added at the DB level.
+ */
+export type CrewType =
+  | 'install'
+  | 'solo'
+  | 'ad_hoc'
+  | 'electrical'
+  | 'plumbing'
+  | 'sales'
+  | string;
 
 export interface Crew {
   id: string;
@@ -232,6 +250,12 @@ export interface Job {
   // ---- external system reference ids (read-only; set by sync) ----
   zuperJobUid?: string | null;
   zuperTeamName?: string | null;
+  /**
+   * Crew Model v2 ad-hoc assignment: a list of person ids for service jobs
+   * that need 1–N techs but don't justify a persistent crew. When set,
+   * takes precedence over `crewId` for showing techs on the job.
+   */
+  assignedTechIds?: string[] | null;
 }
 
 // ---- Time off ---------------------------------------------------------------
