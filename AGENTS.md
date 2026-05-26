@@ -14,6 +14,18 @@ For HubSpot work, also: `src/integrations/hubspot/schema-snapshot.json` + `src/i
 
 `docs/solutions/` — documented solutions to past problems organized by category, with YAML frontmatter (`module`, `tags`, `problem_type`). Relevant when implementing or debugging in documented areas. Currently includes onboarding conventions; populated by `/ce-compound` as new solutions land.
 
+## Working style
+
+- **Default to dispatching subagents for bounded work.** Erik prefers parallel execution. For any task that can be specified with a clear input/output contract and doesn't depend on the current conversation's working state, spawn a subagent rather than doing it serially. Examples that should ALWAYS be delegated:
+  - Bootstrap / import flows from external systems (Zuper, HubSpot, etc.)
+  - Codebase exploration / archaeology spanning more than 3 files
+  - External docs lookups
+  - Refactors confined to a known set of files
+  - Schema migrations + their accompanying code updates
+- Brief the subagent fully: API endpoints, env var names, mapping rules, edge cases to handle, files to touch, what NOT to touch, and the verification step they should run. Pull patterns from existing files when relevant (e.g. mirror `src/integrations/zuper/bootstrap-technicians.ts` shape).
+- Run multiple subagents in parallel when they don't overlap on the same files. They report back when done.
+- **Read-only mode is currently in effect** for both HubSpot and Zuper. Subagents must not call write endpoints (PATCH/POST/DELETE) on either system. Local DB writes are fine.
+
 ## Stack reminders
 
 - Next.js 15 (App Router) + Drizzle ORM + Supabase Postgres (deferred — currently runs on localStorage in demo mode)

@@ -54,9 +54,19 @@ const ZuperBootstrapTechniciansResultSchema = z
     ok: z.boolean(),
     startedAt: z.string(),
     finishedAt: z.string(),
+    pulledTeams: z.number(),
     pulled: z.number(),
     activeKept: z.number(),
     upserted: z.number(),
+    byRole: z.object({
+      hvac_lead: z.number(),
+      hvac_installer: z.number(),
+      apprentice: z.number(),
+      electrician: z.number(),
+      plumber: z.number(),
+      fsm: z.number(),
+    }),
+    keptTeams: z.array(z.string()),
     errors: z.array(z.string()),
   })
   .openapi('ZuperBootstrapTechniciansResult');

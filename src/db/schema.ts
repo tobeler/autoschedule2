@@ -206,6 +206,13 @@ export const people = pgTable('people', {
   level: levelEnum('level').notNull(),
   defaultCrewId: text('defaultCrewId'),
   certs: jsonb('certs').$type<string[]>(),
+  /**
+   * Primary Zuper team name the person was imported from (e.g. "CO-DE-1").
+   * Populated by `bootstrapTechniciansFromZuper` for traceability when a tech
+   * belongs to multiple Zuper teams; we pick the first regional/numeric team.
+   * NULL for people that didn't come from a Zuper team-filtered bootstrap.
+   */
+  zuperPrimaryTeam: text('zuperPrimaryTeam'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 });
