@@ -98,109 +98,37 @@ export function DayCalendar({
   // ===== Build rows =====
   const rows = useMemo<RowModel[]>(() => {
     if (groupBy === 'crew') {
-      // Scheduled jobs whose crewId isn't in the active crews list. These
-      // are Zuper-sourced rows where the source team doesn't map to a real
-      // dispatcher crew. We don't auto-create crews from Zuper teams (per
-      // Erik's directive) but we DO group these jobs into virtual rows by
-      // the Zuper team name so 11 simultaneous 8am installs across 11
-      // teams render as 11 separate rows instead of overlapping into one.
-      // Pattern adapted from jetson-kpi's TeamRow grouping.
+      // Crews now exist in our DB (materialized once from Zuper teams via
+      // POST /api/v1/zuper/bootstrap-crews). Going forward, crews are
+      // AutoSchedule-owned — rename / edit / delete freely. The link back
+      // to Zuper lives only on `crews.zuperTeamName` for audit.
+      // Surface jobs scheduled today that aren't assigned to ANY of our
+      // crews into a single "Unassigned" lane at the top of the grid.
       const crewIds = new Set(allCrews.map((c) => c.id));
       const unassignedJobs = jobs.filter(
         (j) => j.startHour != null && (!j.crewId || !crewIds.has(j.crewId)),
       );
-      const byTeam = new Map<string, Job[]>();
-      const noTeamJobs: Job[] = [];
-      for (const j of unassignedJobs) {
-        const teamName = j.zuperTeamName?.trim() || '';
-        if (teamName) {
-          if (!byTeam.has(teamName)) byTeam.set(teamName, []);
-          byTeam.get(teamName)!.push(j);
-        } else {
-          noTeamJobs.push(j);
-        }
-      }
-      // Pre-bucket people by their zuperPrimaryTeam so each team row can
-      // show its real crew avatars.
-      const peopleByTeam = new Map<string, Person[]>();
-      for (const p of allPeople) {
-        const t = p.zuperPrimaryTeam;
-        if (!t) continue;
-        if (!peopleByTeam.has(t)) peopleByTeam.set(t, []);
-        peopleByTeam.get(t)!.push(p);
-      }
-
-      // Region accent color per team prefix, matching jetson-kpi's palette.
-      const REGION_ACCENT: Record<string, string> = {
-        CO: '#0EA5E9', // sky-500
-        MA: '#10B981', // emerald-500
-        NY: '#8B5CF6', // violet-500
-        BC: '#F59E0B', // amber-500
-        CA: '#F97316', // orange-500
-      };
-
-      // Stable lexicographic team ordering. Real crews still appear below.
-      const teamRows: RowModel[] = Array.from(byTeam.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([teamName, teamJobs]) => {
-          const teamPeople = peopleByTeam.get(teamName) ?? [];
-          const prefix = teamName.split('-')[0]?.toUpperCase() ?? '';
-          const color = REGION_ACCENT[prefix] ?? 'var(--mid-gray)';
-          const lead = teamPeople.find((p) => p.roles.includes('hvac_lead'));
-          return {
-            id: 'zup-team-row-' + teamName,
-            name: teamName,
-            color,
-            meta: (
-              <>
-                {lead ? (
-                  <>
-                    <Icon name="user" size={11} /> {lead.name.split(' ').slice(-1)[0]}
-                  </>
-                ) : null}
-                {lead && teamPeople.length > 1 ? ' · ' : ''}
-                {teamPeople.length > 0 ? (
-                  <>
-                    {teamPeople.length} on team
-                  </>
-                ) : (
-                  <>
-                    <Icon name="alert_circle" size={11} /> No techs assigned
-                  </>
-                )}
-                {teamJobs.length > 0 ? ' · ' + teamJobs.length + ' scheduled' : ''}
-              </>
-            ),
-            avatars: teamPeople.slice(0, 4).map((p) => (
-              <Avatar key={p.id} person={p.id} size="xs" />
-            )),
-            jobs: teamJobs,
-            loans: [],
-            homeCrew: undefined,
-            truck: null,
-          };
-        });
-      // Tail row for any jobs with no team_name (e.g. Zuper jobs that have
-      // no team assignment yet — usually NEW status).
       const noTeamRow: RowModel | null =
-        noTeamJobs.length > 0
+        unassignedJobs.length > 0
           ? {
-              id: 'zup-no-team',
-              name: 'Unassigned (no team)',
+              id: 'crew-__unassigned__',
+              name: 'Unassigned',
               color: 'var(--mid-gray)',
               meta: (
                 <>
-                  <Icon name="alert_circle" size={11} /> {noTeamJobs.length} scheduled, no Zuper team
+                  <Icon name="alert_circle" size={11} /> {unassignedJobs.length} scheduled, awaiting crew
                 </>
               ),
               avatars: [],
-              jobs: noTeamJobs,
+              jobs: unassignedJobs,
               loans: [],
               homeCrew: undefined,
               truck: null,
             }
           : null;
       const unassignedRow: RowModel | null = null;
+      // teamRows preserved for the layout below; now always empty.
+      const teamRows: RowModel[] = [];
       const crewRows = allCrews.map((c) => {
         const truck = allTrucks.find((t) => t.id === c.truck) ?? null;
         const rowJobs = jobs.filter((j) => j.crewId === c.id);

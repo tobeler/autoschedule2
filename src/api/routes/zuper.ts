@@ -22,6 +22,7 @@ import {
 import { bootstrapActiveJobsFromZuper } from '@/integrations/zuper/bootstrap';
 import { bootstrapTechniciansFromZuper } from '@/integrations/zuper/bootstrap-technicians';
 import { enrichZuperJobs } from '@/integrations/zuper/enrich';
+import { bootstrapCrewsFromZuper } from '@/integrations/zuper/bootstrap-crews';
 
 import { ApiError } from '../middleware/error';
 import { ProblemResponses, jsonContent, z } from '../schemas/common';
@@ -135,6 +136,31 @@ const bootstrapTechniciansRoute = createRoute({
   },
 });
 
+const ZuperBootstrapCrewsResultSchema = z
+  .object({
+    ok: z.boolean(),
+    teamsFound: z.number(),
+    crewsCreated: z.number(),
+    crewsUpdated: z.number(),
+    jobsLinked: z.number(),
+    peopleLinked: z.number(),
+    membershipsCreated: z.number(),
+    errors: z.array(z.string()),
+  })
+  .openapi('ZuperBootstrapCrewsResult');
+
+const bootstrapCrewsRoute = createRoute({
+  method: 'post',
+  path: '/zuper/bootstrap-crews',
+  tags: ['zuper'],
+  summary:
+    'One-time materialization: turn distinct Zuper team names into AutoSchedule crew rows, link people + jobs to them. Read-only against Zuper.',
+  responses: {
+    200: jsonContent(ZuperBootstrapCrewsResultSchema, 'Crew bootstrap result'),
+    ...ProblemResponses,
+  },
+});
+
 function translateZuperError(err: unknown): never {
   if (err instanceof ZuperConfigError) {
     throw new ApiError({
@@ -227,6 +253,16 @@ export function registerZuperRoutes(app: OpenAPIHono<ApiEnv>): void {
     }
     try {
       const result = await bootstrapTechniciansFromZuper();
+      return c.json(result, 200);
+    } catch (err) {
+      translateZuperError(err);
+    }
+  });
+
+  app.openapi(bootstrapCrewsRoute, async (c) => {
+    // No Zuper-config check — this route reads from our DB only.
+    try {
+      const result = await bootstrapCrewsFromZuper();
       return c.json(result, 200);
     } catch (err) {
       translateZuperError(err);

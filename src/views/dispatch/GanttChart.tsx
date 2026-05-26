@@ -71,43 +71,26 @@ export function GanttChart({
         };
       });
   } else {
-    // Prepend virtual Zuper-team rows for scheduled jobs whose crewId isn't
-    // a real dispatcher crew (same pattern as DayCalendar / WeekCalendar).
+    // crew mode: crews are now materialized from Zuper teams (via
+    // /api/v1/zuper/bootstrap-crews) — no virtual-team-row hack needed.
+    // Any scheduled job without a recognized crewId falls into one
+    // Unassigned tail row.
     const crewIds = new Set(allCrews.map((c) => c.id));
-    const byTeam = new Map<string, Job[]>();
-    const noTeam: Job[] = [];
-    for (const j of jobs) {
-      if (j.startHour == null || j.date == null) continue;
-      if (j.crewId && crewIds.has(j.crewId)) continue;
-      const t = j.zuperTeamName?.trim() || '';
-      if (t) {
-        if (!byTeam.has(t)) byTeam.set(t, []);
-        byTeam.get(t)!.push(j);
-      } else {
-        noTeam.push(j);
-      }
-    }
-    const teamRows: GanttRow[] = Array.from(byTeam.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([teamName, teamJobs]) => {
-        const prefix = teamName.split('-')[0]?.toUpperCase() ?? '';
-        return {
-          id: 'zup-team-' + teamName,
-          name: teamName,
-          color: REGION_ACCENT[prefix] ?? 'var(--mid-gray)',
-          meta: 'Zuper team',
-          jobs: teamJobs,
-        };
-      });
-    const noTeamRow: GanttRow[] =
-      noTeam.length > 0
+    const unassigned = jobs.filter(
+      (j) =>
+        j.startHour != null &&
+        j.date != null &&
+        (!j.crewId || !crewIds.has(j.crewId)),
+    );
+    const unassignedRow: GanttRow[] =
+      unassigned.length > 0
         ? [
             {
-              id: 'zup-no-team',
-              name: 'Unassigned (no team)',
+              id: 'crew-__unassigned__',
+              name: 'Unassigned',
               color: 'var(--mid-gray)',
-              meta: 'No Zuper team',
-              jobs: noTeam,
+              meta: 'Awaiting crew',
+              jobs: unassigned,
             },
           ]
         : [];
@@ -118,7 +101,7 @@ export function GanttChart({
       meta: c.type,
       jobs: jobs.filter((j) => j.crewId === c.id),
     }));
-    rows = [...teamRows, ...noTeamRow, ...crewRows];
+    rows = [...unassignedRow, ...crewRows];
   }
 
   return (

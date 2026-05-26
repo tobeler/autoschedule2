@@ -183,48 +183,25 @@ export function WeekCalendar({
         kind: 'tech',
       }));
   } else {
-    // crew mode: prepend virtual Zuper-team rows for any scheduled jobs in
-    // the week whose crewId isn't in the dispatcher's allCrews list. This
-    // matches DayCalendar.tsx so all 1,127 Zuper-sourced jobs stay visible.
+    // crew mode: real crews materialized from Zuper teams via
+    // /api/v1/zuper/bootstrap-crews. Crews are now AutoSchedule-owned.
+    // Any week jobs still lacking a known crewId fall into one
+    // "Unassigned" tail row.
     const crewIds = new Set(allCrews.map((c) => c.id));
-    const teamSet = new Set<string>();
-    for (const j of jobs) {
-      if (j.date == null || !weekKeys.includes(j.date)) continue;
-      if (j.startHour == null) continue;
-      if (j.crewId && crewIds.has(j.crewId)) continue;
-      const t = j.zuperTeamName?.trim();
-      if (t) teamSet.add(t);
-    }
-    const teamRows: WeekRow[] = Array.from(teamSet)
-      .sort((a, b) => a.localeCompare(b))
-      .map((teamName) => {
-        const prefix = teamName.split('-')[0]?.toUpperCase() ?? '';
-        return {
-          id: 'zup-team-' + teamName,
-          name: teamName,
-          color: REGION_ACCENT[prefix] ?? 'var(--mid-gray)',
-          meta: 'Zuper team',
-          kind: 'zuper-team',
-          zuperTeamName: teamName,
-        };
-      });
-    // Any jobs in the week with neither a dispatcher crew nor a Zuper team
-    // get one tail row so they remain visible.
-    const hasNoTeamUnassigned = jobs.some(
+    const hasUnassigned = jobs.some(
       (j) =>
         j.date != null &&
         weekKeys.includes(j.date) &&
         j.startHour != null &&
-        (!j.crewId || !crewIds.has(j.crewId)) &&
-        !(j.zuperTeamName?.trim()),
+        (!j.crewId || !crewIds.has(j.crewId)),
     );
-    const noTeamRow: WeekRow[] = hasNoTeamUnassigned
+    const unassignedRow: WeekRow[] = hasUnassigned
       ? [
           {
-            id: 'zup-no-team',
-            name: 'Unassigned (no team)',
+            id: 'crew-__unassigned__',
+            name: 'Unassigned',
             color: 'var(--mid-gray)',
-            meta: 'No Zuper team',
+            meta: 'Awaiting crew',
             kind: 'zuper-team',
             zuperTeamName: '',
           },
@@ -237,7 +214,7 @@ export function WeekCalendar({
       meta: c.type,
       kind: 'crew',
     }));
-    rows = [...teamRows, ...noTeamRow, ...crewRows];
+    rows = [...unassignedRow, ...crewRows];
   }
 
   return (
@@ -329,13 +306,9 @@ export function WeekCalendar({
                 if (row.kind === 'tech')
                   return j.slots.some((s) => s.assignedTo === row.id);
                 if (row.kind === 'zuper-team') {
-                  // Only count jobs whose crew isn't a real dispatcher crew —
-                  // otherwise we'd double-count when both a crewId and team
-                  // exist. Match by exact team name (empty string = no-team row).
-                  const isUnassigned = !j.crewId || !allCrews.some((c) => c.id === j.crewId);
-                  if (!isUnassigned) return false;
-                  const t = j.zuperTeamName?.trim() || '';
-                  return t === (row.zuperTeamName ?? '');
+                  // The single Unassigned tail row — any job without a
+                  // matching dispatcher crew falls here.
+                  return !j.crewId || !allCrews.some((c) => c.id === j.crewId);
                 }
                 return j.crewId === row.id;
               });

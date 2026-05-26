@@ -58,22 +58,20 @@ export function MapView({ date, jobs, onJobClick }: MapViewProps) {
   };
 
   const crewRoutes = useMemo<CrewRoute[]>(() => {
+    // Real crews are now materialized from Zuper teams. Group jobs by
+    // crewId; any job whose crewId isn't a known dispatcher crew falls
+    // into a single synthetic "Unassigned" route bucket.
     const realMap = new Map<string, Job[]>();
-    const zupMap = new Map<string, Job[]>();
+    const unassigned: Job[] = [];
+    const crewIdSet = new Set(allCrews.map((c) => c.id));
     dayJobs.forEach((j) => {
-      if (j.crewId) {
+      if (j.crewId && crewIdSet.has(j.crewId)) {
         const arr = realMap.get(j.crewId);
         if (arr) arr.push(j);
         else realMap.set(j.crewId, [j]);
-        return;
+      } else {
+        unassigned.push(j);
       }
-      // No dispatcher crew — group by Zuper team_name so these jobs stay
-      // visible on the map (synthesize a virtual crew below).
-      const team = j.zuperTeamName?.trim();
-      if (!team) return;
-      const arr = zupMap.get(team);
-      if (arr) arr.push(j);
-      else zupMap.set(team, [j]);
     });
     const out: CrewRoute[] = [];
     realMap.forEach((js, crewId) => {
@@ -82,40 +80,37 @@ export function MapView({ date, jobs, onJobClick }: MapViewProps) {
       if (selectedCrew !== 'all' && crew.id !== selectedCrew) return;
       out.push({ crew, jobs: js });
     });
-    zupMap.forEach((js, team) => {
-      const id = 'zup-team-' + team;
-      if (selectedCrew !== 'all' && selectedCrew !== id) return;
-      const prefix = team.split('-')[0]?.toUpperCase() ?? '';
-      // Minimal stub — only id, name, color are used by the route list and
-      // pins. Filling the remaining required fields with safe defaults so we
-      // satisfy the Crew interface without an unchecked cast.
+    if (unassigned.length > 0 && (selectedCrew === 'all' || selectedCrew === 'crew-__unassigned__')) {
       const virtual: Crew = {
-        id,
-        name: team,
-        color: REGION_ACCENT[prefix] ?? 'var(--mid-gray)',
+        id: 'crew-__unassigned__',
+        name: 'Unassigned',
+        color: 'var(--mid-gray)',
         type: 'install',
         lead: '',
         members: [],
         truck: null,
       };
-      out.push({ crew: virtual, jobs: js });
-    });
+      out.push({ crew: virtual, jobs: unassigned });
+    }
     return out;
   }, [dayJobs, allCrews, selectedCrew]);
 
   // Crew chips: real crew ids first, then synthesized 'zup-team-…' ids.
   const allCrewIds = useMemo(() => {
-    const real = Array.from(new Set(dayJobs.map((j) => j.crewId).filter(Boolean))) as string[];
-    const zup = Array.from(
+    const crewIdSet = new Set(allCrews.map((c) => c.id));
+    const real = Array.from(
       new Set(
         dayJobs
-          .filter((j) => !j.crewId)
-          .map((j) => j.zuperTeamName?.trim())
-          .filter(Boolean),
+          .map((j) => j.crewId)
+          .filter((c): c is string => !!c && crewIdSet.has(c)),
       ),
-    ).map((t) => 'zup-team-' + t);
-    return [...real, ...zup];
-  }, [dayJobs]);
+    );
+    // Single Unassigned chip when any job in view has no recognized crew.
+    const hasUnassigned = dayJobs.some(
+      (j) => !j.crewId || !crewIdSet.has(j.crewId),
+    );
+    return hasUnassigned ? [...real, 'crew-__unassigned__'] : real;
+  }, [dayJobs, allCrews]);
 
   const totalDriveMinutes = useMemo(() => {
     let total = 0;
