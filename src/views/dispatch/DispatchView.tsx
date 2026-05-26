@@ -10,6 +10,7 @@ import { useStore } from '../../store';
 import { addDays, dateKey, startOfWeek, TODAY } from '../../data/helpers';
 import { unscheduledJobs } from '../../data/selectors';
 import { Icon } from '../../components/Icon';
+import { useRegionFilter } from '../../lib/region-filter';
 
 import { DispatchBrief } from './DispatchBrief';
 import {
@@ -31,8 +32,7 @@ import { MapView } from './MapView';
 export function DispatchView() {
   const jobs = useStore((s) => s.jobs);
   const projects = useStore((s) => s.projects);
-  const regions = useStore((s) => s.regions);
-  const regionSel = useStore((s) => s.region);
+  const { region: activeRegion } = useRegionFilter();
   const selectJob = useStore((s) => s.selectJob);
   const selectedJobId = useStore((s) => s.selectedJobId);
   const openWizard = useStore((s) => s.openWizard);
@@ -65,43 +65,19 @@ export function DispatchView() {
     return src === 'native_project' || src === 'deal_fallback';
   }
 
-  // Resolve the active region's team prefix. The topbar picker writes a
-  // RegionSelection (`regionId` + `subId`) into the store; we map those
-  // back to the team-name prefix (CO/MA/BC/NY) so we can filter jobs whose
-  // `zuperTeamName` starts with that prefix.
-  //
-  // Two paths because the regions collection in store is in flux:
-  //   1. Seed regions use short ids like 'co' / 'ma' / 'bc' / 'ny' / 'va'.
-  //   2. HubSpot-sourced regions use ids like 'hs-sa-30404396210' with the
-  //      proper `short` field (e.g. "CO" for CO Denver).
-  // We accept either: lookup by id and read `short`, OR fall back to
-  // checking the regionId itself for a 2-letter region code prefix.
-  // 'va' (legacy seed for Vancouver) maps to BC.
-  const VALID_PREFIXES = ['CO', 'MA', 'BC', 'NY', 'CA'] as const;
-  const SEED_ID_TO_PREFIX: Record<string, string> = {
-    co: 'CO',
-    ma: 'MA',
-    bc: 'BC',
-    ny: 'NY',
-    ca: 'CA',
-    va: 'BC', // legacy seed treated Vancouver as a separate region; it's BC
-  };
-  const regionPrefix = useMemo<string | null>(() => {
-    if (!regionSel?.regionId) return null;
-    const r = regions.find((x) => x.id === regionSel.regionId);
-    const fromShort = r?.short?.toUpperCase() ?? '';
-    if (VALID_PREFIXES.includes(fromShort as (typeof VALID_PREFIXES)[number])) {
-      return fromShort;
-    }
-    const seedPrefix = SEED_ID_TO_PREFIX[regionSel.regionId.toLowerCase()];
-    if (seedPrefix) return seedPrefix;
-    return null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regionSel, regions]);
+  // Region filter is now centralized in src/lib/region-filter.ts — all
+  // list views read/write the same store selection. activeRegion is
+  // 'all' | 'CO' | 'MA' | 'BC' | 'NY' (no 'CA' bucket — collapsed into BC).
+  const regionPrefix = activeRegion === 'all' ? null : activeRegion;
 
   function matchesRegion(j: { zuperTeamName?: string | null }): boolean {
     if (!regionPrefix) return true;
     const team = (j.zuperTeamName ?? '').toUpperCase();
+    // CA-* teams currently roll up under the BC bucket (same timezone +
+    // operational region in our data set).
+    if (regionPrefix === 'BC') {
+      return team.startsWith('BC-') || team.startsWith('CA-');
+    }
     return team.startsWith(regionPrefix + '-');
   }
 

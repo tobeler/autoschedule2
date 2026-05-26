@@ -27,6 +27,7 @@ import {
   nextSort,
   tokenizeQuery,
 } from '../../lib/table';
+import { useRegionFilter, type RegionPrefix } from '../../lib/region-filter';
 import type { Crew, Customer, Job, JobStatus, Project, Truck } from '../../types';
 import { PROJECT_STATUS_META } from '../projects/ProjectsView';
 
@@ -66,11 +67,12 @@ const SOURCE_CHIPS: { key: SourceKey; label: string }[] = [
 ];
 
 // Region prefix on zuperTeamName (e.g. "CO-DE-1" → "CO"). Order mirrors
-// the operational hierarchy used elsewhere in the app.
-type RegionKey = 'CO' | 'MA' | 'BC' | 'NY';
-const REGION_CHIPS: RegionKey[] = ['CO', 'MA', 'BC', 'NY'];
+// the operational hierarchy used elsewhere in the app. We reuse the
+// `RegionPrefix` type from useRegionFilter so the chip values match the
+// shared region store exactly.
+const REGION_CHIPS: RegionPrefix[] = ['CO', 'MA', 'BC', 'NY'];
 
-function regionOfJob(job: Job): RegionKey | null {
+function regionOfJob(job: Job): RegionPrefix | null {
   const t = job.zuperTeamName;
   if (!t) return null;
   // Treat CA- (California Bay Area teams) as BC for now — same offset
@@ -81,6 +83,8 @@ function regionOfJob(job: Job): RegionKey | null {
   if (t.startsWith('NY-')) return 'NY';
   return null;
 }
+
+
 
 function sourceOfJob(job: Job, projects: Project[]): SourceKey | null {
   if (!job.projectId) return null;
@@ -114,7 +118,8 @@ export function JobsView() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [statusSet, setStatusSet] = useState<Set<JobStatus>>(() => new Set());
   const [sourceSet, setSourceSet] = useState<Set<SourceKey>>(() => new Set());
-  const [regionSet, setRegionSet] = useState<Set<RegionKey>>(() => new Set());
+  // Region filter is shared with the topbar picker — single source of truth.
+  const { region: regionFilter, setRegion: setRegionFilter } = useRegionFilter();
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortState<JobSortKey> | null>({
     key: 'date',
@@ -154,9 +159,9 @@ export function JobsView() {
         const src = sourceOfJob(j, projects);
         if (!chipMatches(sourceSet, src)) return false;
       }
-      if (regionSet.size > 0) {
+      if (regionFilter !== 'all') {
         const reg = regionOfJob(j);
-        if (!chipMatches(regionSet, reg)) return false;
+        if (reg !== regionFilter) return false;
       }
       if (tokens.length > 0) {
         const c = j.customer ? customerById.get(j.customer) : undefined;
@@ -197,7 +202,7 @@ export function JobsView() {
     typeFilter,
     statusSet,
     sourceSet,
-    regionSet,
+    regionFilter,
     tokens,
     sort,
     customerById,
@@ -327,16 +332,16 @@ export function JobsView() {
       <div className="filter-row" style={{ paddingBottom: 12 }}>
         <span className="eyebrow-sm">Region</span>
         <button
-          className={'filter-chip ' + (regionSet.size === 0 ? 'active' : '')}
-          onClick={() => setRegionSet(new Set())}
+          className={'filter-chip ' + (regionFilter === 'all' ? 'active' : '')}
+          onClick={() => setRegionFilter('all')}
         >
           All
         </button>
         {REGION_CHIPS.map((r) => (
           <button
             key={r}
-            className={'filter-chip ' + (regionSet.has(r) ? 'active' : '')}
-            onClick={() => toggleSet(regionSet, setRegionSet, r)}
+            className={'filter-chip ' + (regionFilter === r ? 'active' : '')}
+            onClick={() => setRegionFilter(regionFilter === r ? 'all' : r)}
           >
             {r}
           </button>

@@ -23,6 +23,7 @@ import {
   tokenizeQuery,
   type SortState,
 } from '../../lib/table';
+import { useRegionFilter } from '../../lib/region-filter';
 
 interface ProjectStatusMeta {
   label: string;
@@ -73,7 +74,9 @@ export function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
 
 type StatusFilter = ProjectStatus | 'all';
 type SourceFilter = 'all' | 'v1' | 'v2';
-type RegionFilter = 'all' | 'CO' | 'MA' | 'BC' | 'NY';
+// Region filter values come from useRegionFilter so the chip selection
+// stays in sync with the topbar RegionPicker and every other list view.
+type RegionFilter = ReturnType<typeof useRegionFilter>['region'];
 
 type SortKey =
   | 'customer'
@@ -135,7 +138,8 @@ export function ProjectsView() {
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
-  const [regionFilter, setRegionFilter] = useState<RegionFilter>('all');
+  // Region filter is shared with the topbar picker — single source of truth.
+  const { region: regionFilter, setRegion: setRegionFilter } = useRegionFilter();
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortState<SortKey> | null>({
     key: 'customer',
@@ -353,15 +357,15 @@ export function ProjectsView() {
         <div className="proj-table-header">
           <SortHeaderCell
             className="col-id"
-            label="Customer / Project"
-            sortKey="customer"
+            label="Project / Type"
+            sortKey="type"
             state={sort}
             onClick={handleSort}
           />
           <SortHeaderCell
             className="col-cust"
-            label="Type"
-            sortKey="type"
+            label="Customer"
+            sortKey="customer"
             state={sort}
             onClick={handleSort}
           />

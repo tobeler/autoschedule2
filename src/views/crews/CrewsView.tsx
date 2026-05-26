@@ -18,6 +18,7 @@ import {
   nextSort,
   type SortState,
 } from '../../lib/table';
+import { useRegionFilter } from '../../lib/region-filter';
 import type { Crew, CrewType, Person } from '../../types';
 import { WeeklyComposition } from './WeeklyComposition';
 import { AddCrewModal } from './AddCrewModal';
@@ -207,7 +208,8 @@ function CrewsDefaultView() {
   const [deleteCrew, setDeleteCrew] = useState<Crew | null>(null);
   const [removeMember, setRemoveMember] = useState<{ crew: Crew; person: Person } | null>(null);
   const [typeFilter, setTypeFilter] = useState<CrewType | 'all'>('all');
-  const [regionFilter, setRegionFilter] = useState<CrewRegion | 'all'>('all');
+  // Region filter is shared with the topbar picker — single source of truth.
+  const { region: regionFilter, setRegion: setRegionFilter } = useRegionFilter();
   const [sort, setSort] = useState<SortState<CrewSortKey> | null>({
     key: 'name',
     dir: 'asc',

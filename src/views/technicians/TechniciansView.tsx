@@ -24,6 +24,7 @@ import {
   nextSort,
   type SortState,
 } from '../../lib/table';
+import { useRegionFilter } from '../../lib/region-filter';
 import type { Crew, Level, Person, RoleKey, TimeOff, TimeOffType } from '../../types';
 import { SkillsMatrix } from '../crews/SkillsMatrix';
 import { AddTechnicianModal } from './AddTechnicianModal';
@@ -97,7 +98,8 @@ export function TechniciansView() {
 
   const [roleFilter, setRoleFilter] = useState<RoleKey | 'all'>('all');
   const [levelFilter, setLevelFilter] = useState<Level | 'all'>('all');
-  const [regionFilter, setRegionFilter] = useState<Region | 'all'>('all');
+  // Region filter is shared with the topbar picker — single source of truth.
+  const { region: regionFilter, setRegion: setRegionFilter } = useRegionFilter();
   const [statusFilter, setStatusFilter] = useState<StatusValue | 'all'>('all');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortState<SortKey> | null>({
@@ -464,14 +466,7 @@ export function TechniciansView() {
                     <td>
                       <div className="row" style={{ gap: 10 }}>
                         <Avatar person={r.person} />
-                        <div>
-                          <div style={{ fontWeight: 600 }}>{r.person.name}</div>
-                          {r.person.zuperPrimaryTeam ? (
-                            <div className="muted small">
-                              {r.person.zuperPrimaryTeam}
-                            </div>
-                          ) : null}
-                        </div>
+                        <div style={{ fontWeight: 600 }}>{r.person.name}</div>
                       </div>
                     </td>
                     <td>
