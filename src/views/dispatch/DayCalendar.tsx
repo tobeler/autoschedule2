@@ -120,24 +120,66 @@ export function DayCalendar({
           noTeamJobs.push(j);
         }
       }
+      // Pre-bucket people by their zuperPrimaryTeam so each team row can
+      // show its real crew avatars.
+      const peopleByTeam = new Map<string, Person[]>();
+      for (const p of allPeople) {
+        const t = p.zuperPrimaryTeam;
+        if (!t) continue;
+        if (!peopleByTeam.has(t)) peopleByTeam.set(t, []);
+        peopleByTeam.get(t)!.push(p);
+      }
+
+      // Region accent color per team prefix, matching jetson-kpi's palette.
+      const REGION_ACCENT: Record<string, string> = {
+        CO: '#0EA5E9', // sky-500
+        MA: '#10B981', // emerald-500
+        NY: '#8B5CF6', // violet-500
+        BC: '#F59E0B', // amber-500
+        CA: '#F97316', // orange-500
+      };
+
       // Stable lexicographic team ordering. Real crews still appear below.
       const teamRows: RowModel[] = Array.from(byTeam.entries())
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([teamName, teamJobs]) => ({
-          id: 'zup-team-row-' + teamName,
-          name: teamName,
-          color: 'var(--mid-gray)',
-          meta: (
-            <>
-              <Icon name="alert_circle" size={11} /> Zuper team · {teamJobs.length} scheduled
-            </>
-          ),
-          avatars: [],
-          jobs: teamJobs,
-          loans: [],
-          homeCrew: undefined,
-          truck: null,
-        }));
+        .map(([teamName, teamJobs]) => {
+          const teamPeople = peopleByTeam.get(teamName) ?? [];
+          const prefix = teamName.split('-')[0]?.toUpperCase() ?? '';
+          const color = REGION_ACCENT[prefix] ?? 'var(--mid-gray)';
+          const lead = teamPeople.find((p) => p.roles.includes('hvac_lead'));
+          return {
+            id: 'zup-team-row-' + teamName,
+            name: teamName,
+            color,
+            meta: (
+              <>
+                {lead ? (
+                  <>
+                    <Icon name="user" size={11} /> {lead.name.split(' ').slice(-1)[0]}
+                  </>
+                ) : null}
+                {lead && teamPeople.length > 1 ? ' · ' : ''}
+                {teamPeople.length > 0 ? (
+                  <>
+                    {teamPeople.length} on team
+                  </>
+                ) : (
+                  <>
+                    <Icon name="alert_circle" size={11} /> No techs assigned
+                  </>
+                )}
+                {teamJobs.length > 0 ? ' · ' + teamJobs.length + ' scheduled' : ''}
+              </>
+            ),
+            avatars: teamPeople.slice(0, 4).map((p) => (
+              <Avatar key={p.id} person={p.id} size="xs" />
+            )),
+            jobs: teamJobs,
+            loans: [],
+            homeCrew: undefined,
+            truck: null,
+          };
+        });
       // Tail row for any jobs with no team_name (e.g. Zuper jobs that have
       // no team assignment yet — usually NEW status).
       const noTeamRow: RowModel | null =

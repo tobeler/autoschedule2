@@ -31,6 +31,8 @@ import { MapView } from './MapView';
 export function DispatchView() {
   const jobs = useStore((s) => s.jobs);
   const projects = useStore((s) => s.projects);
+  const regions = useStore((s) => s.regions);
+  const regionSel = useStore((s) => s.region);
   const selectJob = useStore((s) => s.selectJob);
   const selectedJobId = useStore((s) => s.selectedJobId);
   const openWizard = useStore((s) => s.openWizard);
@@ -63,6 +65,28 @@ export function DispatchView() {
     return src === 'native_project' || src === 'deal_fallback';
   }
 
+  // Resolve the active region's team prefix. The topbar picker writes a
+  // RegionSelection (`regionId` + `subId`) into the store; we map those
+  // back to the team-name prefix (CO/MA/BC/NY) so we can filter jobs whose
+  // `zuperTeamName` starts with that prefix. When no region is selected
+  // (regionId is empty) or no match is found, we don't filter by region.
+  const regionPrefix = useMemo<string | null>(() => {
+    if (!regionSel?.regionId) return null;
+    const r = regions.find((x) => x.id === regionSel.regionId);
+    if (!r) return null;
+    const short = r.short?.toUpperCase() || '';
+    // Accept top-level region codes only. e.g. CO Denver (id 'hs-sa-…')
+    // resolves to short='CO' → match teams "CO-*".
+    if (['CO', 'MA', 'BC', 'NY', 'CA'].includes(short)) return short;
+    return null;
+  }, [regionSel, regions]);
+
+  function matchesRegion(j: { zuperTeamName?: string | null }): boolean {
+    if (!regionPrefix) return true;
+    const team = (j.zuperTeamName ?? '').toUpperCase();
+    return team.startsWith(regionPrefix + '-');
+  }
+
   const visibleJobs = useMemo(() => {
     let base = jobs;
     if (range === 'day') base = jobs.filter((j) => j.date === dateKey(date));
@@ -81,17 +105,19 @@ export function DispatchView() {
     }
     if (typeFilter.length > 0) base = base.filter((j) => typeFilter.includes(j.type));
     if (sourceFilter !== 'all') base = base.filter((j) => matchesSourceFilter(j.projectId));
+    if (regionPrefix) base = base.filter(matchesRegion);
     return base;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobs, date, range, typeFilter, sourceFilter, projectSourceById]);
+  }, [jobs, date, range, typeFilter, sourceFilter, projectSourceById, regionPrefix]);
 
   const unsched = useMemo(() => {
     let base = unscheduledJobs(jobs);
     if (typeFilter.length > 0) base = base.filter((j) => typeFilter.includes(j.type));
     if (sourceFilter !== 'all') base = base.filter((j) => matchesSourceFilter(j.projectId));
+    if (regionPrefix) base = base.filter(matchesRegion);
     return base;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobs, typeFilter, sourceFilter, projectSourceById]);
+  }, [jobs, typeFilter, sourceFilter, projectSourceById, regionPrefix]);
 
   const dayMode = range === 'day' && layout === 'calendar';
   // Phase 15.1b — surface the Unscheduled rail (and its collapsed strip)
