@@ -164,11 +164,9 @@ export function JobBlock({
       </div>
 
       <div className="job-block-title">
-        {customer
-          ? customer.name
-          : job.address
-          ? job.address.split('·')[0].trim()
-          : 'Untitled'}
+        {customer?.name ??
+          job.title ??
+          (job.address ? job.address.split('·')[0].trim() : 'Untitled')}
       </div>
 
       {!compact && (

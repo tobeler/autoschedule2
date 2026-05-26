@@ -182,6 +182,11 @@ export interface Job {
   id: string;
   type: JobTypeKey;
   status: JobStatus;
+  /**
+   * Human-readable title. Native dispatcher jobs synthesize from customer +
+   * job type; Zuper-sourced jobs carry the verbatim Zuper job_title.
+   */
+  title?: string | null;
   /** Customer id; null for internal events like meetings */
   customer: string | null;
   /** 'YYYY-MM-DD' or null when unscheduled */

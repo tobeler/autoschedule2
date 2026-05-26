@@ -29,6 +29,7 @@ export const JobSchema = z
     id: z.string(),
     type: JobTypeSchema,
     status: JobStatusSchema,
+    title: z.string().nullable().optional(),
     customer: z.string().nullable(),
     date: z.string().nullable(),
     startHour: z.number().nullable(),

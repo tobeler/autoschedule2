@@ -5713,6 +5713,7 @@ export interface components {
             id: string;
             type: components["schemas"]["JobTypeKey"];
             status: components["schemas"]["JobStatus"];
+            title?: string | null;
             customer: string | null;
             date: string | null;
             startHour: number | null;
@@ -5748,6 +5749,7 @@ export interface components {
         JobTypeKey: string;
         /** @enum {string} */
         JobStatus: "unscheduled" | "scheduled" | "enroute" | "onsite" | "complete" | "callback" | "cancelled";
+        // title is a recent addition — appended to the generated Job DTO below.
         JobSlot: {
             id: string;
             role: components["schemas"]["RoleKey"];

@@ -19,6 +19,7 @@ import {
   isZuperConfigured,
   pingAccount,
 } from '@/integrations/zuper/client';
+import { bootstrapActiveJobsFromZuper } from '@/integrations/zuper/bootstrap';
 
 import { ApiError } from '../middleware/error';
 import { ProblemResponses, jsonContent, z } from '../schemas/common';
@@ -33,6 +34,20 @@ const ZuperPingResultSchema = z
   })
   .openapi('ZuperPingResult');
 
+const ZuperBootstrapResultSchema = z
+  .object({
+    ok: z.boolean(),
+    startedAt: z.string(),
+    finishedAt: z.string(),
+    pulled: z.number(),
+    activeKept: z.number(),
+    upserted: z.number(),
+    withProject: z.number(),
+    withCustomer: z.number(),
+    errors: z.array(z.string()),
+  })
+  .openapi('ZuperBootstrapResult');
+
 const pingRoute = createRoute({
   method: 'post',
   path: '/zuper/ping',
@@ -40,6 +55,17 @@ const pingRoute = createRoute({
   summary: 'Verify the configured ZUPER_API_KEY by hitting /team?count=1.',
   responses: {
     200: jsonContent(ZuperPingResultSchema, 'Ping ok'),
+    ...ProblemResponses,
+  },
+});
+
+const bootstrapRoute = createRoute({
+  method: 'post',
+  path: '/zuper/bootstrap',
+  tags: ['zuper'],
+  summary: 'One-time pull of ACTIVE Zuper jobs to seed the dispatcher. Not a recurring sync.',
+  responses: {
+    200: jsonContent(ZuperBootstrapResultSchema, 'Bootstrap result'),
     ...ProblemResponses,
   },
 });
@@ -89,6 +115,22 @@ export function registerZuperRoutes(app: OpenAPIHono<ApiEnv>): void {
         },
         200,
       );
+    } catch (err) {
+      translateZuperError(err);
+    }
+  });
+
+  app.openapi(bootstrapRoute, async (c) => {
+    if (!isZuperConfigured()) {
+      throw new ApiError({
+        status: 503,
+        title: 'Zuper not configured',
+        detail: 'Set ZUPER_API_KEY in the server environment.',
+      });
+    }
+    try {
+      const result = await bootstrapActiveJobsFromZuper();
+      return c.json(result, 200);
     } catch (err) {
       translateZuperError(err);
     }

@@ -154,6 +154,7 @@ export function jobToDTO(
     id: row.id,
     type: row.type,
     status: row.status,
+    title: row.title ?? null,
     customer: row.customerId,
     date: row.date,
     startHour: numOrNull(row.startHour),

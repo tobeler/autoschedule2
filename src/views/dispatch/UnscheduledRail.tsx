@@ -92,7 +92,7 @@ export function UnscheduledRail({ jobs, onJobClick, onCollapse }: UnscheduledRai
                 />
               </div>
               <div className="unsched-card-name">
-                {c ? c.name : job.address || 'Untitled'}
+                {c?.name ?? job.title ?? job.address ?? 'Untitled'}
               </div>
               <div className="unsched-card-meta" style={{ marginTop: 4 }}>
                 <Icon name="map_pin" size={11} />

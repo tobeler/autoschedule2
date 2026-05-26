@@ -144,6 +144,7 @@ export function jobFromDTO(d: JobDTO): Job {
     id: d.id,
     type: d.type,
     status: d.status,
+    title: d.title ?? null,
     customer: d.customer,
     date: d.date,
     startHour: d.startHour,
