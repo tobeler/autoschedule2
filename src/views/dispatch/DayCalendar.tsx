@@ -48,7 +48,7 @@ interface RowModel {
 }
 
 const HOUR_START = 6;
-const HOUR_END = 20;
+const HOUR_END = 22;
 const COLS = HOUR_END - HOUR_START;
 
 function leadRoles(): string[] {
@@ -98,34 +98,67 @@ export function DayCalendar({
   // ===== Build rows =====
   const rows = useMemo<RowModel[]>(() => {
     if (groupBy === 'crew') {
-      // Scheduled jobs whose crewId isn't in the active crews list. They
-      // exist in the DB (e.g. Zuper-sourced rows where the source team
-      // doesn't map to our crew model yet) but would otherwise be invisible
-      // — surface them in a dedicated "Unassigned" row at the top of the
-      // grid so the dispatcher can drag-reassign or at least see they're
-      // pending placement.
+      // Scheduled jobs whose crewId isn't in the active crews list. These
+      // are Zuper-sourced rows where the source team doesn't map to a real
+      // dispatcher crew. We don't auto-create crews from Zuper teams (per
+      // Erik's directive) but we DO group these jobs into virtual rows by
+      // the Zuper team name so 11 simultaneous 8am installs across 11
+      // teams render as 11 separate rows instead of overlapping into one.
+      // Pattern adapted from jetson-kpi's TeamRow grouping.
       const crewIds = new Set(allCrews.map((c) => c.id));
       const unassignedJobs = jobs.filter(
         (j) => j.startHour != null && (!j.crewId || !crewIds.has(j.crewId)),
       );
-      const unassignedRow: RowModel | null =
-        unassignedJobs.length > 0
+      const byTeam = new Map<string, Job[]>();
+      const noTeamJobs: Job[] = [];
+      for (const j of unassignedJobs) {
+        const teamName = j.zuperTeamName?.trim() || '';
+        if (teamName) {
+          if (!byTeam.has(teamName)) byTeam.set(teamName, []);
+          byTeam.get(teamName)!.push(j);
+        } else {
+          noTeamJobs.push(j);
+        }
+      }
+      // Stable lexicographic team ordering. Real crews still appear below.
+      const teamRows: RowModel[] = Array.from(byTeam.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([teamName, teamJobs]) => ({
+          id: 'zup-team-row-' + teamName,
+          name: teamName,
+          color: 'var(--mid-gray)',
+          meta: (
+            <>
+              <Icon name="alert_circle" size={11} /> Zuper team · {teamJobs.length} scheduled
+            </>
+          ),
+          avatars: [],
+          jobs: teamJobs,
+          loans: [],
+          homeCrew: undefined,
+          truck: null,
+        }));
+      // Tail row for any jobs with no team_name (e.g. Zuper jobs that have
+      // no team assignment yet — usually NEW status).
+      const noTeamRow: RowModel | null =
+        noTeamJobs.length > 0
           ? {
-              id: 'crew-__unassigned__',
-              name: 'Unassigned',
+              id: 'zup-no-team',
+              name: 'Unassigned (no team)',
               color: 'var(--mid-gray)',
               meta: (
                 <>
-                  <Icon name="alert_circle" size={11} /> {unassignedJobs.length} scheduled, awaiting crew
+                  <Icon name="alert_circle" size={11} /> {noTeamJobs.length} scheduled, no Zuper team
                 </>
               ),
               avatars: [],
-              jobs: unassignedJobs,
+              jobs: noTeamJobs,
               loans: [],
               homeCrew: undefined,
               truck: null,
             }
           : null;
+      const unassignedRow: RowModel | null = null;
       const crewRows = allCrews.map((c) => {
         const truck = allTrucks.find((t) => t.id === c.truck) ?? null;
         const rowJobs = jobs.filter((j) => j.crewId === c.id);
@@ -166,7 +199,16 @@ export function DayCalendar({
           truck,
         };
       });
-      return unassignedRow ? [unassignedRow, ...crewRows] : crewRows;
+      // Compose: Zuper-team virtual rows first, then any no-team bucket,
+      // then real dispatcher crews. unassignedRow is now always null —
+      // kept in scope only for the future case where we re-introduce a
+      // single bucket.
+      return [
+        ...teamRows,
+        ...(noTeamRow ? [noTeamRow] : []),
+        ...(unassignedRow ? [unassignedRow] : []),
+        ...crewRows,
+      ];
     }
 
     if (groupBy === 'truck') {
