@@ -8,7 +8,6 @@ import { Avatar } from './components/Avatar';
 import { RegionPicker } from './components/RegionPicker';
 import { AttentionPill } from './components/AttentionPill';
 import { Toast } from './components/Toast';
-import { TweaksPanel } from './components/tweaks/TweaksPanel';
 import { unscheduledJobs } from './data/selectors';
 
 import { DispatchView } from './views/dispatch/DispatchView';
@@ -211,7 +210,6 @@ export default function App() {
       {showWizard && <NewJobWizard />}
       {smartScheduleJobId && <SmartScheduleModal />}
 
-      <TweaksPanel />
       <Toast />
     </div>
   );

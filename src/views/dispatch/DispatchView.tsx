@@ -64,7 +64,12 @@ export function DispatchView() {
     return base;
   }, [jobs, date, range, typeFilter]);
 
-  const unsched = useMemo(() => unscheduledJobs(jobs), [jobs]);
+  const unsched = useMemo(() => {
+    const base = unscheduledJobs(jobs);
+    return typeFilter.length > 0
+      ? base.filter((j) => typeFilter.includes(j.type))
+      : base;
+  }, [jobs, typeFilter]);
 
   const dayMode = range === 'day' && layout === 'calendar';
   // Phase 15.1b — surface the Unscheduled rail (and its collapsed strip)

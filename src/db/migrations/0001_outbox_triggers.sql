@@ -24,17 +24,10 @@ BEGIN
 END;
 $$;
 
--- ---------- helper: enqueue an outbox event ----------
-CREATE OR REPLACE FUNCTION public.enqueue_outbox(p_topic text)
-RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  INSERT INTO "outbox" ("topic", "payloadJson")
-  VALUES (p_topic, to_jsonb(NEW));
-  RETURN NEW;
-END;
-$$;
-
 -- Per-table wrappers so AFTER triggers can pass the topic as a literal.
+-- (An earlier `enqueue_outbox(text) RETURNS trigger` helper was dropped —
+-- Postgres rejects trigger functions with declared arguments, and no
+-- trigger ever called it.)
 CREATE OR REPLACE FUNCTION public.outbox_jobs() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
