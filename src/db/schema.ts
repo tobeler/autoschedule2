@@ -17,6 +17,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  index,
   integer,
   jsonb,
   numeric,
@@ -92,6 +93,11 @@ export const vehicleModeEnum = pgEnum('vehicle_mode', [
   'fleet',
   'personal',
   'none',
+]);
+
+export const timeEntrySourceEnum = pgEnum('time_entry_source', [
+  'zuper',
+  'native',
 ]);
 
 export const checklistItemTypeEnum = pgEnum('checklist_item_type', [
@@ -343,6 +349,53 @@ export const timeOff = pgTable('time_off', {
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Real clock-in / clock-out events backing the Timesheets view.
+ *
+ * Distinct from the planned `job_slots.hours` (which captures scheduled
+ * duration). Each row is one continuous shift segment for one person:
+ *  - `clockIn` is required.
+ *  - `clockOut` is NULL while the tech is still on the clock.
+ *  - `jobId` is nullable — Zuper sometimes attributes a punch to a job and
+ *    sometimes records it as a generic shift start; both are real events.
+ *
+ * Daily total = min(clockIn) .. max(clockOut) across that person's entries
+ * for the day. Per-job total = sum of (out - in) for rows pinned to the job.
+ *
+ * `source` flags origin ('zuper' from /api/jobs/{uid}/time_logs sync; 'native'
+ * if a future UI mints them locally). `zuperLogId` is the upstream id for
+ * dedup-on-resync.
+ */
+export const timeEntries = pgTable(
+  'time_entries',
+  {
+    id: text('id').primaryKey(),
+    personId: text('personId')
+      .notNull()
+      .references(() => people.id, { onDelete: 'cascade' }),
+    /** Nullable: shift-start punches don't always reference a job. */
+    jobId: text('jobId').references(() => jobs.id, { onDelete: 'set null' }),
+    clockIn: timestamp('clockIn', { withTimezone: true }).notNull(),
+    /** NULL means the tech is still on the clock. */
+    clockOut: timestamp('clockOut', { withTimezone: true }),
+    source: timeEntrySourceEnum('source').notNull().default('zuper'),
+    /** Upstream Zuper time-log id for dedup on resync. */
+    zuperLogId: text('zuperLogId'),
+    createdAt: timestamp('createdAt', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updatedAt', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    byPersonClockIn: index('time_entries_person_clockin_idx').on(
+      t.personId,
+      t.clockIn,
+    ),
+  }),
+);
 
 // =============================================================
 // Templates
@@ -608,6 +661,7 @@ export type DbCustomer = typeof customers.$inferSelect;
 export type DbProject = typeof projects.$inferSelect;
 export type DbRegion = typeof regions.$inferSelect;
 export type DbTimeOff = typeof timeOff.$inferSelect;
+export type DbTimeEntry = typeof timeEntries.$inferSelect;
 export type DbJob = typeof jobs.$inferSelect;
 export type DbJobSlot = typeof jobSlots.$inferSelect;
 export type DbChecklist = typeof checklists.$inferSelect;

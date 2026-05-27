@@ -1,6 +1,15 @@
 // =============================================================
 // Jobs view — sortable + filterable table.
-// Type chips, status/source/region filters, search, crew composition column.
+//
+// FILTER BAR LAYOUT (2026-05 cleanup):
+//   - The 19-pill type strip is collapsed into a single "Types" popover
+//     (multi-select checklist) — matches DispatchToolbar's pattern.
+//   - Status, source, region, and "active only" share ONE filter row with
+//     subtle separators instead of stacking into 4 labeled rows.
+//   - When any filter is active, a compact "Filtering by: …" chip strip
+//     appears under the count subtitle with a single "Clear all" affordance.
+//   - Saved quick filters keep flowing through the existing sidebar list +
+//     the unchanged "Save as quick filter" button.
 // =============================================================
 import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../components/Icon';
@@ -32,7 +41,6 @@ import {
   tokenizeQuery,
 } from '../../lib/table';
 import {
-  REGION_PREFIXES,
   regionPrefixFromTeamName,
   useRegionFilter,
   type RegionPrefix,
@@ -50,8 +58,6 @@ type JobSortKey =
   | 'truck'
   | 'status'
   | 'project';
-
-type TypeFilter = string | 'all';
 
 // Status chips — explicit order. "Cancelled" lives in the type union but
 // isn't part of the default chip strip; we keep it here so cancelled jobs
@@ -76,12 +82,6 @@ const SOURCE_CHIPS: { key: SourceKey; label: string }[] = [
   { key: 'v2', label: 'V2' },
 ];
 
-// Region prefix on zuperTeamName (e.g. "CO-DE-1" → "CO"). Order mirrors
-// the operational hierarchy used elsewhere in the app. We reuse the
-// `RegionPrefix` type from useRegionFilter so the chip values match the
-// shared region store exactly.
-const REGION_CHIPS: RegionPrefix[] = [...REGION_PREFIXES];
-
 function regionOfJob(
   job: Job,
   customer?: import('../../types').Customer | null,
@@ -98,13 +98,14 @@ function regionOfJob(
 }
 
 function defaultQuickFilterLabel(args: {
-  typeFilter: TypeFilter;
+  typeSet: Set<string>;
   statusSet: Set<JobStatus>;
   regionFilter: RegionPrefix | 'all';
   activeOnly: boolean;
 }): string {
   const parts: string[] = [];
-  if (args.typeFilter !== 'all') parts.push(args.typeFilter);
+  if (args.typeSet.size === 1) parts.push(Array.from(args.typeSet)[0]);
+  else if (args.typeSet.size > 1) parts.push(args.typeSet.size + ' types');
   if (args.regionFilter !== 'all') parts.push(args.regionFilter);
   if (args.statusSet.size > 0) parts.push(Array.from(args.statusSet).join('/'));
   if (parts.length === 0) parts.push(args.activeOnly ? 'Active jobs' : 'All jobs');
@@ -145,7 +146,7 @@ export function JobsView() {
   const pendingJobsFilter = useStore((s) => s.pendingJobsFilter);
   const clearPendingJobsFilter = useStore((s) => s.clearPendingJobsFilter);
 
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [typeSet, setTypeSet] = useState<Set<string>>(() => new Set());
   const [statusSet, setStatusSet] = useState<Set<JobStatus>>(() => new Set());
   const [sourceSet, setSourceSet] = useState<Set<SourceKey>>(() => new Set());
   // Hide completed + cancelled by default — the Zuper bootstrap pulls all
@@ -160,10 +161,13 @@ export function JobsView() {
     dir: 'desc',
   });
 
+  // Type-popover open/close (mirrors DispatchToolbar's pattern).
+  const [typePopOpen, setTypePopOpen] = useState(false);
+
   // Apply any pending quick-filter snapshot (set by sidebar's saved filters).
   useEffect(() => {
     if (!pendingJobsFilter) return;
-    if (pendingJobsFilter.types?.length) setTypeFilter(pendingJobsFilter.types[0]);
+    if (pendingJobsFilter.types?.length) setTypeSet(new Set(pendingJobsFilter.types));
     if (pendingJobsFilter.statuses?.length) setStatusSet(new Set(pendingJobsFilter.statuses));
     if (typeof pendingJobsFilter.activeOnly === 'boolean') setActiveOnly(pendingJobsFilter.activeOnly);
     // regionPrefixes are already applied to the store by applySavedQuickFilter.
@@ -209,7 +213,7 @@ export function JobsView() {
       // Active-only is a top-level filter that overrides nothing else; when
       // ON (default), historical rows never reach the chip filters at all.
       if (activeOnly && (j.status === 'complete' || j.status === 'cancelled')) return false;
-      if (typeFilter !== 'all' && j.type !== typeFilter) return false;
+      if (!chipMatches(typeSet, j.type)) return false;
       if (!chipMatches(statusSet, j.status)) return false;
       if (sourceSet.size > 0) {
         const src = sourceOfJob(j, projects);
@@ -261,7 +265,7 @@ export function JobsView() {
   }, [
     jobs,
     activeOnly,
-    typeFilter,
+    typeSet,
     statusSet,
     sourceSet,
     regionFilter,
@@ -297,6 +301,34 @@ export function JobsView() {
     apply(next);
   }
 
+  // Helpers for the "active filter" chip strip + Clear all. We intentionally
+  // do NOT count `activeOnly` here — it's the default and not really a
+  // user-applied filter the way the others are. Region is shared via topbar.
+  const activeFilterCount =
+    (typeSet.size > 0 ? 1 : 0) +
+    (statusSet.size > 0 ? 1 : 0) +
+    (sourceSet.size > 0 ? 1 : 0) +
+    (regionFilter !== 'all' ? 1 : 0) +
+    (query.trim() ? 1 : 0);
+
+  function clearAllFilters() {
+    setTypeSet(new Set());
+    setStatusSet(new Set());
+    setSourceSet(new Set());
+    setRegionFilter('all');
+    setQuery('');
+  }
+
+  // Friendly label for the type popover button.
+  const typeButtonLabel = (() => {
+    if (typeSet.size === 0) return 'All types';
+    if (typeSet.size === 1) {
+      const only = Array.from(typeSet)[0];
+      return getJobType(only)?.label ?? only;
+    }
+    return typeSet.size + ' types';
+  })();
+
   return (
     <>
       <PageHeader
@@ -331,7 +363,7 @@ export function JobsView() {
           title="Snapshot the current filter selection (type, status, region, active-only) into the sidebar Quick filters list."
           onClick={() => {
             const label = window.prompt('Name this quick filter:', defaultQuickFilterLabel({
-              typeFilter, statusSet, regionFilter, activeOnly,
+              typeSet, statusSet, regionFilter, activeOnly,
             }));
             if (!label || !label.trim()) return;
             const id = 'qf-' + Math.random().toString(36).slice(2, 10);
@@ -339,7 +371,7 @@ export function JobsView() {
             addSavedQuickFilter({
               id,
               label: label.trim(),
-              types: typeFilter === 'all' ? undefined : [typeFilter],
+              types: typeSet.size > 0 ? Array.from(typeSet) : undefined,
               statuses: statusSet.size > 0 ? Array.from(statusSet) : undefined,
               regionPrefixes,
               activeOnly,
@@ -353,26 +385,195 @@ export function JobsView() {
         </button>
       </PageHeader>
 
-      <div className="filter-row">
-        <button
-          className={'filter-chip ' + (typeFilter === 'all' ? 'active' : '')}
-          onClick={() => setTypeFilter('all')}
+      {/* Active-filter chip strip — only renders when at least one user-applied
+          filter is active. Sits between the count subtitle and the filter
+          bar so dispatchers can see what's filtered AND clear it in one click. */}
+      {activeFilterCount > 0 && (
+        <div
+          className="filter-row"
+          style={{
+            paddingTop: 4,
+            paddingBottom: 0,
+            gap: 6,
+            fontSize: 12,
+          }}
         >
-          All types
-        </button>
-        {typeOptions.map(({ type: k, meta: jt }) => (
+          <span className="muted small" style={{ marginRight: 2 }}>
+            Filtering by:
+          </span>
+          {query.trim() && (
+            <span className="filter-chip active" style={{ cursor: 'default' }}>
+              Search: "{query.trim()}"
+              <button
+                onClick={() => setQuery('')}
+                aria-label="Clear search"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  padding: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          )}
+          {typeSet.size > 0 && (
+            <span className="filter-chip active" style={{ cursor: 'default' }}>
+              Types: {typeButtonLabel}
+              <button
+                onClick={() => setTypeSet(new Set())}
+                aria-label="Clear type filter"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  padding: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          )}
+          {statusSet.size > 0 && (
+            <span className="filter-chip active" style={{ cursor: 'default' }}>
+              Status: {Array.from(statusSet).map((s) => statusLabel(s)).join(', ')}
+              <button
+                onClick={() => setStatusSet(new Set())}
+                aria-label="Clear status filter"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  padding: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          )}
+          {sourceSet.size > 0 && (
+            <span className="filter-chip active" style={{ cursor: 'default' }}>
+              Source: {Array.from(sourceSet).map((s) => s.toUpperCase()).join(', ')}
+              <button
+                onClick={() => setSourceSet(new Set())}
+                aria-label="Clear source filter"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  padding: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          )}
+          {/* Region is intentionally not surfaced as an active-filter chip here —
+              the top-bar RegionPicker owns that UI. */}
           <button
-            key={k}
-            className={'filter-chip ' + (typeFilter === k ? 'active' : '')}
-            onClick={() => setTypeFilter(k)}
+            className="btn btn-ghost btn-sm"
+            onClick={clearAllFilters}
+            style={{ marginLeft: 4 }}
           >
-            <span className="dot" style={{ background: 'var(--' + (jt?.color ?? 'jt-meeting') + ')' }}></span>
-            {jt?.label ?? k}
+            Clear all
           </button>
-        ))}
-      </div>
+        </div>
+      )}
 
-      <div className="filter-row">
+      {/* Single consolidated filter bar.
+          Type → popover (multi-select). Status, source, region keep pill
+          rows but share one line with subtle separators. Active-only sits
+          at the right with its own visual treatment. */}
+      <div className="filter-row" style={{ paddingBottom: 12, rowGap: 8 }}>
+        {/* TYPE — popover dropdown */}
+        <div
+          className="dispatch-type-filter"
+          style={{ position: 'relative' }}
+        >
+          <button
+            className={
+              'btn btn-sm ' + (typeSet.size > 0 ? 'btn-dark' : 'btn-outline')
+            }
+            onClick={() => setTypePopOpen((v) => !v)}
+            title="Filter by job type"
+          >
+            <Icon name="briefcase" size={13} />
+            {typeButtonLabel}
+            <Icon name={typePopOpen ? 'chevron_up' : 'chevron_down'} size={11} />
+          </button>
+          {typePopOpen && (
+            <div
+              className="dispatch-type-filter-pop"
+              onMouseLeave={() => setTypePopOpen(false)}
+            >
+              <div className="dispatch-type-filter-head">
+                <span className="eyebrow-sm">Filter job types</span>
+                {typeSet.size > 0 && (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setTypeSet(new Set())}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              {typeOptions.map(({ type: k, meta: jt }) => {
+                const checked = typeSet.has(k);
+                const count = jobs.filter((j) => j.type === k).length;
+                return (
+                  <label
+                    key={k}
+                    className={
+                      'dispatch-type-filter-row' + (checked ? ' checked' : '')
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleSet(typeSet, setTypeSet, k)}
+                    />
+                    <span
+                      className="dot"
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 999,
+                        background: 'var(--' + (jt?.color ?? 'jt-meeting') + ')',
+                      }}
+                    />
+                    <span style={{ flex: 1, fontWeight: 600, fontSize: 12 }}>
+                      {jt?.label ?? k}
+                    </span>
+                    <span
+                      className="muted small"
+                      style={{ fontFamily: 'var(--font-mono)' }}
+                    >
+                      {count}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Visual separator */}
+        <span style={{ opacity: 0.3, margin: '0 2px' }}>│</span>
+
+        {/* STATUS pills */}
         <span className="eyebrow-sm">Status</span>
         <button
           className={'filter-chip ' + (statusSet.size === 0 ? 'active' : '')}
@@ -389,17 +590,11 @@ export function JobsView() {
             {statusLabel(s)}
           </button>
         ))}
-        <span style={{ marginLeft: 12, opacity: 0.5 }}>·</span>
-        <button
-          className={'filter-chip ' + (activeOnly ? 'active' : '')}
-          onClick={() => setActiveOnly((v) => !v)}
-          title={activeOnly ? 'Showing active only — click to include historical' : 'Showing all — click to hide completed/cancelled'}
-        >
-          {activeOnly ? 'Active only' : 'Including historical'}
-        </button>
-      </div>
 
-      <div className="filter-row">
+        {/* Visual separator */}
+        <span style={{ opacity: 0.3, margin: '0 2px' }}>│</span>
+
+        {/* SOURCE pills */}
         <span className="eyebrow-sm">Source</span>
         <button
           className={'filter-chip ' + (sourceSet.size === 0 ? 'active' : '')}
@@ -416,25 +611,24 @@ export function JobsView() {
             {s.label}
           </button>
         ))}
-      </div>
 
-      <div className="filter-row" style={{ paddingBottom: 12 }}>
-        <span className="eyebrow-sm">Region</span>
+        {/* Region intentionally NOT shown here — the top-bar RegionPicker is
+            the single source of truth. The filter still applies via
+            `regionFilter` from useRegionFilter() above. */}
+
+        {/* Pushed to the right: Active-only toggle. */}
+        <span style={{ flex: 1 }} />
         <button
-          className={'filter-chip ' + (regionFilter === 'all' ? 'active' : '')}
-          onClick={() => setRegionFilter('all')}
+          className={'filter-chip ' + (activeOnly ? 'active' : '')}
+          onClick={() => setActiveOnly((v) => !v)}
+          title={
+            activeOnly
+              ? 'Showing active only — click to include historical'
+              : 'Showing all — click to hide completed/cancelled'
+          }
         >
-          All
+          {activeOnly ? 'Active only' : 'Including historical'}
         </button>
-        {REGION_CHIPS.map((r) => (
-          <button
-            key={r}
-            className={'filter-chip ' + (regionFilter === r ? 'active' : '')}
-            onClick={() => setRegionFilter(regionFilter === r ? 'all' : r)}
-          >
-            {r}
-          </button>
-        ))}
       </div>
 
       <div className="view-pad" style={{ paddingTop: 0 }}>

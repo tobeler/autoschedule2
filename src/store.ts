@@ -24,6 +24,7 @@ import type {
   Customer,
   Project,
   Region,
+  TimeEntry,
   TimeOff,
   JobTemplate,
   ChecklistSection,
@@ -41,6 +42,7 @@ import {
   JOBS_SEED,
   REGIONS,
   TIME_OFF,
+  TIME_ENTRIES_SEED,
   JOB_TEMPLATES,
   CHECKLISTS,
   CHECKLIST_RESPONSES,
@@ -114,6 +116,7 @@ interface State {
   projects: Project[];
   regions: Region[];
   timeOff: TimeOff[];
+  timeEntries: TimeEntry[];
   templates: Record<string, JobTemplate>;
   checklists: Record<string, ChecklistSection[]>;
   checklistResponses: Record<string, ChecklistResponses>;
@@ -284,6 +287,7 @@ export const useStore = create<State>()(
       projects: PROJECTS,
       regions: REGIONS,
       timeOff: TIME_OFF,
+      timeEntries: TIME_ENTRIES_SEED,
       templates: JOB_TEMPLATES,
       checklists: CHECKLISTS,
       checklistResponses: CHECKLIST_RESPONSES,
@@ -950,6 +954,7 @@ export const useStore = create<State>()(
             projects: PROJECTS,
             regions: REGIONS,
             timeOff: TIME_OFF,
+            timeEntries: TIME_ENTRIES_SEED,
             templates: JOB_TEMPLATES,
             checklists: CHECKLISTS,
             checklistResponses: CHECKLIST_RESPONSES,
@@ -984,6 +989,7 @@ export const useStore = create<State>()(
           projects: PROJECTS,
           regions: REGIONS,
           timeOff: TIME_OFF,
+          timeEntries: TIME_ENTRIES_SEED,
           templates: JOB_TEMPLATES,
           checklists: CHECKLISTS,
           checklistResponses: CHECKLIST_RESPONSES,

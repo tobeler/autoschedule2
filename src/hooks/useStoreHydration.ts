@@ -24,6 +24,7 @@ import {
   projectFromDTO,
   regionFromDTO,
   templatesFromDTOs,
+  timeEntryFromDTO,
   timeOffFromDTO,
   truckFromDTO,
 } from '../api/storeMappers';
@@ -86,6 +87,7 @@ export function useStoreHydration(): HydrationStatus {
         projectsRows,
         regionsRows,
         timeOffRows,
+        timeEntryRows,
         templatesRows,
         checklistsResp,
       ] = await Promise.all([
@@ -97,6 +99,7 @@ export function useStoreHydration(): HydrationStatus {
         fetchAllPages(client.projects.list),
         fetchAllPages(client.regions.list),
         fetchAllPages(client.timeOff.list),
+        fetchAllPages(client.timeEntries.list),
         fetchAllPages(client.templates.list),
         client.checklists.list(),
       ]);
@@ -113,6 +116,7 @@ export function useStoreHydration(): HydrationStatus {
         projects: projectsRows.map(projectFromDTO),
         regions: regionsRows.map(regionFromDTO),
         timeOff: timeOffRows.map(timeOffFromDTO),
+        timeEntries: timeEntryRows.map(timeEntryFromDTO),
         templates,
         checklists,
         // checklistResponses are loaded lazily per job (no list endpoint).

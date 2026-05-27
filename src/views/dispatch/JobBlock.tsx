@@ -32,6 +32,16 @@ interface JobBlockProps {
   laneIndex?: number;
   /** Total lanes on this row — used to compute per-lane height. */
   laneCount?: number;
+  /**
+   * When rendered inside a per-tech row, crop the block to that tech's
+   * slot window [job.startHour + slot.start, slot.start + slot.hours].
+   * Example: a 9h heatpump install with an electrician slot of
+   * {start: 4, hours: 3} renders as 3 hours starting at +4h on the
+   * electrician's row. When the person has no slot on the job, fall
+   * through to the full job duration (so crew-membership fallback
+   * paths still render something).
+   */
+  techContext?: { personId: string };
   onClick: (job: Job, e: ReactMouseEvent<HTMLDivElement>) => void;
   onResize: (id: string, hours: number) => void;
 }
@@ -45,6 +55,7 @@ export function JobBlock({
   allRowJobs,
   laneIndex,
   laneCount,
+  techContext,
   onClick,
   onResize,
 }: JobBlockProps) {
@@ -59,16 +70,43 @@ export function JobBlock({
   const jt = getJobType(job.type);
   if (!jt) return null;
 
-  const liveHours = previewHours != null ? previewHours : job.durationHrs;
-  const left = (job.startHour - hourStart) * colW;
-  const width = Math.max(60, liveHours * colW - 4);
-  const endHour = job.startHour + liveHours;
+  // ===== Tech-row slot cropping =====
+  // When this block is rendered on a tech's row, find that tech's slot
+  // and crop the visual window. Resize is disabled in this mode because
+  // resizing would mutate the job duration, not the slot, which would be
+  // confusing UX. A slot-level edit lives in the JobDetailDrawer.
+  const techSlot = techContext
+    ? job.slots.find((s) => s.assignedTo === techContext.personId) ?? null
+    : null;
+  const slotStartOffset = techSlot?.start ?? 0;
+  const slotHours = techSlot?.hours ?? null;
+  const visualStart = job.startHour + slotStartOffset;
+  const cropResize = techSlot != null;
 
-  // Conflict: any sibling on the row overlapping this block's time window
+  const fullHours = previewHours != null ? previewHours : job.durationHrs;
+  const liveHours = slotHours ?? fullHours;
+  const left = (visualStart - hourStart) * colW;
+  const width = Math.max(60, liveHours * colW - 4);
+  const endHour = visualStart + liveHours;
+
+  // Conflict: any sibling on the row overlapping this block's time window.
+  // On tech rows, compare against the OTHER block's tech-slot window too
+  // so two jobs that both touch this tech only conflict where the slots
+  // actually overlap (not where the whole job durations would).
   const hasConflict = allRowJobs.some((other) => {
     if (other.id === job.id || other.startHour == null) return false;
-    const otherEnd = other.startHour + other.durationHrs;
-    return job.startHour! < otherEnd && endHour > other.startHour;
+    let otherStart = other.startHour;
+    let otherEnd = other.startHour + other.durationHrs;
+    if (techContext) {
+      const otherSlot = other.slots.find(
+        (s) => s.assignedTo === techContext.personId,
+      );
+      if (otherSlot) {
+        otherStart = other.startHour + (otherSlot.start ?? 0);
+        otherEnd = otherStart + otherSlot.hours;
+      }
+    }
+    return visualStart < otherEnd && endHour > otherStart;
   });
 
   const unfilled = job.slots.some((s) => !s.assignedTo && !s.optional);
@@ -194,7 +232,7 @@ export function JobBlock({
         <div className="job-block-meta">
           <Icon name="clock" size={10} />
           <span>
-            {fmtTime(job.startHour)} · {hoursToStr(liveHours)}
+            {fmtTime(visualStart)} · {hoursToStr(liveHours)}
           </span>
         </div>
       )}
@@ -210,12 +248,15 @@ export function JobBlock({
         )}
       </div>
 
-      {/* Right-edge resize handle */}
-      <div
-        className="job-block-resize"
-        onPointerDown={onResizeStart}
-        title="Drag to resize"
-      />
+      {/* Right-edge resize handle. Hidden in tech-row cropped mode —
+          dragging would mutate the parent job duration, not this slot. */}
+      {!cropResize && (
+        <div
+          className="job-block-resize"
+          onPointerDown={onResizeStart}
+          title="Drag to resize"
+        />
+      )}
 
       {/* Live resize tooltip */}
       {resizing && previewHours != null && (

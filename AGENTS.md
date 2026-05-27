@@ -16,7 +16,7 @@ For HubSpot work, also: `src/integrations/hubspot/schema-snapshot.json` + `src/i
 
 ## Working style
 
-- **Default to dispatching subagents for bounded work.** Erik prefers parallel execution. For any task that can be specified with a clear input/output contract and doesn't depend on the current conversation's working state, spawn a subagent rather than doing it serially. Examples that should ALWAYS be delegated:
+- **Default to dispatching subagents for bounded work.** Erik prefers parallel execution and has explicitly confirmed this (2026-05-27): "Always feel free to use an agent team." Do NOT ask permission before spawning — just spawn. For any task that can be specified with a clear input/output contract and doesn't depend on the current conversation's working state, spawn a subagent rather than doing it serially. Examples that should ALWAYS be delegated:
   - Bootstrap / import flows from external systems (Zuper, HubSpot, etc.)
   - Codebase exploration / archaeology spanning more than 3 files
   - External docs lookups

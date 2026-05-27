@@ -271,6 +271,28 @@ export interface TimeOff {
   label: string;
 }
 
+// ---- Time entries (clock-in / clock-out) ------------------------------------
+
+export type TimeEntrySource = 'zuper' | 'native';
+
+/**
+ * Real clock punch — one continuous on-the-clock segment for one person.
+ *
+ * `clockIn` / `clockOut` are ISO timestamps (UTC) returned by the API.
+ * `clockOut` is null while the tech is still on the clock.
+ * `jobId` may be null when Zuper attributes the punch to a generic shift
+ * rather than a specific job.
+ */
+export interface TimeEntry {
+  id: string;
+  personId: string;
+  jobId: string | null;
+  clockIn: string;
+  clockOut: string | null;
+  source: TimeEntrySource;
+  zuperLogId?: string | null;
+}
+
 // ---- Completion forms / checklists ------------------------------------------
 
 export type ChecklistItemType =

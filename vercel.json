@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/hubspot-sync",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/zuper-clock-events",
+      "schedule": "0 0 * * *"
     }
   ]
 }

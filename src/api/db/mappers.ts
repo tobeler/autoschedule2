@@ -13,6 +13,7 @@ import type {
   DbPerson,
   DbProject,
   DbRegion,
+  DbTimeEntry,
   DbTimeOff,
   DbTruck,
 } from '@/db/schema';
@@ -25,6 +26,7 @@ import type { JobSlotDTO } from '../schemas/slot';
 import type { PersonDTO } from '../schemas/person';
 import type { ProjectDTO } from '../schemas/project';
 import type { RegionDTO } from '../schemas/region';
+import type { TimeEntryDTO } from '../schemas/timeEntry';
 import type { TimeOffDTO } from '../schemas/timeoff';
 import type { TruckDTO } from '../schemas/truck';
 
@@ -121,6 +123,18 @@ export function regionToDTO(row: DbRegion, subs: DbRegion[]): RegionDTO {
       headcount: s.headcount,
       crews: s.crewCount,
     })),
+  };
+}
+
+export function timeEntryToDTO(row: DbTimeEntry): TimeEntryDTO {
+  return {
+    id: row.id,
+    personId: row.personId,
+    jobId: row.jobId ?? null,
+    clockIn: row.clockIn.toISOString(),
+    clockOut: row.clockOut ? row.clockOut.toISOString() : null,
+    source: row.source,
+    zuperLogId: row.zuperLogId ?? null,
   };
 }
 
