@@ -448,6 +448,7 @@ export function ProjectsView() {
             completedJobs={p.completedJobs}
             nextJob={p.nextJob}
             isStale={p.isStale}
+            region={p.region}
             selected={selectedId === p.id}
             onClick={() => setSelectedId(p.id)}
           />
@@ -481,6 +482,7 @@ interface RowProps {
   completedJobs: number;
   nextJob: { id: string; date: string | null; startHour: number | null } | undefined;
   isStale: boolean;
+  region: ProjectRegion | null;
   selected: boolean;
   onClick: () => void;
 }
@@ -491,6 +493,7 @@ function ProjectRow({
   completedJobs,
   nextJob,
   isStale,
+  region,
   selected,
   onClick,
 }: RowProps) {
@@ -557,6 +560,21 @@ function ProjectRow({
       </div>
       <div className="col-status">
         <ProjectStatusBadge status={project.status} />
+        {region && (
+          <span
+            className="badge"
+            title={`Region: ${region}`}
+            style={{
+              background: 'rgba(60,213,103,0.12)',
+              color: 'var(--forest, #1F8A5B)',
+              fontWeight: 600,
+              fontSize: 10,
+              marginLeft: 6,
+            }}
+          >
+            {region}
+          </span>
+        )}
         {isStale && (
           <span
             className="badge"

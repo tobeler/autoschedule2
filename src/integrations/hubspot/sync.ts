@@ -645,16 +645,27 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
         // Synthesize a stand-in customer when we can't reuse one (legacy
         // installs may pre-date the contact in our `customers` table).
         const standInCustomerId = 'hs-legacy-cust-' + inst.id;
+        const addressJoined = addressParts.join(', ');
         await tx
           .insert(customers)
           .values({
             id: standInCustomerId,
             name: 'Legacy install ' + inst.id,
-            address: addressParts.join(', '),
+            address: addressJoined,
             phone: '',
             hubspotId: null,
           })
-          .onConflictDoNothing({ target: customers.id });
+          // Backfill the address on existing rows whose address is still
+          // empty — these were created in an earlier sync before the
+          // full_address/city/state fields were pulled. Doing this on
+          // conflict lets a re-sync populate addresses without manual
+          // migration. Name is preserved (so the customer-name backfill
+          // from job titles isn't clobbered).
+          .onConflictDoUpdate({
+            target: customers.id,
+            set: { address: addressJoined, updatedAt: new Date() },
+            setWhere: sql`coalesce(customers.address, '') = '' and ${addressJoined} <> ''`,
+          });
         await tx
           .insert(projects)
           .values({
