@@ -20,7 +20,8 @@
 // =============================================================
 
 import { db } from '@/lib/db';
-import { customers, jobs as jobsTable, projects } from '@/db/schema';
+import { customers, jobs as jobsTable, jobSlots, projects } from '@/db/schema';
+import { buildJobSlotsForJob } from './job-slot-templates';
 import type { JobStatus } from '@/types';
 
 import {
@@ -283,6 +284,22 @@ export async function bootstrapActiveJobsFromZuper(
               },
             });
           result.upserted += 1;
+
+          // Auto-populate job_slots from the template for this job type.
+          // Idempotent: deterministic slot ids + onConflictDoNothing means
+          // re-running this on existing jobs is a no-op. Skips entirely
+          // for job types with no template (permits, board items, etc.).
+          const templateSlots = buildJobSlotsForJob(
+            id,
+            mapZuperCategory(zJob.job_category?.category_name),
+          );
+          if (templateSlots.length > 0) {
+            for (const slot of templateSlots) {
+              await tx.insert(jobSlots).values(slot).onConflictDoNothing({
+                target: jobSlots.id,
+              });
+            }
+          }
         } catch (err) {
           result.errors.push(`Job ${zJob.job_uid}: ${(err as Error).message}`);
         }
