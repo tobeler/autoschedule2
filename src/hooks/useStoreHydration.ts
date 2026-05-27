@@ -28,12 +28,35 @@ import {
   truckFromDTO,
 } from '../api/storeMappers';
 
+interface Page<T> {
+  data: T[];
+  limit: number;
+  offset: number;
+}
+
 interface HydrationStatus {
   loading: boolean;
   hydrated: boolean;
   apiMode: boolean;
   error: string | null;
   retry: () => void;
+}
+
+async function fetchAllPages<T>(
+  loader: (params: { limit: number; offset: number }) => Promise<Page<T>>,
+  limit = 500,
+): Promise<T[]> {
+  const out: T[] = [];
+  let offset = 0;
+
+  for (let pageNo = 0; pageNo < 100; pageNo += 1) {
+    const page = await loader({ limit, offset });
+    out.push(...page.data);
+    if (page.data.length < limit || page.data.length === 0) break;
+    offset += page.data.length;
+  }
+
+  return out;
 }
 
 export function useStoreHydration(): HydrationStatus {
@@ -55,41 +78,41 @@ export function useStoreHydration(): HydrationStatus {
       // Fan out every list call in parallel. Any failure throws
       // and trips the demo-mode fallback below.
       const [
-        jobsPage,
-        peoplePage,
-        crewsPage,
-        trucksPage,
-        customersPage,
-        projectsPage,
-        regionsPage,
-        timeOffPage,
-        templatesPage,
+        jobsRows,
+        peopleRows,
+        crewsRows,
+        trucksRows,
+        customersRows,
+        projectsRows,
+        regionsRows,
+        timeOffRows,
+        templatesRows,
         checklistsResp,
       ] = await Promise.all([
-        client.jobs.list({ limit: 500 }),
-        client.people.list({ limit: 500 }),
-        client.crews.list({ limit: 500 }),
-        client.trucks.list({ limit: 500 }),
-        client.customers.list({ limit: 500 }),
-        client.projects.list({ limit: 500 }),
-        client.regions.list({ limit: 500 }),
-        client.timeOff.list({ limit: 1000 }),
-        client.templates.list({ limit: 500 }),
+        fetchAllPages(client.jobs.list),
+        fetchAllPages(client.people.list),
+        fetchAllPages(client.crews.list),
+        fetchAllPages(client.trucks.list),
+        fetchAllPages(client.customers.list),
+        fetchAllPages(client.projects.list),
+        fetchAllPages(client.regions.list),
+        fetchAllPages(client.timeOff.list),
+        fetchAllPages(client.templates.list),
         client.checklists.list(),
       ]);
 
-      const templates: Record<string, JobTemplate> = templatesFromDTOs(templatesPage.data);
+      const templates: Record<string, JobTemplate> = templatesFromDTOs(templatesRows);
       const checklists = checklistsFromDTOs(checklistsResp);
 
       hydrateCollections({
-        jobs: jobsPage.data.map(jobFromDTO),
-        people: peoplePage.data.map(personFromDTO),
-        crews: crewsPage.data.map(crewFromDTO),
-        trucks: trucksPage.data.map(truckFromDTO),
-        customers: customersPage.data.map(customerFromDTO),
-        projects: projectsPage.data.map(projectFromDTO),
-        regions: regionsPage.data.map(regionFromDTO),
-        timeOff: timeOffPage.data.map(timeOffFromDTO),
+        jobs: jobsRows.map(jobFromDTO),
+        people: peopleRows.map(personFromDTO),
+        crews: crewsRows.map(crewFromDTO),
+        trucks: trucksRows.map(truckFromDTO),
+        customers: customersRows.map(customerFromDTO),
+        projects: projectsRows.map(projectFromDTO),
+        regions: regionsRows.map(regionFromDTO),
+        timeOff: timeOffRows.map(timeOffFromDTO),
         templates,
         checklists,
         // checklistResponses are loaded lazily per job (no list endpoint).

@@ -22,6 +22,7 @@ import {
 } from '../../data/helpers';
 import { getCrew, getCustomer, getJobType, getPerson } from '../../data/selectors';
 import { useStore } from '../../store';
+import { jobDisplayName } from '../../lib/customer-display';
 
 type GroupKind = 'crew' | 'truck' | 'tech';
 
@@ -32,14 +33,25 @@ interface WeekCalendarProps {
   onJobClick: (job: Job) => void;
 }
 
-type RowKind = 'crew' | 'truck' | 'tech';
+type RowKind = 'crew' | 'truck' | 'tech' | 'zuper-team';
 interface WeekRow {
   id: string;
   name: string;
   color: string;
   meta: string;
   kind: RowKind;
+  /** For zuper-team rows: the Zuper team_name used to filter jobs. */
+  zuperTeamName?: string;
 }
+
+// Region accent palette for Zuper team rows. Same colors as DayCalendar.
+const REGION_ACCENT: Record<string, string> = {
+  CO: '#0EA5E9',
+  MA: '#10B981',
+  NY: '#8B5CF6',
+  BC: '#F59E0B',
+  CA: '#F97316',
+};
 
 interface LoanBlock {
   job: Job;
@@ -74,7 +86,11 @@ export function WeekCalendar({
   const selectJob = useStore((s) => s.selectJob);
   const pushToast = useStore((s) => s.pushToast);
 
-  const days = Array.from({ length: 5 }).map((_, i) => addDays(startDate, i));
+  // 7-day week so service jobs that land on Sat/Sun stay visible. Before
+  // this was 5 days (Mon-Fri); any weekend-scheduled job rolled into the
+  // visibleJobs set (DispatchView filters 7 days) but had no day column
+  // to render in and disappeared silently.
+  const days = Array.from({ length: 7 }).map((_, i) => addDays(startDate, i));
   const weekKeys = days.map(dateKey);
   const todayKey = dateKey(TODAY);
 
@@ -82,6 +98,8 @@ export function WeekCalendar({
   // crew rows → row id is the crew id (truckId comes from the crew's default).
   // truck rows → row id is the truck id (crewId comes from the truck's assignment).
   // tech rows → row id is the person id (crewId from defaultCrew, truck from that crew).
+  // zuper-team rows → no dispatcher crew exists; drop with null so the drawer
+  //   opens for review (same convention as MonthCalendar 6×7 grid).
   function rowAssignment(row: WeekRow): { crewId: string | null; truckId: string | null } {
     if (row.kind === 'crew') {
       const crew = getCrew(allCrews, row.id);
@@ -90,6 +108,9 @@ export function WeekCalendar({
     if (row.kind === 'truck') {
       const truck = allTrucks.find((t) => t.id === row.id);
       return { crewId: truck?.assignedCrew ?? null, truckId: row.id };
+    }
+    if (row.kind === 'zuper-team') {
+      return { crewId: null, truckId: null };
     }
     // tech
     const person = getPerson(allPeople, row.id);
@@ -167,13 +188,40 @@ export function WeekCalendar({
         kind: 'tech',
       }));
   } else {
-    rows = allCrews.map<WeekRow>((c: Crew) => ({
+    // crew mode: real crews materialized from Zuper teams via
+    // /api/v1/zuper/bootstrap-crews. Crews are now AutoSchedule-owned.
+    // Any week jobs still lacking a known crewId fall into one
+    // "Unassigned" tail row.
+    const crewIds = new Set(allCrews.map((c) => c.id));
+    const hasUnassigned = jobs.some(
+      (j) =>
+        j.date != null &&
+        weekKeys.includes(j.date) &&
+        j.startHour != null &&
+        (!j.crewId || !crewIds.has(j.crewId)),
+    );
+    const unassignedRow: WeekRow[] = hasUnassigned
+      ? [
+          {
+            id: 'crew-__unassigned__',
+            name: 'Unassigned',
+            color: 'var(--mid-gray)',
+            meta: 'Awaiting crew',
+            kind: 'zuper-team',
+            zuperTeamName: '',
+          },
+        ]
+      : [];
+    // Crew Model v2: hide ad_hoc crews from the dispatch grid.
+    const dispatchableCrews = allCrews.filter((c) => c.type !== 'ad_hoc');
+    const crewRows = dispatchableCrews.map<WeekRow>((c: Crew) => ({
       id: c.id,
       name: c.name,
       color: c.color,
       meta: c.type,
       kind: 'crew',
     }));
+    rows = [...unassignedRow, ...crewRows];
   }
 
   return (
@@ -264,6 +312,11 @@ export function WeekCalendar({
                 if (row.kind === 'truck') return j.truckId === row.id;
                 if (row.kind === 'tech')
                   return j.slots.some((s) => s.assignedTo === row.id);
+                if (row.kind === 'zuper-team') {
+                  // The single Unassigned tail row — any job without a
+                  // matching dispatcher crew falls here.
+                  return !j.crewId || !allCrews.some((c) => c.id === j.crewId);
+                }
                 return j.crewId === row.id;
               });
               const loanBlocks: LoanBlock[] =
@@ -364,9 +417,7 @@ export function WeekCalendar({
                             lineHeight: 1.1,
                           }}
                         >
-                          {c
-                            ? c.name
-                            : j.address?.split('·')[0].trim() || 'Untitled'}
+                          {jobDisplayName(j, c, getJobType(j.type), { prefer: 'short' })}
                         </div>
                       </div>
                     );

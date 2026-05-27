@@ -2,8 +2,17 @@
 // Date / time / formatting helpers (port of data.js helpers)
 // =============================================================
 
-/** Anchor date — the prototype's "today" so seed data lines up. */
-export const TODAY = new Date(2026, 4, 21); // May 21 2026
+/**
+ * Anchor date used as "today" throughout the dispatcher. Resolved to the
+ * actual current local date when the bundle loads. The seed dataset's hand-
+ * picked "May 21 2026" anchor is only used when running tests that pin the
+ * clock via a date mock.
+ */
+function resolveToday(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+export const TODAY = resolveToday();
 
 export function dateKey(d: Date): string {
   return (

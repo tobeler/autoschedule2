@@ -47,27 +47,70 @@ export function MapView({ date, jobs, onJobClick }: MapViewProps) {
     [jobs, date],
   );
 
+  // Region accent palette mirrors DayCalendar. Used when synthesizing a
+  // pseudo-Crew for Zuper-team jobs (which have crewId=null).
+  const REGION_ACCENT: Record<string, string> = {
+    CO: '#0EA5E9',
+    MA: '#10B981',
+    NY: '#8B5CF6',
+    BC: '#F59E0B',
+    CA: '#F97316',
+  };
+
   const crewRoutes = useMemo<CrewRoute[]>(() => {
-    const map = new Map<string, Job[]>();
+    // Real crews are now materialized from Zuper teams. Group jobs by
+    // crewId; any job whose crewId isn't a known dispatcher crew falls
+    // into a single synthetic "Unassigned" route bucket.
+    const realMap = new Map<string, Job[]>();
+    const unassigned: Job[] = [];
+    const crewIdSet = new Set(allCrews.map((c) => c.id));
     dayJobs.forEach((j) => {
-      if (!j.crewId) return;
-      const arr = map.get(j.crewId);
-      if (arr) arr.push(j);
-      else map.set(j.crewId, [j]);
+      if (j.crewId && crewIdSet.has(j.crewId)) {
+        const arr = realMap.get(j.crewId);
+        if (arr) arr.push(j);
+        else realMap.set(j.crewId, [j]);
+      } else {
+        unassigned.push(j);
+      }
     });
     const out: CrewRoute[] = [];
-    map.forEach((js, crewId) => {
+    realMap.forEach((js, crewId) => {
       const crew = getCrew(allCrews, crewId);
       if (!crew) return;
       if (selectedCrew !== 'all' && crew.id !== selectedCrew) return;
       out.push({ crew, jobs: js });
     });
+    if (unassigned.length > 0 && (selectedCrew === 'all' || selectedCrew === 'crew-__unassigned__')) {
+      const virtual: Crew = {
+        id: 'crew-__unassigned__',
+        name: 'Unassigned',
+        color: 'var(--mid-gray)',
+        type: 'install',
+        lead: '',
+        members: [],
+        truck: null,
+      };
+      out.push({ crew: virtual, jobs: unassigned });
+    }
     return out;
   }, [dayJobs, allCrews, selectedCrew]);
 
+  // Crew chips: real crew ids first, then synthesized 'zup-team-…' ids.
   const allCrewIds = useMemo(() => {
-    return Array.from(new Set(dayJobs.map((j) => j.crewId).filter(Boolean)));
-  }, [dayJobs]) as string[];
+    const crewIdSet = new Set(allCrews.map((c) => c.id));
+    const real = Array.from(
+      new Set(
+        dayJobs
+          .map((j) => j.crewId)
+          .filter((c): c is string => !!c && crewIdSet.has(c)),
+      ),
+    );
+    // Single Unassigned chip when any job in view has no recognized crew.
+    const hasUnassigned = dayJobs.some(
+      (j) => !j.crewId || !crewIdSet.has(j.crewId),
+    );
+    return hasUnassigned ? [...real, 'crew-__unassigned__'] : real;
+  }, [dayJobs, allCrews]);
 
   const totalDriveMinutes = useMemo(() => {
     let total = 0;
@@ -187,10 +230,13 @@ export function MapView({ date, jobs, onJobClick }: MapViewProps) {
             gap: 6,
           }}
         >
-          <button className="btn btn-icon btn-outline">
+          {/* Zoom controls are no-ops until real map tiles are wired (the
+              current map is a decorative SVG with hashed pin positions, not
+              a real lat/lng layer). Disabled to avoid the dead-button feel. */}
+          <button className="btn btn-icon btn-outline" disabled title="Zoom available when map tiles are connected">
             <Icon name="plus" size={14} />
           </button>
-          <button className="btn btn-icon btn-outline">
+          <button className="btn btn-icon btn-outline" disabled title="Zoom available when map tiles are connected">
             <span style={{ fontWeight: 800, fontSize: 16 }}>−</span>
           </button>
         </div>
@@ -202,7 +248,7 @@ export function MapView({ date, jobs, onJobClick }: MapViewProps) {
             <div>
               <div className="rail-title">Today's routes</div>
               <div className="muted small">
-                Optimized · saved 47 min vs unsorted
+                Sorted by start time
               </div>
             </div>
             <div style={{ marginLeft: 'auto' }}>
@@ -227,7 +273,14 @@ export function MapView({ date, jobs, onJobClick }: MapViewProps) {
               All crews
             </button>
             {allCrewIds.map((cid) => {
-              const c = getCrew(allCrews, cid);
+              // Real crews come from the store; virtual Zuper-team crews
+              // surface via the synthesized 'zup-team-{name}' id and pick
+              // up name + color from crewRoutes.
+              const real = getCrew(allCrews, cid);
+              const fromRoutes = !real
+                ? crewRoutes.find((r) => r.crew.id === cid)?.crew
+                : null;
+              const c = real ?? fromRoutes;
               if (!c) return null;
               return (
                 <button

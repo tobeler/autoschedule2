@@ -12,6 +12,19 @@ import { estimateDriveTime, optimizeRouteForCrew } from '../../lib/routing';
 
 const STD_DAY_HOURS = 8;
 
+// Crews synced from Zuper for traceability (admin pool, office back-office,
+// floating coverage, sub-contractor pools, dispatcher group). Real install
+// jobs never roll up to these in any healthy state — exclude from utilization,
+// FTF, drive-time, and revenue rollups so they don't drag KPIs down with 0s.
+function isAdminOrSupportCrewName(name: string): boolean {
+  if (/\b(office|float|admin|dispatch|technicians - all|fe team)\b/i.test(name)) {
+    return true;
+  }
+  // -sub or sub- (e.g. CO-DE-sub, MA-BO-Sub-Electricians)
+  if (/-sub(-|$)/i.test(name)) return true;
+  return false;
+}
+
 export function ReportsView() {
   const jobs = useStore((s) => s.jobs);
   const crews = useStore((s) => s.crews);
@@ -29,6 +42,10 @@ export function ReportsView() {
   const utilization = useMemo(() => {
     return crews
       .filter((c) => c.type !== 'sales')
+      // Exclude admin / office / float / dispatcher / sub-* crews that are
+      // synced from Zuper for traceability but aren't real dispatchable units.
+      // These otherwise show up as 0%-utilization noise that drags the avg down.
+      .filter((c) => !isAdminOrSupportCrewName(c.name))
       .map((c) => {
         const dayHours = weekKeys.map((dk) =>
           jobs
@@ -57,6 +74,12 @@ export function ReportsView() {
       : Math.round(
           utilization.reduce((a, u) => a + u.pct, 0) / utilization.length,
         );
+
+  // Over-capacity crews are the dispatcher's most-actionable signal: they
+  // mean either scheduling drift, double-booking, or an under-staffed crew
+  // taking on too much. Surface them as a callout above the table.
+  const overCapacity = utilization.filter((u) => u.pct > 100);
+  const underUtilized = utilization.filter((u) => u.pct < 30 && u.pct > 0);
 
   // ===== Revenue + jobs per truck (90-day rolling) =====
   const truckStats = useMemo(() => {
@@ -139,9 +162,11 @@ export function ReportsView() {
           </div>
           <div className="kpi">
             <div className="kpi-label">First-time-fix rate</div>
-            <div className="kpi-value">{ftf.rate}%</div>
+            <div className="kpi-value">{ftf.total === 0 ? '—' : ftf.rate + '%'}</div>
             <div className="kpi-meta">
-              {ftf.total - ftf.withCallback}/{ftf.total} completed without callback
+              {ftf.total === 0
+                ? 'No completed jobs yet'
+                : `${ftf.total - ftf.withCallback}/${ftf.total} completed without callback`}
             </div>
           </div>
           <div className="kpi">
@@ -159,6 +184,58 @@ export function ReportsView() {
             <div className="kpi-meta">{utilization.length} crews active</div>
           </div>
         </div>
+
+        {(overCapacity.length > 0 || underUtilized.length > 0) && (
+          <div
+            className="row"
+            style={{ marginTop: 20, gap: 12, flexWrap: 'wrap' }}
+          >
+            {overCapacity.length > 0 && (
+              <div
+                className="card"
+                style={{
+                  padding: '12px 16px',
+                  background: 'rgba(197, 48, 48, 0.08)',
+                  borderLeft: '4px solid #c53030',
+                  flex: 1,
+                  minWidth: 280,
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#c53030' }}>
+                  <Icon name="alert_circle" size={14} /> {overCapacity.length} crew
+                  {overCapacity.length === 1 ? '' : 's'} over capacity
+                </div>
+                <div className="muted small" style={{ marginTop: 4 }}>
+                  {overCapacity
+                    .map((u) => `${u.crew.name} (${u.pct}%)`)
+                    .join(', ')}
+                </div>
+              </div>
+            )}
+            {underUtilized.length > 0 && (
+              <div
+                className="card"
+                style={{
+                  padding: '12px 16px',
+                  background: 'rgba(180, 130, 0, 0.08)',
+                  borderLeft: '4px solid #b48200',
+                  flex: 1,
+                  minWidth: 280,
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#7a5800' }}>
+                  <Icon name="alert_circle" size={14} /> {underUtilized.length} crew
+                  {underUtilized.length === 1 ? '' : 's'} under 30% this week
+                </div>
+                <div className="muted small" style={{ marginTop: 4 }}>
+                  {underUtilized
+                    .map((u) => `${u.crew.name} (${u.pct}%)`)
+                    .join(', ')}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <h3
           style={{
@@ -266,6 +343,16 @@ export function ReportsView() {
               </tr>
             </thead>
             <tbody>
+              {truckStats.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: 24 }}>
+                    <span className="muted small">
+                      No vehicles added yet. Add trucks in Trucks &amp; vans to see
+                      per-vehicle revenue.
+                    </span>
+                  </td>
+                </tr>
+              )}
               {truckStats.map(({ truck, jobs: jobCount, completed, revenue }) => {
                 const crew = getCrew(crews, truck.assignedCrew);
                 return (

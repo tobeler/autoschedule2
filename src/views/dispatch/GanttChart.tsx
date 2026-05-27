@@ -13,6 +13,7 @@ import { addDays, dateKey, TODAY } from '../../data/helpers';
 import { getCrew, getCustomer, getJobType } from '../../data/selectors';
 import { JobTypeTag } from '../../components/JobTypeTag';
 import { useStore } from '../../store';
+import { jobDisplayName } from '../../lib/customer-display';
 
 type GroupKind = 'crew' | 'truck' | 'tech';
 
@@ -33,6 +34,15 @@ interface GanttRow {
 
 const DAY_W = 140;
 const DAYS = 7;
+
+// Region accent palette mirrors DayCalendar / WeekCalendar.
+const REGION_ACCENT: Record<string, string> = {
+  CO: '#0EA5E9',
+  MA: '#10B981',
+  NY: '#8B5CF6',
+  BC: '#F59E0B',
+  CA: '#F97316',
+};
 
 export function GanttChart({
   startDate,
@@ -62,13 +72,39 @@ export function GanttChart({
         };
       });
   } else {
-    rows = allCrews.map<GanttRow>((c: Crew) => ({
+    // crew mode: crews are now materialized from Zuper teams (via
+    // /api/v1/zuper/bootstrap-crews) — no virtual-team-row hack needed.
+    // Any scheduled job without a recognized crewId falls into one
+    // Unassigned tail row.
+    const crewIds = new Set(allCrews.map((c) => c.id));
+    const unassigned = jobs.filter(
+      (j) =>
+        j.startHour != null &&
+        j.date != null &&
+        (!j.crewId || !crewIds.has(j.crewId)),
+    );
+    const unassignedRow: GanttRow[] =
+      unassigned.length > 0
+        ? [
+            {
+              id: 'crew-__unassigned__',
+              name: 'Unassigned',
+              color: 'var(--mid-gray)',
+              meta: 'Awaiting crew',
+              jobs: unassigned,
+            },
+          ]
+        : [];
+    // Crew Model v2: hide ad_hoc crews from the gantt timeline.
+    const dispatchableCrews = allCrews.filter((c) => c.type !== 'ad_hoc');
+    const crewRows = dispatchableCrews.map<GanttRow>((c: Crew) => ({
       id: c.id,
       name: c.name,
       color: c.color,
       meta: c.type,
       jobs: jobs.filter((j) => j.crewId === c.id),
     }));
+    rows = [...unassignedRow, ...crewRows];
   }
 
   return (
@@ -136,7 +172,7 @@ export function GanttChart({
                 // Phase 19 fix: short blocks (< 60px) drop the customer
                 // name and only show the job-type tag. Full info on hover.
                 const compact = width < 60;
-                const customerLabel = c ? c.name : j.address?.split('·')[0] || 'Untitled';
+                const customerLabel = jobDisplayName(j, c, jt, { prefer: 'short' });
                 const title = `${jt?.label ?? j.type} · ${customerLabel} · ${j.durationHrs}h`;
                 return (
                   <div

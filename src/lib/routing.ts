@@ -16,8 +16,11 @@ const CITY_COORDS: Record<string, [number, number]> = {
   Medford: [42.418, -71.107],
 };
 
-function cityFromAddress(addr: string): string | null {
-  // Address format: "142 Elm Ridge Rd · Newton, MA" or "8 Mass Ave · Cambridge"
+function cityFromAddress(addr: string | null | undefined): string | null {
+  // Address format: "142 Elm Ridge Rd · Newton, MA" or "8 Mass Ave · Cambridge".
+  // Zuper jobs frequently arrive with no address at all, so this must
+  // tolerate null/undefined without throwing.
+  if (!addr) return null;
   const after = addr.split('·')[1]?.trim();
   if (!after) return null;
   return after.split(',')[0]?.trim() ?? null;

@@ -51,6 +51,7 @@ export function personToDTO(row: DbPerson, roles: RoleKey[]): PersonDTO {
     roles,
     defaultCrew: row.defaultCrewId,
     certs: (row.certs as string[] | null | undefined) ?? undefined,
+    zuperPrimaryTeam: row.zuperPrimaryTeam ?? null,
   };
 }
 
@@ -116,6 +117,7 @@ export function regionToDTO(row: DbRegion, subs: DbRegion[]): RegionDTO {
     subs: subs.map((s) => ({
       id: s.id,
       name: s.name,
+      short: s.short,
       headcount: s.headcount,
       crews: s.crewCount,
     })),
@@ -154,6 +156,7 @@ export function jobToDTO(
     id: row.id,
     type: row.type,
     status: row.status,
+    title: row.title ?? null,
     customer: row.customerId,
     date: row.date,
     startHour: numOrNull(row.startHour),
@@ -177,5 +180,8 @@ export function jobToDTO(
     endDate: row.endDate ?? undefined,
     endHour: row.endHour != null ? num(row.endHour) : undefined,
     daysSpanned: row.daysSpanned ?? undefined,
+    zuperJobUid: row.zuperJobUid ?? null,
+    zuperTeamName: row.zuperTeamName ?? null,
+    assignedTechIds: row.assignedTechIds ?? null,
   };
 }

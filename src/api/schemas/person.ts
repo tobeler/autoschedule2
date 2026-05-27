@@ -18,6 +18,8 @@ export const PersonSchema = z
     level: LevelSchema,
     defaultCrew: z.string().nullable(),
     certs: z.array(z.string()).optional(),
+    /** Zuper team this person was last imported from (read-only). */
+    zuperPrimaryTeam: z.string().nullable().optional(),
   })
   .openapi('Person');
 

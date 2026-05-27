@@ -12,12 +12,18 @@ import {
   type AttentionItem,
   type AttentionSev,
 } from './buildAttentionItems';
+import {
+  rankAttentionItemsByImpact,
+  type AttentionImpact,
+} from './rankAttentionImpact';
 
 export { buildAttentionItems } from './buildAttentionItems';
 export type { AttentionItem, AttentionSev, AttentionCategory } from './buildAttentionItems';
 
 type SevFilter = AttentionSev | 'all';
 type CatFilter = AttentionCategory | 'all';
+type SortMode = 'default' | 'impact';
+type ViewAttentionItem = AttentionItem & { impact?: AttentionImpact };
 
 export function AttentionView() {
   const setTab = useStore((s) => s.setTab);
@@ -25,14 +31,37 @@ export function AttentionView() {
   const openSmartSchedule = useStore((s) => s.openSmartSchedule);
   const pushToast = useStore((s) => s.pushToast);
   const jobs = useStore((s) => s.jobs);
+  const projects = useStore((s) => s.projects);
+  const customers = useStore((s) => s.customers);
+  const people = useStore((s) => s.people);
+  const crews = useStore((s) => s.crews);
+  const timeOff = useStore((s) => s.timeOff);
 
   // Rebuild list whenever the underlying store snapshot changes.
-  const allItems = useMemo(() => buildAttentionItems(), [jobs]);
+  const baseItems = useMemo(
+    () => buildAttentionItems({ jobs, customers, people, crews, timeOff }),
+    [jobs, customers, people, crews, timeOff],
+  );
 
   const [sevFilter, setSevFilter] = useState<SevFilter>('all');
   const [catFilter, setCatFilter] = useState<CatFilter>('all');
+  const [sortMode, setSortMode] = useState<SortMode>('impact');
   const [resolved, setResolved] = useState<Record<string, boolean>>({});
   const [snoozed, setSnoozed] = useState<Record<string, boolean>>({});
+
+  const allItems: ViewAttentionItem[] = useMemo(() => {
+    if (sortMode === 'impact') {
+      return rankAttentionItemsByImpact(baseItems, {
+        jobs,
+        projects,
+        customers,
+        people,
+        crews,
+        timeOff,
+      });
+    }
+    return baseItems;
+  }, [baseItems, sortMode, jobs, projects, customers, people, crews, timeOff]);
 
   const visible = allItems.filter((it) => {
     if (snoozed[it.id]) return false;
@@ -59,7 +88,7 @@ export function AttentionView() {
   const total = counts.urgent + counts.warn + counts.info;
 
   const grouped = useMemo(() => {
-    const map: Partial<Record<AttentionCategory, AttentionItem[]>> = {};
+    const map: Partial<Record<AttentionCategory, ViewAttentionItem[]>> = {};
     visible.forEach((it) => {
       const list = map[it.cat] || (map[it.cat] = []);
       list.push(it);
@@ -183,6 +212,23 @@ export function AttentionView() {
             ),
           )}
         </div>
+        <span className="filter-label" style={{ marginLeft: 12 }}>
+          Rank
+        </span>
+        <div className="seg">
+          <button
+            className={sortMode === 'default' ? 'active' : ''}
+            onClick={() => setSortMode('default')}
+          >
+            Default
+          </button>
+          <button
+            className={sortMode === 'impact' ? 'active' : ''}
+            onClick={() => setSortMode('impact')}
+          >
+            Impact
+          </button>
+        </div>
         <div
           style={{
             marginLeft: 'auto',
@@ -194,7 +240,7 @@ export function AttentionView() {
           }}
         >
           <Icon name="clock" size={13} />
-          <span>Refreshed just now</span>
+          <span>Loaded from dispatcher data</span>
           {Object.keys(resolved).length > 0 && (
             <button className="btn btn-ghost btn-sm muted" onClick={() => setResolved({})}>
               Undo {Object.keys(resolved).length} resolved
@@ -293,10 +339,33 @@ export function AttentionView() {
             onSnooze={() => selected && snoozeItem(selected.id)}
             onJump={() => selected?.jobId && jumpToJob(selected.jobId)}
             onAction={(action) => {
-              if (action === 'smart_schedule' && selected?.jobId) {
-                openSmartSchedule(selected.jobId);
+              if (action === 'open_dispatch') {
+                setTab('dispatch');
+                return;
               }
-              if (selected) resolveItem(selected.id);
+              if (action === 'open_jobs') {
+                setTab('jobs');
+                return;
+              }
+              if ((action === 'smart_schedule' || action === 'schedule') && selected?.jobId) {
+                openSmartSchedule(selected.jobId);
+                return;
+              }
+              if ((action === 'assign' || action === 'pick') && selected?.jobId) {
+                selectJob(selected.jobId, { initialTab: 'crew' });
+                setTab('dispatch');
+                return;
+              }
+              // "Open job details" + "Find schedule window" both want the job
+              // drawer open on Dispatch — used by the callback flow so the
+              // dispatcher can read notes, see Zuper/HubSpot ids, and pick a
+              // slot from the same screen.
+              if ((action === 'open_details' || action === 'pick_window') && selected?.jobId) {
+                selectJob(selected.jobId);
+                setTab('dispatch');
+                return;
+              }
+              if (selected && action) resolveItem(selected.id);
             }}
           />
         )}
@@ -309,7 +378,7 @@ export function AttentionView() {
 // Row
 // ─────────────────────────────────────────────────────────────
 interface RowProps {
-  item: AttentionItem;
+  item: ViewAttentionItem;
   isResolved: boolean;
   selected: boolean;
   onSelect: () => void;
@@ -338,6 +407,18 @@ function AttentionRow({ item, isResolved, selected, onSelect, onResolve, onJump 
         <div className="att-item-title">{item.title}</div>
         <div className="att-item-desc">{item.desc}</div>
         <div className="att-item-meta">
+          {item.impact && (
+            <>
+              <span className="pill impact">
+                <Icon name="bar_chart" size={10} />
+                {item.impact.score}
+              </span>
+              {/* Revenue-at-risk pill hidden — dispatch decisions don't ride on deal $. */}
+              <span className={'pill impact-confidence ' + item.impact.confidence}>
+                {item.impact.confidence}
+              </span>
+            </>
+          )}
           {item.meta?.map((m, i) => (
             <span
               key={i}
@@ -353,11 +434,8 @@ function AttentionRow({ item, isResolved, selected, onSelect, onResolve, onJump 
               {m.label}
             </span>
           ))}
-          {item.jobId && (
-            <span className="pill" style={{ fontFamily: 'var(--font-mono)' }}>
-              {item.jobId}
-            </span>
-          )}
+          {/* Job ID intentionally hidden — dispatchers don't read the synthetic
+              zup-… string. The "Open job" button below carries the navigation. */}
         </div>
       </div>
       <div className="att-item-actions" onClick={(e) => e.stopPropagation()}>
@@ -391,7 +469,7 @@ function AttentionRow({ item, isResolved, selected, onSelect, onResolve, onJump 
 // Detail pane
 // ─────────────────────────────────────────────────────────────
 interface DetailProps {
-  item: AttentionItem | null;
+  item: ViewAttentionItem | null;
   onResolve: () => void;
   onSnooze: () => void;
   onJump: () => void;
@@ -434,6 +512,33 @@ function DetailPane({ item, onResolve, onSnooze, onJump, onAction }: DetailProps
           ))}
         </div>
       </div>
+
+      {item.impact && (
+        <div className="att-detail-section">
+          <div className="label">Impact rank</div>
+          <div className="att-impact-grid">
+            <div>
+              <span className="k">Score</span>
+              <span className="v">{item.impact.score}</span>
+            </div>
+            <div>
+              <span className="k">Confidence</span>
+              <span className="v">{item.impact.confidence}</span>
+            </div>
+          </div>
+          <div className="att-impact-reasons">
+            {item.impact.reasons
+              // Hide dollar/value reasons — those leak deal $ into the dispatch view.
+              .filter((r) => !/\$|at risk|modeled value/i.test(r))
+              .map((reason) => (
+                <span key={reason} className="reason-chip good">
+                  <Icon name="info" size={10} />
+                  {reason}
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
 
       <div className="att-detail-section">
         <div className="label">Resolve by</div>

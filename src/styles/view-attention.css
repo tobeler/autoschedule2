@@ -222,6 +222,29 @@
   color: #7A4900;
 }
 .att-item-meta .pill.deal { background: rgba(255,122,89,0.12); color: #9F3D24; }
+.att-item-meta .pill.impact {
+  background: rgba(17,56,35,0.08);
+  color: var(--forest);
+  font-weight: 800;
+}
+.att-item-meta .pill.impact-money {
+  background: rgba(60,213,103,0.13);
+  color: #1A6F2E;
+  font-weight: 800;
+}
+.att-item-meta .pill.impact-confidence { text-transform: capitalize; }
+.att-item-meta .pill.impact-confidence.low {
+  background: rgba(197,48,48,0.08);
+  color: #781E1E;
+}
+.att-item-meta .pill.impact-confidence.medium {
+  background: rgba(255,182,39,0.15);
+  color: #7A4900;
+}
+.att-item-meta .pill.impact-confidence.high {
+  background: rgba(60,213,103,0.12);
+  color: #1A6F2E;
+}
 
 .att-item-actions {
   display: flex;
@@ -352,6 +375,43 @@
   font-size: 13px;
   flex: 1;
   font-weight: 500;
+}
+
+.att-impact-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.att-impact-grid > div {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  padding: 10px;
+}
+.att-impact-grid .k,
+.att-impact-grid .v {
+  display: block;
+}
+.att-impact-grid .k {
+  color: var(--fg-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.att-impact-grid .v {
+  color: var(--fg);
+  font-family: var(--font-subhead);
+  font-size: 16px;
+  font-weight: 800;
+  margin-top: 4px;
+  text-transform: capitalize;
+}
+.att-impact-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 .att-resolutions {

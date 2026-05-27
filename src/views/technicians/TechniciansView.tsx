@@ -8,6 +8,7 @@ import { Avatar } from '../../components/Avatar';
 import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
 import { PageHeader } from '../../components/PageHeader';
+import { SortableHeader } from '../../components/SortableHeader';
 import { useStore } from '../../store';
 import {
   TODAY,
@@ -17,7 +18,19 @@ import {
 } from '../../data/helpers';
 import { getCrew, roleLabel } from '../../data/selectors';
 import { ROLES } from '../../data/seed';
-import type { Crew, Person, RoleKey, TimeOff, TimeOffType } from '../../types';
+import {
+  chipMatches,
+  makeSorter,
+  nextSort,
+  type SortState,
+} from '../../lib/table';
+import {
+  REGION_PREFIXES,
+  regionPrefixFromTeamName,
+  useRegionFilter,
+  type RegionPrefix,
+} from '../../lib/region-filter';
+import type { Crew, Level, Person, RoleKey, TimeOff, TimeOffType } from '../../types';
 import { SkillsMatrix } from '../crews/SkillsMatrix';
 import { AddTechnicianModal } from './AddTechnicianModal';
 import { EditTechnicianModal } from './EditTechnicianModal';
@@ -26,12 +39,28 @@ import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 type SortKey =
   | 'name'
   | 'role'
-  | 'crew'
+  | 'level'
+  | 'defaultCrew'
   | 'utilization'
-  | 'status';
-type SortDir = 'asc' | 'desc';
+  | 'status'
+  | 'zuperPrimaryTeam';
 
 type StatusValue = 'available' | 'out_today' | 'on_loan' | 'on_vacation';
+
+const LEVEL_FILTERS: Level[] = ['L1', 'L2', 'L3'];
+const LEVEL_RANK: Record<Level, number> = { L1: 1, L2: 2, L3: 3 };
+const REGION_FILTERS = REGION_PREFIXES;
+type Region = RegionPrefix;
+const STATUS_FILTERS: StatusValue[] = [
+  'available',
+  'out_today',
+  'on_loan',
+  'on_vacation',
+];
+
+function regionOf(team: string | null | undefined): Region | null {
+  return regionPrefixFromTeamName(team);
+}
 
 interface RowData {
   person: Person;
@@ -41,6 +70,7 @@ interface RowData {
   utilization: number;
   pairLeadIds: string[];
   status: StatusValue;
+  region: Region | null;
 }
 
 const ROLE_FILTERS: RoleKey[] = [
@@ -67,10 +97,15 @@ export function TechniciansView() {
   const setTab = useStore((s) => s.setTab);
 
   const [roleFilter, setRoleFilter] = useState<RoleKey | 'all'>('all');
+  const [levelFilter, setLevelFilter] = useState<Level | 'all'>('all');
+  // Region filter is shared with the topbar picker — single source of truth.
+  const { region: regionFilter, setRegion: setRegionFilter } = useRegionFilter();
+  const [statusFilter, setStatusFilter] = useState<StatusValue | 'all'>('all');
   const [query, setQuery] = useState('');
-  const [outTodayOnly, setOutTodayOnly] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>('name');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [sort, setSort] = useState<SortState<SortKey> | null>({
+    key: 'name',
+    dir: 'asc',
+  });
   const [showAdd, setShowAdd] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
   const [editPerson, setEditPerson] = useState<Person | null>(null);
@@ -170,14 +205,39 @@ export function TechniciansView() {
         utilization: Math.min(1, hours / capacity),
         pairLeadIds,
         status,
+        region: regionOf(p.zuperPrimaryTeam),
       };
     });
   }, [people, crews, jobs, weekDks, outTodayIds, onVacationIds]);
 
+  // Build chip filter sets — empty sets mean "All"; useMemo keeps the
+  // Set identity stable for chipMatches.
+  const activeRoles = useMemo<Set<RoleKey>>(
+    () => (roleFilter === 'all' ? new Set() : new Set([roleFilter])),
+    [roleFilter],
+  );
+  const activeLevels = useMemo<Set<Level>>(
+    () => (levelFilter === 'all' ? new Set() : new Set([levelFilter])),
+    [levelFilter],
+  );
+  const activeRegions = useMemo<Set<Region>>(
+    () => (regionFilter === 'all' ? new Set() : new Set([regionFilter])),
+    [regionFilter],
+  );
+  const activeStatuses = useMemo<Set<StatusValue>>(
+    () => (statusFilter === 'all' ? new Set() : new Set([statusFilter])),
+    [statusFilter],
+  );
+
   const filtered = useMemo(() => {
     return rows.filter((r) => {
-      if (roleFilter !== 'all' && !r.person.roles.includes(roleFilter)) return false;
-      if (outTodayOnly && r.status !== 'out_today') return false;
+      // Role chip: person.roles is an array, so use .some() not chipMatches.
+      if (activeRoles.size > 0 && !r.person.roles.some((rk) => activeRoles.has(rk))) {
+        return false;
+      }
+      if (!chipMatches(activeLevels, r.person.level)) return false;
+      if (!chipMatches(activeRegions, r.region)) return false;
+      if (!chipMatches(activeStatuses, r.status)) return false;
       if (query) {
         const hay = (
           r.person.name +
@@ -186,45 +246,31 @@ export function TechniciansView() {
           ' ' +
           (r.crew?.name || '') +
           ' ' +
+          (r.person.zuperPrimaryTeam || '') +
+          ' ' +
           (r.person.certs || []).join(' ')
         ).toLowerCase();
         if (!hay.includes(query.toLowerCase())) return false;
       }
       return true;
     });
-  }, [rows, roleFilter, query, outTodayOnly]);
+  }, [rows, activeRoles, activeLevels, activeRegions, activeStatuses, query]);
 
   const sorted = useMemo(() => {
-    const dir = sortDir === 'asc' ? 1 : -1;
-    const arr = filtered.slice();
-    arr.sort((a, b) => {
-      switch (sortKey) {
-        case 'name':
-          return a.person.name.localeCompare(b.person.name) * dir;
-        case 'role':
-          return (
-            roleLabel(a.person.roles[0]).localeCompare(roleLabel(b.person.roles[0])) *
-            dir
-          );
-        case 'crew':
-          return (a.crew?.name || '').localeCompare(b.crew?.name || '') * dir;
-        case 'utilization':
-          return (a.utilization - b.utilization) * dir;
-        case 'status':
-          return a.status.localeCompare(b.status) * dir;
-        default:
-          return 0;
-      }
+    const sorter = makeSorter<RowData, SortKey>(sort, {
+      name: (r) => r.person.name,
+      role: (r) => roleLabel(r.person.roles[0]),
+      level: (r) => LEVEL_RANK[r.person.level],
+      defaultCrew: (r) => r.crew?.name ?? '',
+      utilization: (r) => r.utilization,
+      status: (r) => r.status,
+      zuperPrimaryTeam: (r) => r.person.zuperPrimaryTeam ?? '',
     });
-    return arr;
-  }, [filtered, sortKey, sortDir]);
+    return filtered.slice().sort(sorter);
+  }, [filtered, sort]);
 
   function toggleSort(k: SortKey) {
-    if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else {
-      setSortKey(k);
-      setSortDir('asc');
-    }
+    setSort((prev) => nextSort(prev, k));
   }
 
   // counts
@@ -279,25 +325,86 @@ export function TechniciansView() {
             {ROLES[rk].label}
           </button>
         ))}
+        <span
+          aria-hidden
+          style={{
+            width: 1,
+            height: 18,
+            background: 'var(--border, rgba(15,31,13,0.12))',
+            margin: '0 4px',
+          }}
+        />
+        <button
+          className={'filter-chip ' + (levelFilter === 'all' ? 'active' : '')}
+          onClick={() => setLevelFilter('all')}
+        >
+          All levels
+        </button>
+        {LEVEL_FILTERS.map((lv) => (
+          <button
+            key={lv}
+            className={'filter-chip ' + (levelFilter === lv ? 'active' : '')}
+            onClick={() => setLevelFilter(lv)}
+          >
+            {lv}
+          </button>
+        ))}
+        <span
+          aria-hidden
+          style={{
+            width: 1,
+            height: 18,
+            background: 'var(--border, rgba(15,31,13,0.12))',
+            margin: '0 4px',
+          }}
+        />
+        <button
+          className={'filter-chip ' + (regionFilter === 'all' ? 'active' : '')}
+          onClick={() => setRegionFilter('all')}
+        >
+          All regions
+        </button>
+        {REGION_FILTERS.map((rg) => (
+          <button
+            key={rg}
+            className={'filter-chip ' + (regionFilter === rg ? 'active' : '')}
+            onClick={() => setRegionFilter(rg)}
+          >
+            {rg}
+          </button>
+        ))}
+        <span
+          aria-hidden
+          style={{
+            width: 1,
+            height: 18,
+            background: 'var(--border, rgba(15,31,13,0.12))',
+            margin: '0 4px',
+          }}
+        />
+        <button
+          className={'filter-chip ' + (statusFilter === 'all' ? 'active' : '')}
+          onClick={() => setStatusFilter('all')}
+        >
+          All statuses
+        </button>
+        {STATUS_FILTERS.map((st) => (
+          <button
+            key={st}
+            className={'filter-chip ' + (statusFilter === st ? 'active' : '')}
+            onClick={() => setStatusFilter(st)}
+          >
+            {STATUS_META[st].label}
+          </button>
+        ))}
         <div className="search" style={{ width: 220, marginLeft: 12 }}>
           <Icon name="search" size={14} />
           <input
-            placeholder="Search name, cert…"
+            placeholder="Search name, team, cert…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <label
-          className="row"
-          style={{ gap: 6, fontSize: 12, marginLeft: 8, cursor: 'pointer' }}
-        >
-          <input
-            type="checkbox"
-            checked={outTodayOnly}
-            onChange={(e) => setOutTodayOnly(e.target.checked)}
-          />
-          Out today only
-        </label>
       </div>
 
       <div className="view-pad" style={{ paddingTop: 12 }}>
@@ -305,40 +412,47 @@ export function TechniciansView() {
           <table className="table">
             <thead>
               <tr>
-                <SortableTh
+                <SortableHeader<SortKey>
                   label="Technician"
-                  k="name"
-                  current={sortKey}
-                  dir={sortDir}
+                  sortKey="name"
+                  state={sort}
                   onClick={toggleSort}
                 />
-                <SortableTh
+                <SortableHeader<SortKey>
                   label="Role"
-                  k="role"
-                  current={sortKey}
-                  dir={sortDir}
+                  sortKey="role"
+                  state={sort}
                   onClick={toggleSort}
                 />
-                <SortableTh
+                <SortableHeader<SortKey>
+                  label="Level"
+                  sortKey="level"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<SortKey>
                   label="Default crew"
-                  k="crew"
-                  current={sortKey}
-                  dir={sortDir}
+                  sortKey="defaultCrew"
+                  state={sort}
                   onClick={toggleSort}
                 />
-                <SortableTh
+                <SortableHeader<SortKey>
+                  label="Team"
+                  sortKey="zuperPrimaryTeam"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<SortKey>
                   label="Util (this wk)"
-                  k="utilization"
-                  current={sortKey}
-                  dir={sortDir}
+                  sortKey="utilization"
+                  state={sort}
                   onClick={toggleSort}
                 />
                 <th>Paired with</th>
-                <SortableTh
+                <SortableHeader<SortKey>
                   label="Status"
-                  k="status"
-                  current={sortKey}
-                  dir={sortDir}
+                  sortKey="status"
+                  state={sort}
                   onClick={toggleSort}
                 />
                 <th style={{ width: 32 }}></th>
@@ -352,41 +466,40 @@ export function TechniciansView() {
                     <td>
                       <div className="row" style={{ gap: 10 }}>
                         <Avatar person={r.person} />
-                        <div>
-                          <div style={{ fontWeight: 600 }}>{r.person.name}</div>
-                          <div className="muted small mono">
-                            {r.person.id.toUpperCase()}
-                          </div>
-                        </div>
+                        <div style={{ fontWeight: 600 }}>{r.person.name}</div>
                       </div>
                     </td>
                     <td>
                       <div style={{ fontWeight: 600 }}>
                         {roleLabel(r.person.roles[0])}
                       </div>
-                      <div
-                        className="row"
-                        style={{ gap: 4, flexWrap: 'wrap', marginTop: 2 }}
-                      >
-                        <span
-                          className="tag"
-                          style={{
-                            background:
-                              r.person.level === 'L3'
-                                ? 'var(--lime)'
-                                : r.person.level === 'L2'
-                                  ? 'var(--jt-water-bg)'
-                                  : 'var(--bg-muted)',
-                          }}
+                      {(r.person.certs || []).length > 0 && (
+                        <div
+                          className="row"
+                          style={{ gap: 4, flexWrap: 'wrap', marginTop: 2 }}
                         >
-                          {r.person.level}
-                        </span>
-                        {(r.person.certs || []).map((c) => (
-                          <span key={c} className="tag">
-                            {c}
-                          </span>
-                        ))}
-                      </div>
+                          {(r.person.certs || []).map((c) => (
+                            <span key={c} className="tag">
+                              {c}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <span
+                        className="tag"
+                        style={{
+                          background:
+                            r.person.level === 'L3'
+                              ? 'var(--lime)'
+                              : r.person.level === 'L2'
+                                ? 'var(--jt-water-bg)'
+                                : 'var(--bg-muted)',
+                        }}
+                      >
+                        {r.person.level}
+                      </span>
                     </td>
                     <td>
                       {r.crew ? (
@@ -407,6 +520,15 @@ export function TechniciansView() {
                           />
                           <span className="role-chip-name">{r.crew.name}</span>
                         </button>
+                      ) : (
+                        <span className="muted small">—</span>
+                      )}
+                    </td>
+                    <td>
+                      {r.person.zuperPrimaryTeam ? (
+                        <span className="mono small">
+                          {r.person.zuperPrimaryTeam}
+                        </span>
                       ) : (
                         <span className="muted small">—</span>
                       )}
@@ -500,7 +622,7 @@ export function TechniciansView() {
               })}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: 40 }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: 40 }}>
                     <Icon name="user" size={28} stroke="var(--mid-gray)" />
                     <div
                       style={{
@@ -561,8 +683,8 @@ export function TechniciansView() {
                   </div>
                   <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
                     {blockers.slice(0, 5).map((j) => (
-                      <li key={j.id} className="mono">
-                        {j.id} · {j.date ?? 'unscheduled'} · {j.status}
+                      <li key={j.id}>
+                        {j.title ? j.title.split(/\s[-|]\s/)[0].trim() : 'Untitled'} · {j.date ?? 'unscheduled'} · {j.status}
                       </li>
                     ))}
                     {blockers.length > 5 && (
@@ -778,31 +900,6 @@ function QuickAddTimeOffModal({
   );
 }
 
-interface SortableThProps {
-  label: string;
-  k: SortKey;
-  current: SortKey;
-  dir: SortDir;
-  onClick: (k: SortKey) => void;
-}
-
-function SortableTh({ label, k, current, dir, onClick }: SortableThProps) {
-  const active = k === current;
-  return (
-    <th
-      onClick={() => onClick(k)}
-      style={{ cursor: 'pointer', userSelect: 'none' }}
-    >
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        {label}
-        {active && (
-          <Icon name={dir === 'asc' ? 'chevron_up' : 'chevron_down'} size={10} />
-        )}
-      </span>
-    </th>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────
 // Skills matrix wrapper (drawer)
 // ─────────────────────────────────────────────────────────────
@@ -840,4 +937,3 @@ function SkillsMatrixDrawer({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
-

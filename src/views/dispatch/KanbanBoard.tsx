@@ -3,17 +3,20 @@
 // transition its status via useStore().setJobStatus(id, newStatus).
 //
 // Columns: unscheduled · scheduled · enroute · onsite · callback ·
-// complete (matches the prototype).
+// complete. "Callback" is a virtual column keyed on job.type (the
+// Zuper "Repair - Callback" category) rather than status — Zuper's
+// FOLLOW_UP statuses are rare and don't capture what dispatchers
+// actually mean by "callback" (a return-visit repair).
 // =============================================================
 import { useState } from 'react';
 import type { Job, JobStatus } from '../../types';
 import { Icon } from '../../components/Icon';
-import { IconButton } from '../../components/IconButton';
 import { JobTypeTag } from '../../components/JobTypeTag';
 import { Avatar } from '../../components/Avatar';
 import { fmtTime } from '../../data/helpers';
 import { getCrew, getCustomer, getJobType } from '../../data/selectors';
 import { useStore } from '../../store';
+import { jobDisplayName } from '../../lib/customer-display';
 
 interface KanbanBoardProps {
   jobs: Job[];
@@ -21,8 +24,10 @@ interface KanbanBoardProps {
   onJobClick: (job: Job) => void;
 }
 
+type ColId = JobStatus | 'callback_type';
+
 interface ColDef {
-  id: JobStatus;
+  id: ColId;
   label: string;
 }
 
@@ -31,9 +36,16 @@ const COLS: ColDef[] = [
   { id: 'scheduled', label: 'Scheduled' },
   { id: 'enroute', label: 'En route' },
   { id: 'onsite', label: 'On site' },
-  { id: 'callback', label: 'Callback' },
+  { id: 'callback_type', label: 'Callback' },
   { id: 'complete', label: 'Complete' },
 ];
+
+function inColumn(job: Job, colId: ColId): boolean {
+  if (colId === 'callback_type') {
+    return job.type === 'callback' && job.status !== 'complete' && job.status !== 'cancelled';
+  }
+  return job.status === colId;
+}
 
 export function KanbanBoard({ jobs, selectedJobId, onJobClick }: KanbanBoardProps) {
   const allCrews = useStore((s) => s.crews);
@@ -41,10 +53,11 @@ export function KanbanBoard({ jobs, selectedJobId, onJobClick }: KanbanBoardProp
   const setJobStatus = useStore((s) => s.setJobStatus);
   const pushToast = useStore((s) => s.pushToast);
 
-  const [dragOver, setDragOver] = useState<JobStatus | null>(null);
+  const [dragOver, setDragOver] = useState<ColId | null>(null);
 
-  function onDrop(target: JobStatus, jobId: string) {
+  function onDrop(target: ColId, jobId: string) {
     if (!jobId) return;
+    if (target === 'callback_type') return; // virtual column — can't move into "callback" by drag.
     const job = jobs.find((j) => j.id === jobId);
     if (!job) return;
     if (job.status === target) return;
@@ -55,7 +68,7 @@ export function KanbanBoard({ jobs, selectedJobId, onJobClick }: KanbanBoardProp
   return (
     <div className="kanban">
       {COLS.map((col) => {
-        const colJobs = jobs.filter((j) => j.status === col.id);
+        const colJobs = jobs.filter((j) => inColumn(j, col.id));
         return (
           <div
             key={col.id}
@@ -90,7 +103,8 @@ export function KanbanBoard({ jobs, selectedJobId, onJobClick }: KanbanBoardProp
                   {colJobs.length}
                 </span>
               </div>
-              <IconButton icon="plus" label="Add" size="sm" />
+              {/* Per-column add suppressed — use the toolbar "+ New job" button
+                  which routes through the wizard with full validation. */}
             </div>
             <div className="kanban-col-body">
               {colJobs.map((j) => {
@@ -124,12 +138,6 @@ export function KanbanBoard({ jobs, selectedJobId, onJobClick }: KanbanBoardProp
                     <div style={{ paddingLeft: 6 }}>
                       <div className="row" style={{ marginBottom: 6 }}>
                         <JobTypeTag type={j.type} />
-                        <span
-                          className="mono small muted"
-                          style={{ marginLeft: 'auto' }}
-                        >
-                          {j.id}
-                        </span>
                       </div>
                       <div
                         style={{
@@ -138,7 +146,7 @@ export function KanbanBoard({ jobs, selectedJobId, onJobClick }: KanbanBoardProp
                           marginBottom: 4,
                         }}
                       >
-                        {c ? c.name : j.address?.split('·')[0] || 'Untitled'}
+                        {jobDisplayName(j, c, jt)}
                       </div>
                       <div className="muted small row" style={{ gap: 6 }}>
                         <Icon name="map_pin" size={11} />

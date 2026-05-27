@@ -11,7 +11,15 @@ import { JobSlotSchema } from './slot';
 export const JobTypeSchema = z.string().openapi('JobTypeKey');
 
 export const JobStatusSchema = z
-  .enum(['unscheduled', 'scheduled', 'enroute', 'onsite', 'complete', 'callback'])
+  .enum([
+    'unscheduled',
+    'scheduled',
+    'enroute',
+    'onsite',
+    'complete',
+    'callback',
+    'cancelled',
+  ])
   .openapi('JobStatus');
 
 export const VehicleModeSchema = z.enum(['fleet', 'personal', 'none']).openapi('VehicleMode');
@@ -21,6 +29,7 @@ export const JobSchema = z
     id: z.string(),
     type: JobTypeSchema,
     status: JobStatusSchema,
+    title: z.string().nullable().optional(),
     customer: z.string().nullable(),
     date: z.string().nullable(),
     startHour: z.number().nullable(),
@@ -44,6 +53,9 @@ export const JobSchema = z
     endDate: z.string().optional(),
     endHour: z.number().optional(),
     daysSpanned: z.number().optional(),
+    zuperJobUid: z.string().nullable().optional(),
+    zuperTeamName: z.string().nullable().optional(),
+    assignedTechIds: z.array(z.string()).nullable().optional(),
     // Actuals — written by the transition endpoint.
     actualsEnRouteAt: z.string().nullable().optional(),
     actualsInProgressAt: z.string().nullable().optional(),
@@ -79,6 +91,7 @@ export const JobCreateSchema = z
     endDate: z.string().optional(),
     endHour: z.number().optional(),
     daysSpanned: z.number().optional(),
+    assignedTechIds: z.array(z.string()).nullable().optional(),
   })
   .openapi('JobCreate');
 

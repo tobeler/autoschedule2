@@ -85,7 +85,7 @@ For a session-to-session handoff (one agent finishing, another starting), the le
 
 **Good orientation prompt to give the next agent:**
 
-> Read `HANDOFF.md` first for current state, then `/Users/work/.claude/plans/curious-toasting-sifakis.md` for the architectural plan. The `design-source/schedule-dispatch/chats/chat{1,2,3,4}.md` files have UX intent. After that, `src/types.ts` and `src/App.tsx` orient you in the code. Demo runs on `pnpm dev` (port 3000); frozen production snapshot at `pnpm exec next start -p 3001` from the worktree at `/tmp/jetson-snapshot`. The `docs/solutions/` directory has solved-problem documentation — search there before debugging something that smells like a known issue.
+> Read `HANDOFF.md` first for current state, then `/Users/work/.claude/plans/curious-toasting-sifakis.md` for the architectural plan. The `design-source/schedule-dispatch/chats/chat{1,2,3,4}.md` files have UX intent. After that, `src/types.ts` and `src/App.tsx` orient you in the code. Demo runs on `pnpm dev` (port 3010); frozen production snapshot at `pnpm exec next start -p 3001` from the worktree at `/tmp/jetson-snapshot`. The `docs/solutions/` directory has solved-problem documentation — search there before debugging something that smells like a known issue.
 
 **Bad orientation prompt:**
 

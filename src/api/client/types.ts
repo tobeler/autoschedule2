@@ -5713,6 +5713,7 @@ export interface components {
             id: string;
             type: components["schemas"]["JobTypeKey"];
             status: components["schemas"]["JobStatus"];
+            title?: string | null;
             customer: string | null;
             date: string | null;
             startHour: number | null;
@@ -5741,13 +5742,17 @@ export interface components {
             endDate?: string;
             endHour?: number;
             daysSpanned?: number;
+            zuperJobUid?: string | null;
+            zuperTeamName?: string | null;
             actualsEnRouteAt?: string | null;
             actualsInProgressAt?: string | null;
             actualsCompleteAt?: string | null;
+            assignedTechIds?: string[] | null;
         };
         JobTypeKey: string;
         /** @enum {string} */
-        JobStatus: "unscheduled" | "scheduled" | "enroute" | "onsite" | "complete" | "callback";
+        JobStatus: "unscheduled" | "scheduled" | "enroute" | "onsite" | "complete" | "callback" | "cancelled";
+        // title is a recent addition — appended to the generated Job DTO below.
         JobSlot: {
             id: string;
             role: components["schemas"]["RoleKey"];
@@ -5822,6 +5827,7 @@ export interface components {
             endDate?: string;
             endHour?: number;
             daysSpanned?: number;
+            assignedTechIds?: string[] | null;
         };
         JobUpdate: {
             id?: string;
@@ -5851,6 +5857,7 @@ export interface components {
             endDate?: string;
             endHour?: number;
             daysSpanned?: number;
+            assignedTechIds?: string[] | null;
         };
         JobTransition: {
             status: components["schemas"]["JobStatus"];
@@ -5871,6 +5878,7 @@ export interface components {
             level: components["schemas"]["Level"];
             defaultCrew: string | null;
             certs?: string[];
+            zuperPrimaryTeam?: string | null;
         };
         PersonCreate: {
             name: string;
@@ -6114,6 +6122,7 @@ export interface components {
         SubRegion: {
             id: string;
             name: string;
+            short?: string;
             headcount: number;
             crews: number;
         };

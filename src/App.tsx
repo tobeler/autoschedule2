@@ -8,8 +8,8 @@ import { Avatar } from './components/Avatar';
 import { RegionPicker } from './components/RegionPicker';
 import { AttentionPill } from './components/AttentionPill';
 import { Toast } from './components/Toast';
-import { TweaksPanel } from './components/tweaks/TweaksPanel';
 import { unscheduledJobs } from './data/selectors';
+import { dateKey, TODAY } from './data/helpers';
 
 import { DispatchView } from './views/dispatch/DispatchView';
 import { AttentionView, buildAttentionItems } from './views/attention/AttentionView';
@@ -22,9 +22,13 @@ import { TimesheetsView } from './views/timesheets/TimesheetsView';
 import { ReportsView } from './views/reports/ReportsView';
 import { SettingsView } from './views/settings/SettingsView';
 
+import { useRegionFilter } from './lib/region-filter';
+
 import { JobDetailDrawer } from './modals/JobDetailDrawer';
 import { NewJobWizard } from './modals/NewJobWizard/NewJobWizard';
 import { SmartScheduleModal } from './modals/SmartScheduleModal';
+import { ZuperWriteConfirmModal } from './modals/ZuperWriteConfirmModal';
+import { BrowserErrorReporter } from './components/BrowserErrorReporter';
 
 import { useStoreHydration } from './hooks/useStoreHydration';
 import { useStoreRealtime } from './hooks/useStoreRealtime';
@@ -49,12 +53,19 @@ export default function App() {
   const selectJob = useStore((s) => s.selectJob);
   const showWizard = useStore((s) => s.showWizard);
   const smartScheduleJobId = useStore((s) => s.smartScheduleJobId);
-  const region = useStore((s) => s.region);
-  const setRegion = useStore((s) => s.setRegion);
+  // RegionPicker reads + writes region state directly via useRegionFilter,
+  // so App.tsx no longer needs to thread region/setRegion through props.
 
   const jobs = useStore((s) => s.jobs);
-  const projects = useStore((s) => s.projects);
   const people = useStore((s) => s.people);
+
+  // Hook order matters — every useStore / useRegionFilter call has to run
+  // unconditionally on every render. Pull all subscriptions BEFORE any
+  // early-return so the loading/error branches don't change the hook count.
+  const { regionSet, matchesRegion } = useRegionFilter();
+  const customersStore = useStore((s) => s.customers);
+  const crewsStore = useStore((s) => s.crews);
+  const timeOffStore = useStore((s) => s.timeOff);
 
   // Keyboard: Escape closes drawer
   useEffect(() => {
@@ -84,14 +95,34 @@ export default function App() {
     );
   }
 
-  const attentionItems = buildAttentionItems();
+  // Compute attention against the region-scoped job set so the topbar pill
+  // tracks the active region picker — previously it counted across every
+  // region regardless of filter.
+  const scopedJobsForAttention =
+    regionSet.size === 0 ? jobs : jobs.filter((j) => matchesRegion(j.zuperTeamName));
+  const attentionItems = buildAttentionItems({
+    jobs: scopedJobsForAttention,
+    customers: customersStore,
+    people,
+    crews: crewsStore,
+    timeOff: timeOffStore,
+  });
   const urgentCount = attentionItems.filter((i) => i.sev === 'urgent').length;
   const totalAttention = attentionItems.length;
 
+  // Projects is hidden for now: HubSpot's "Installation" object is being
+  // deprecated in favor of native "Jobs" in HubSpot. Until the deal/install/
+  // job linkage stabilizes, dispatchers work directly off the Jobs view.
+  // Jobs badge counts ACTIVE jobs only (matches the default filter in
+  // JobsView and the dispatcher's mental model — historical jobs aren't
+  // actionable work).
+  const activeJobsCount = jobs.filter(
+    (j) => j.status !== 'complete' && j.status !== 'cancelled',
+  ).length;
   const navItems: NavItem[] = [
     { id: 'dispatch', label: 'Dispatch', icon: 'calendar', badge: unscheduledJobs(jobs).length || null },
-    { id: 'projects', label: 'Projects', icon: 'home', badge: projects.length },
-    { id: 'jobs', label: 'Jobs', icon: 'briefcase', badge: jobs.length },
+    { id: 'jobs', label: 'Jobs', icon: 'briefcase', badge: activeJobsCount },
+    { id: 'projects', label: 'Projects', icon: 'home' },
     { id: 'technicians', label: 'Technicians', icon: 'user', badge: people.length },
     { id: 'crews', label: 'Crews', icon: 'users' },
     { id: 'fleet', label: 'Trucks', icon: 'truck' },
@@ -132,32 +163,7 @@ export default function App() {
           </button>
         ))}
 
-        {!sidebarCollapsed && <div className="sidebar-section">Quick filters</div>}
-        {!sidebarCollapsed && (
-          <>
-            <button className="nav-item">
-              <span
-                className="dot"
-                style={{ width: 8, height: 8, background: 'var(--jt-heatpump)', borderRadius: '50%' }}
-              />
-              Heat pumps today<span className="nav-badge">{jobs.filter((j) => j.type === 'heatpump' && j.date != null).length}</span>
-            </button>
-            <button className="nav-item">
-              <span
-                className="dot"
-                style={{ width: 8, height: 8, background: 'var(--jt-callback)', borderRadius: '50%' }}
-              />
-              Callbacks<span className="nav-badge">{jobs.filter((j) => j.status === 'callback').length}</span>
-            </button>
-            <button className="nav-item">
-              <Icon name="user" size={16} className="nav-icon" />
-              Unfilled slots
-              <span className="nav-badge">
-                {jobs.filter((j) => j.slots.some((s) => !s.assignedTo && !s.optional)).length}
-              </span>
-            </button>
-          </>
-        )}
+        {!sidebarCollapsed && <SidebarQuickFilters />}
 
         <SidebarUserFooter collapsed={sidebarCollapsed} />
       </aside>
@@ -175,7 +181,8 @@ export default function App() {
           <span className="muted small" style={{ marginLeft: 4, marginRight: 4 }}>
             ·
           </span>
-          <RegionPicker value={region} onChange={(r) => r && setRegion(r)} />
+          {/* RegionPicker now reads + writes the store directly; legacy props omitted. */}
+          <RegionPicker />
 
           <div className="topbar-spacer" />
 
@@ -210,11 +217,82 @@ export default function App() {
       {selectedJobId && <JobDetailDrawer />}
       {showWizard && <NewJobWizard />}
       {smartScheduleJobId && <SmartScheduleModal />}
+      <ZuperWriteConfirmModal />
+      <BrowserErrorReporter />
 
-      <TweaksPanel />
       <Toast />
     </div>
   );
+}
+
+// Customizable + saveable quick filters in the sidebar. Renders the
+// dispatcher's saved filters (from store.savedQuickFilters) plus an
+// inline "+ Save current view" affordance that captures the active
+// JobsView filters (typeFilter / statusSet / regionPrefixes / activeOnly).
+function SidebarQuickFilters() {
+  const setTab = useStore((s) => s.setTab);
+  const filters = useStore((s) => s.savedQuickFilters);
+  const removeFilter = useStore((s) => s.removeSavedQuickFilter);
+  const applyFilter = useStore((s) => s.applySavedQuickFilter);
+  return (
+    <>
+      <div className="sidebar-section">Quick filters</div>
+      {filters.length === 0 && (
+        <div className="muted small" style={{ padding: '6px 12px', fontSize: 11, lineHeight: 1.4 }}>
+          No saved filters yet. Open Jobs, apply a filter, and click
+          "Save as quick filter" to keep it here.
+        </div>
+      )}
+      {filters.map((f) => (
+        <button
+          key={f.id}
+          className="nav-item"
+          onClick={() => applyFilter(f.id)}
+          title={describeFilter(f)}
+          style={{ position: 'relative' }}
+        >
+          <Icon name="briefcase" size={14} className="nav-icon" />
+          <span>{f.label}</span>
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={'Remove filter ' + f.label}
+            onClick={(e) => {
+              e.stopPropagation();
+              removeFilter(f.id);
+            }}
+            style={{
+              marginLeft: 'auto',
+              opacity: 0.5,
+              fontSize: 11,
+              padding: '2px 6px',
+              borderRadius: 4,
+            }}
+          >
+            ×
+          </span>
+        </button>
+      ))}
+      <button
+        className="nav-item"
+        onClick={() => setTab('jobs')}
+        title="Open Jobs, configure filters, then click Save as quick filter."
+        style={{ fontSize: 11, opacity: 0.8 }}
+      >
+        <Icon name="plus" size={14} className="nav-icon" />
+        <span>Save new filter…</span>
+      </button>
+    </>
+  );
+}
+
+function describeFilter(f: import('./store').SavedQuickFilter): string {
+  const parts: string[] = [];
+  if (f.types?.length) parts.push(`types: ${f.types.join(', ')}`);
+  if (f.statuses?.length) parts.push(`status: ${f.statuses.join(', ')}`);
+  if (f.regionPrefixes?.length) parts.push(`region: ${f.regionPrefixes.join(', ')}`);
+  if (f.activeOnly) parts.push('active only');
+  return parts.length === 0 ? f.label : f.label + ' · ' + parts.join(' · ');
 }
 
 // Phase 19 fix: pull dispatcher name + role from the store so once auth

@@ -8,8 +8,9 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { addDays, dateKey, startOfWeek, TODAY } from '../../data/helpers';
-import { unscheduledJobs } from '../../data/selectors';
+import { unscheduledJobs, unscheduledNeedsReviewJobs } from '../../data/selectors';
 import { Icon } from '../../components/Icon';
+import { useRegionFilter } from '../../lib/region-filter';
 
 import { DispatchBrief } from './DispatchBrief';
 import {
@@ -30,6 +31,8 @@ import { MapView } from './MapView';
 
 export function DispatchView() {
   const jobs = useStore((s) => s.jobs);
+  const projects = useStore((s) => s.projects);
+  const { regionSet, matchesRegion: matchesRegionFn } = useRegionFilter();
   const selectJob = useStore((s) => s.selectJob);
   const selectedJobId = useStore((s) => s.selectedJobId);
   const openWizard = useStore((s) => s.openWizard);
@@ -43,28 +46,64 @@ export function DispatchView() {
   const [showRail, setShowRail] = useState(true);
   const [showBrief, setShowBrief] = useState(true);
   const [typeFilter, setTypeFilter] = useState<string[]>([]);
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'v1' | 'v2'>('all');
+
+  // Map projectId → source so the V1/V2 chip can filter jobs without
+  // re-scanning the projects collection on every render.
+  const projectSourceById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of projects) if (p.source) m.set(p.id, p.source);
+    return m;
+  }, [projects]);
+
+  function matchesSourceFilter(projectId: string | null | undefined): boolean {
+    if (sourceFilter === 'all') return true;
+    if (!projectId) return false; // Jobs with no project link don't match V1 or V2.
+    const src = projectSourceById.get(projectId);
+    if (sourceFilter === 'v1') return src === 'legacy_installation';
+    // V2 covers native_project AND deal_fallback (both are post-V1 paths).
+    return src === 'native_project' || src === 'deal_fallback';
+  }
+
+  // Region filter is now multi-select — `regionSet` is the set of selected
+  // 2-letter prefixes; empty set means "all regions".
+  const regionActive = regionSet.size > 0;
+
+  const filteredJobs = useMemo(() => {
+    let base = jobs;
+    if (typeFilter.length > 0) base = base.filter((j) => typeFilter.includes(j.type));
+    if (sourceFilter !== 'all') base = base.filter((j) => matchesSourceFilter(j.projectId));
+    if (regionActive) base = base.filter((j) => matchesRegionFn(j.zuperTeamName));
+    return base;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs, typeFilter, sourceFilter, projectSourceById, regionActive, regionSet]);
 
   const visibleJobs = useMemo(() => {
-    let base = jobs;
-    if (range === 'day') base = jobs.filter((j) => j.date === dateKey(date));
+    let base = filteredJobs;
+    if (range === 'day') base = filteredJobs.filter((j) => j.date === dateKey(date));
     else if (range === 'week') {
       const start = addDays(date, -date.getDay());
       const keys = Array.from({ length: 7 }).map((_, i) =>
         dateKey(addDays(start, i)),
       );
-      base = jobs.filter((j) => j.date != null && keys.includes(j.date));
+      base = filteredJobs.filter((j) => j.date != null && keys.includes(j.date));
     } else if (range === 'month') {
       const prefix =
         date.getFullYear() +
         '-' +
         String(date.getMonth() + 1).padStart(2, '0');
-      base = jobs.filter((j) => j.date != null && j.date.startsWith(prefix));
+      base = filteredJobs.filter((j) => j.date != null && j.date.startsWith(prefix));
     }
-    if (typeFilter.length > 0) base = base.filter((j) => typeFilter.includes(j.type));
     return base;
-  }, [jobs, date, range, typeFilter]);
+  }, [filteredJobs, date, range]);
 
-  const unsched = useMemo(() => unscheduledJobs(jobs), [jobs]);
+  const unsched = useMemo(() => {
+    return unscheduledJobs(filteredJobs);
+  }, [filteredJobs]);
+
+  const unschedReview = useMemo(() => {
+    return unscheduledNeedsReviewJobs(filteredJobs);
+  }, [filteredJobs]);
 
   const dayMode = range === 'day' && layout === 'calendar';
   // Phase 15.1b — surface the Unscheduled rail (and its collapsed strip)
@@ -72,6 +111,12 @@ export function DispatchView() {
   // and Month cells too. Other layouts (kanban / gantt / map) still hide it.
   const calendarMode = layout === 'calendar';
   const railVisible = calendarMode && showRail;
+  // The collapsed 14px stub only shows in calendar mode. Kanban/Gantt/Map
+  // get the full width (no-rail-no-stub variant).
+  const stubVisible = calendarMode && !showRail;
+  const mainClass =
+    'dispatch-main' +
+    (railVisible ? '' : stubVisible ? ' no-rail' : ' no-rail-no-stub');
 
   return (
     <>
@@ -88,29 +133,32 @@ export function DispatchView() {
         setDensity={setDensity}
         typeFilter={typeFilter}
         setTypeFilter={setTypeFilter}
+        sourceFilter={sourceFilter}
+        setSourceFilter={setSourceFilter}
         visibleJobs={visibleJobs}
       />
 
       {range === 'day' && showBrief && (
         <DispatchBrief
           date={date}
-          jobs={jobs}
+          jobs={filteredJobs}
           onNewJob={openWizard}
           onHide={() => setShowBrief(false)}
         />
       )}
 
-      {range === 'day' && <AttentionCTA />}
+      {range === 'day' && <AttentionCTA jobs={filteredJobs} />}
 
-      <div className={'dispatch-main' + (railVisible ? '' : ' no-rail')}>
+      <div className={mainClass}>
         {railVisible && (
           <UnscheduledRail
             jobs={unsched}
+            reviewCount={unschedReview.length}
             onJobClick={(j) => selectJob(j.id)}
             onCollapse={() => setShowRail(false)}
           />
         )}
-        {!railVisible && calendarMode && (
+        {stubVisible && (
           <CollapsedRailStub
             count={unsched.length}
             onExpand={() => setShowRail(true)}

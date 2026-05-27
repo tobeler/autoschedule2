@@ -26,6 +26,7 @@ import { registerCrewRoutes } from './routes/crews';
 import { registerCustomerRoutes } from './routes/customers';
 import { registerHealthRoutes } from './routes/health';
 import { registerHubspotRoutes } from './routes/hubspot';
+import { registerSettingsRoutes } from './routes/settings';
 import { registerJobRoutes } from './routes/jobs';
 import { registerMeRoutes } from './routes/me';
 import { registerPeopleRoutes } from './routes/people';
@@ -36,6 +37,8 @@ import { registerSuggestRoutes } from './routes/suggest';
 import { registerTemplateRoutes } from './routes/templates';
 import { registerTimeOffRoutes } from './routes/timeoff';
 import { registerTruckRoutes } from './routes/trucks';
+import { registerZuperRoutes } from './routes/zuper';
+import { registerDiagRoutes } from './routes/diag';
 
 // `basePath('/api/v1')` lets the catchall route mount us under Next.js's
 // /api/v1 prefix while the OpenAPI document still records the correct paths.
@@ -71,6 +74,9 @@ registerTimeOffRoutes(app);
 registerRegionRoutes(app);
 registerSuggestRoutes(app);
 registerHubspotRoutes(app);
+registerZuperRoutes(app);
+registerDiagRoutes(app);
+registerSettingsRoutes(app);
 registerAuditRoutes(app);
 registerApiKeyRoutes(app);
 registerMeRoutes(app);

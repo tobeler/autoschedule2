@@ -47,6 +47,7 @@ export function personFromDTO(d: PersonDTO): Person {
     level: d.level,
     defaultCrew: d.defaultCrew ?? '',
     certs: d.certs,
+    zuperPrimaryTeam: d.zuperPrimaryTeam ?? null,
   };
 }
 
@@ -96,9 +97,11 @@ export function projectFromDTO(d: ProjectDTO): Project {
     targetCompletion: d.targetCompletion,
     value: d.value,
     hubspotDealId: d.hubspotDealId,
+    hubspotProjectId: d.hubspotProjectId ?? null,
     primaryCrew: d.primaryCrew,
     description: d.description,
     designNotes: d.designNotes,
+    source: d.source,
   };
 }
 
@@ -110,6 +113,7 @@ export function regionFromDTO(d: RegionDTO): Region {
     subs: d.subs.map((s) => ({
       id: s.id,
       name: s.name,
+      short: s.short,
       headcount: s.headcount,
       crews: s.crews,
     })),
@@ -144,6 +148,7 @@ export function jobFromDTO(d: JobDTO): Job {
     id: d.id,
     type: d.type,
     status: d.status,
+    title: d.title ?? null,
     customer: d.customer,
     date: d.date,
     startHour: d.startHour,
@@ -167,6 +172,9 @@ export function jobFromDTO(d: JobDTO): Job {
     endDate: d.endDate,
     endHour: d.endHour,
     daysSpanned: d.daysSpanned,
+    zuperJobUid: d.zuperJobUid ?? null,
+    zuperTeamName: d.zuperTeamName ?? null,
+    assignedTechIds: d.assignedTechIds ?? null,
   };
 }
 
@@ -267,6 +275,7 @@ export function jobToDTOPatch(j: Job): Partial<JobDTO> {
     endDate: j.endDate,
     endHour: j.endHour,
     daysSpanned: j.daysSpanned,
+    assignedTechIds: j.assignedTechIds ?? null,
   };
 }
 
@@ -330,6 +339,7 @@ export function projectToDTOPatch(p: Project): Partial<ProjectDTO> {
     targetCompletion: p.targetCompletion,
     value: p.value,
     hubspotDealId: p.hubspotDealId,
+    hubspotProjectId: p.hubspotProjectId ?? null,
     primaryCrew: p.primaryCrew,
     description: p.description,
     designNotes: p.designNotes,

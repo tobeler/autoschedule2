@@ -56,6 +56,9 @@ export const jobStatusEnum = pgEnum('job_status', [
   'onsite',
   'complete',
   'callback',
+  // Terminal-failure state used by Zuper sync for CANCELED / FAILED /
+  // CANNOT_COMPLETE jobs. Distinct from 'callback' (which means needs revisit).
+  'cancelled',
 ]);
 
 export const projectStatusEnum = pgEnum('project_status', [
@@ -203,6 +206,13 @@ export const people = pgTable('people', {
   level: levelEnum('level').notNull(),
   defaultCrewId: text('defaultCrewId'),
   certs: jsonb('certs').$type<string[]>(),
+  /**
+   * Primary Zuper team name the person was imported from (e.g. "CO-DE-1").
+   * Populated by `bootstrapTechniciansFromZuper` for traceability when a tech
+   * belongs to multiple Zuper teams; we pick the first regional/numeric team.
+   * NULL for people that didn't come from a Zuper team-filtered bootstrap.
+   */
+  zuperPrimaryTeam: text('zuperPrimaryTeam'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -243,6 +253,10 @@ export const crews = pgTable('crews', {
   }),
   truckId: text('truckId').references(() => trucks.id, { onDelete: 'set null' }),
   color: text('color').notNull(),
+  /** Zuper team UID — set when this crew was upserted from a Zuper sync. */
+  zuperTeamId: text('zuperTeamId'),
+  /** Human-readable Zuper team name (e.g. "CO-DE-1"). Stored for UI display. */
+  zuperTeamName: text('zuperTeamName'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -269,6 +283,8 @@ export const customers = pgTable('customers', {
   address: text('address').notNull(),
   phone: text('phone').notNull(),
   hubspotId: text('hubspotId'),
+  /** Zuper customer UID — set when first observed in a Zuper sync. */
+  zuperCustomerId: text('zuperCustomerId'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -310,6 +326,8 @@ export const regions = pgTable('regions', {
   parentRegionId: text('parentRegionId'),
   headcount: integer('headcount').notNull().default(0),
   crewCount: integer('crewCount').notNull().default(0),
+  /** Zuper service-area code (e.g. "CO-DE", "BC-NV") — for cross-system join. */
+  zuperServiceAreaCode: text('zuperServiceAreaCode'),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -394,6 +412,30 @@ export const jobs = pgTable('jobs', {
   endDate: text('endDate'),
   endHour: numeric('endHour', { precision: 6, scale: 2 }),
   daysSpanned: integer('daysSpanned'),
+  /**
+   * Human-readable job title. Native dispatcher jobs use customer+job-type
+   * as a derived label; Zuper-sourced jobs carry the upstream `job_title`
+   * verbatim (e.g. "Chris Longfield-Smith - Unit is loud and noisy").
+   */
+  title: text('title'),
+  /** Zuper job UID — dedup key for jobs pulled from Zuper. */
+  zuperJobUid: text('zuperJobUid'),
+  /** Zuper deep-link to this job. */
+  zuperJobUrl: text('zuperJobUrl'),
+  /**
+   * Zuper team name as it appeared on the source job (e.g. "CO-DE-1").
+   * Reference only — does NOT create a crew row in our dispatcher. Surfaced
+   * in the job drawer for traceability.
+   */
+  zuperTeamName: text('zuperTeamName'),
+  /**
+   * Crew Model v2: ad-hoc multi-tech assignment. When non-null, takes
+   * precedence over the crewId + job_slots mechanism for service jobs
+   * that need 1-N techs without a persistent crew row.
+   */
+  assignedTechIds: text('assignedTechIds').array(),
+  /** Last time this row was reconciled with a Zuper pull. */
+  zuperSyncedAt: timestamp('zuperSyncedAt', { withTimezone: true }),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 });

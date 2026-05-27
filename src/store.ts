@@ -77,9 +77,31 @@ export type TabId =
   | 'reports'
   | 'settings';
 
+export interface SavedQuickFilter {
+  id: string;
+  label: string;
+  types?: string[];
+  statuses?: JobStatus[];
+  regionPrefixes?: string[];
+  /**
+   * When true, the saved filter excludes complete + cancelled jobs from the
+   * Jobs-view table. Mirrors the existing `activeOnly` toggle. Defaults to
+   * true since dispatchers almost always want active-only.
+   */
+  activeOnly?: boolean;
+}
+
 export interface RegionSelection {
   regionId: string;
   subId: string;
+  /**
+   * Multi-region selection (2-letter prefixes like 'CO', 'MA', 'BC').
+   * Empty / undefined means "all regions" — matches the legacy single-region
+   * behaviour. When non-empty, a job matches if its region prefix is in the
+   * set. `regionId` continues to mirror the first entry for legacy callers
+   * that read a single value.
+   */
+  regionPrefixes?: string[];
 }
 
 interface State {
@@ -100,6 +122,13 @@ interface State {
   // ---- preferences (persisted) ----
   region: RegionSelection;
   tweaks: Tweaks;
+  /**
+   * Dispatcher-saved quick filters — surfaced in the sidebar.
+   * Each entry captures a Jobs-view filter snapshot: a label plus an
+   * optional set of job types, statuses, and region prefixes. Clicking
+   * a saved filter jumps to the Jobs view with that snapshot applied.
+   */
+  savedQuickFilters: SavedQuickFilter[];
 
   // ---- ephemeral UI (not persisted) ----
   tab: TabId;
@@ -109,6 +138,20 @@ interface State {
   toast: string | null;
   showWizard: boolean;
   smartScheduleJobId: string | null;
+  /**
+   * Pending Zuper writeback awaiting dispatcher confirmation.
+   * - `summary`: human copy for the modal ("Reschedule J-1234 to Thu 9am")
+   * - `onConfirm`: applies the write (calls writeback module, returns silently
+   *   when the writeback flag is OFF).
+   * - `onCancel`: revert the local optimistic change.
+   * Set by store mutations whose downstream effect would push to Zuper.
+   */
+  pendingZuperWrite: {
+    summary: string;
+    action: 'reschedule' | 'assign' | 'status' | 'cancel';
+    onConfirm: () => void;
+    onCancel: () => void;
+  } | null;
 
   // ---- runtime mode (not persisted) ----
   /** True when hydrated from the API and writes go through the REST layer. */
@@ -132,7 +175,15 @@ interface State {
   closeWizard: () => void;
   openSmartSchedule: (jobId: string) => void;
   closeSmartSchedule: () => void;
+  setPendingZuperWrite: (p: State['pendingZuperWrite']) => void;
+  clearPendingZuperWrite: () => void;
   setRegion: (r: RegionSelection) => void;
+  addSavedQuickFilter: (f: SavedQuickFilter) => void;
+  removeSavedQuickFilter: (id: string) => void;
+  applySavedQuickFilter: (id: string) => void;
+  /** Pending Jobs-view filter to apply on next mount (one-shot). */
+  pendingJobsFilter: Omit<SavedQuickFilter, 'id' | 'label'> | null;
+  clearPendingJobsFilter: () => void;
   setTweak: <K extends keyof Tweaks>(k: K, v: Tweaks[K]) => void;
 
   // ---- hydration helpers (internal, used by hooks) ----
@@ -202,7 +253,7 @@ const DEFAULT_TWEAKS: Tweaks = {
   dark: false,
 };
 
-const DEFAULT_REGION: RegionSelection = { regionId: 'co', subId: 'co-d' };
+const DEFAULT_REGION: RegionSelection = { regionId: '', subId: '' };
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -211,6 +262,15 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 function logApiError(action: string, err: unknown): void {
   // eslint-disable-next-line no-console
   console.error(`store.${action} write-through failed`, err);
+}
+
+function formatHourLocal(h: number): string {
+  const totalMin = Math.round(h * 60);
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  const ampm = hh < 12 ? 'AM' : 'PM';
+  const display = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh;
+  return mm === 0 ? `${display} ${ampm}` : `${display}:${String(mm).padStart(2, '0')} ${ampm}`;
 }
 
 export const useStore = create<State>()(
@@ -231,6 +291,8 @@ export const useStore = create<State>()(
 
       region: DEFAULT_REGION,
       tweaks: DEFAULT_TWEAKS,
+      savedQuickFilters: [],
+      pendingJobsFilter: null,
 
       tab: 'dispatch',
       selectedJobId: null,
@@ -239,6 +301,7 @@ export const useStore = create<State>()(
       toast: null,
       showWizard: false,
       smartScheduleJobId: null,
+      pendingZuperWrite: null,
 
       apiMode: false,
       hydrated: false,
@@ -253,6 +316,8 @@ export const useStore = create<State>()(
           selectedJobId: id,
           selectedJobInitialTab: opts?.initialTab ?? null,
         }),
+      setPendingZuperWrite: (p) => set({ pendingZuperWrite: p }),
+      clearPendingZuperWrite: () => set({ pendingZuperWrite: null }),
       collapseSidebar: (v) => set({ sidebarCollapsed: v }),
       pushToast: (msg) => {
         set({ toast: msg });
@@ -266,6 +331,37 @@ export const useStore = create<State>()(
       closeSmartSchedule: () => set({ smartScheduleJobId: null }),
       setRegion: (r) => set({ region: r }),
       setTweak: (k, v) => set((s) => ({ tweaks: { ...s.tweaks, [k]: v } })),
+      addSavedQuickFilter: (f) =>
+        set((s) => ({ savedQuickFilters: [...s.savedQuickFilters.filter((x) => x.id !== f.id), f] })),
+      removeSavedQuickFilter: (id) =>
+        set((s) => ({ savedQuickFilters: s.savedQuickFilters.filter((x) => x.id !== id) })),
+      applySavedQuickFilter: (id) => {
+        const f = get().savedQuickFilters.find((x) => x.id === id);
+        if (!f) return;
+        // Stash the snapshot the Jobs view picks up on its next render; then
+        // route there. The view consumes + clears it so reload doesn't
+        // re-apply.
+        set({
+          tab: 'jobs',
+          pendingJobsFilter: {
+            types: f.types,
+            statuses: f.statuses,
+            regionPrefixes: f.regionPrefixes,
+            activeOnly: f.activeOnly,
+          },
+        });
+        if (f.regionPrefixes?.length) {
+          set((s) => ({
+            region: {
+              ...s.region,
+              regionPrefixes: f.regionPrefixes,
+              regionId: f.regionPrefixes![0].toLowerCase(),
+              subId: '',
+            },
+          }));
+        }
+      },
+      clearPendingJobsFilter: () => set({ pendingJobsFilter: null }),
 
       // ---- hydration helpers ----
       setApiMode: (v) => set({ apiMode: v }),
@@ -654,6 +750,14 @@ export const useStore = create<State>()(
         const prev = get().jobs;
         const target = prev.find((j) => j.id === id);
         if (!target) return;
+        // P1 guard: don't allow a second Zuper move while a confirmation modal
+        // is open. If we did, setPendingZuperWrite would overwrite the first
+        // pending entry and the first move would be orphaned (applied locally,
+        // no DB write, no way to cancel).
+        if (target.zuperJobUid && get().apiMode && get().pendingZuperWrite != null) {
+          get().pushToast('Confirm the open Zuper change before moving another job');
+          return;
+        }
         // Moving back to unscheduled: null out scheduling fields and flip status.
         const movingToUnscheduled = updates.date === null;
         const liftingToScheduled =
@@ -685,8 +789,14 @@ export const useStore = create<State>()(
           next = { ...next, slots: filled };
         }
         set({ jobs: prev.map((j) => (j.id === id ? next : j)) });
-        if (get().apiMode) {
-          client.jobs
+
+        // Persist the local change through to our DB. For Zuper-sourced jobs
+        // we DEFER this until the user confirms the modal — otherwise "Undo"
+        // can't reverse the DB write. For non-Zuper rows (manually created
+        // jobs etc.), persist immediately.
+        const persistLocal = () => {
+          if (!get().apiMode) return Promise.resolve();
+          return client.jobs
             .update(id, {
               date: next.date,
               startHour: next.startHour,
@@ -696,10 +806,82 @@ export const useStore = create<State>()(
               slots: next.slots,
             })
             .catch((err) => {
-              set({ jobs: prev });
+              // Narrow rollback to JUST this job — using `prev` for the whole
+              // array could wipe unrelated realtime updates that landed during
+              // the in-flight write.
+              set((s) => ({
+                jobs: s.jobs.map((j) => (j.id === id ? target : j)),
+              }));
               get().pushToast('Move failed — restored');
               logApiError('moveJob', err);
             });
+        };
+        if (!target.zuperJobUid) {
+          void persistLocal();
+        }
+
+        // CONFIRMATION + WRITEBACK
+        //
+        // Only Zuper-sourced jobs flow back to Zuper, AND only in API mode.
+        // Demo mode has no Supabase + no Zuper credentials, so showing the
+        // confirm modal there would lead to a guaranteed-failed fetch and a
+        // confusing toast — better to silently no-op until apiMode flips on.
+        // The modal renders the exact change ("Reschedule J-1234 to Thu 9am");
+        // confirm POSTs to a server-only writeback route that calls the Zuper
+        // API (gated by the integrations.zuper.writeback_enabled flag, so this
+        // is a no-op until that flag is flipped on); cancel reverts the
+        // optimistic local change.
+        if (target.zuperJobUid && get().apiMode) {
+          const isReschedule = next.date != null && next.startHour != null;
+          const isUnschedule = movingToUnscheduled;
+          const summary = isUnschedule
+            ? `Mark ${target.zuperJobUid.slice(0, 8)}… as unscheduled in Zuper`
+            : isReschedule
+              ? `Reschedule ${target.zuperJobUid.slice(0, 8)}… → ${next.date} ${formatHourLocal(next.startHour!)}`
+              : `Update ${target.zuperJobUid.slice(0, 8)}… in Zuper`;
+          get().setPendingZuperWrite({
+            summary,
+            action: isUnschedule ? 'cancel' : 'reschedule',
+            onConfirm: () => {
+              // Persist the local change FIRST (now that the dispatcher has
+              // confirmed) and only clear the modal once persistLocal resolves
+              // so a failure has a retry path.
+              void persistLocal().finally(() => get().clearPendingZuperWrite());
+              if (!isReschedule || !next.date || next.startHour == null) return;
+              void (async () => {
+                try {
+                  const res = await fetch('/api/v1/zuper/writeback/reschedule', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      zuperJobUid: target.zuperJobUid,
+                      date: next.date,
+                      startHour: next.startHour,
+                      durationHrs: next.durationHrs,
+                      teamName: next.zuperTeamName ?? null,
+                    }),
+                  });
+                  const body = (await res.json()) as { ok: boolean; applied: boolean; error?: string };
+                  if (!body.ok) get().pushToast('Zuper writeback failed: ' + (body.error ?? 'unknown'));
+                  else if (!body.applied) get().pushToast('Local change saved (Zuper writeback OFF)');
+                  else get().pushToast('Pushed to Zuper');
+                } catch (err) {
+                  get().pushToast('Zuper writeback unreachable');
+                  // eslint-disable-next-line no-console
+                  console.error('writeback reschedule failed', err);
+                }
+              })();
+            },
+            onCancel: () => {
+              // Local DB was NOT written for Zuper jobs (see persistLocal
+              // gating above), so reverting the Zustand state cleanly undoes
+              // the entire optimistic change.
+              set({ jobs: prev });
+              get().pushToast('Move reverted');
+              get().clearPendingZuperWrite();
+            },
+          });
         }
       },
 
@@ -755,7 +937,9 @@ export const useStore = create<State>()(
       demoDataEnabled: true,
       setDemoDataEnabled: (v) => {
         if (v) {
-          // Repopulate from seed and flag enabled.
+          // Entering demo mode: overlay the local store with seed data.
+          // The DB rows in Postgres (if any) are untouched — they reappear
+          // when demo mode is toggled off and the page re-hydrates.
           set({
             demoDataEnabled: true,
             jobs: JOBS_SEED,
@@ -773,27 +957,20 @@ export const useStore = create<State>()(
             showWizard: false,
             smartScheduleJobId: null,
           });
-          get().pushToast('Demo data reloaded');
+          get().pushToast('Demo data loaded · refresh to return to real data');
         } else {
-          // Clear every collection. HubSpot Sync Now can refill it.
+          // Leaving demo mode: just flip the flag. Collections stay as-is
+          // until the next page reload triggers useStoreHydration to refill
+          // from /api/v1/*. We deliberately do NOT wipe collections — this
+          // used to be a destructive operation that nuked synced HubSpot/
+          // Zuper data, which is the opposite of what users want.
           set({
             demoDataEnabled: false,
-            jobs: [],
-            people: [],
-            crews: [],
-            trucks: [],
-            customers: [],
-            projects: [],
-            regions: [],
-            timeOff: [],
-            templates: {},
-            checklists: {},
-            checklistResponses: {},
             selectedJobId: null,
             showWizard: false,
             smartScheduleJobId: null,
           });
-          get().pushToast('Demo data cleared — Sync HubSpot to populate');
+          get().pushToast('Demo mode off · refresh to load real data');
         }
       },
 
@@ -823,19 +1000,12 @@ export const useStore = create<State>()(
     {
       name: 'jetson-fsm-v1',
       storage: createJSONStorage(() => localStorage),
-      // Persist only what's safe to round-trip via localStorage. In API
-      // mode the hydration hook will overwrite these on mount with fresh
-      // server data; in demo mode the persisted snapshot is the source
-      // of truth.
+      // Persist only user preferences + small definitional data. The bulk
+      // collections (jobs, customers, projects) are re-hydrated from the
+      // API on every page load — persisting them to localStorage blew the
+      // 5MB quota once the dataset hit ~6,000 Zuper jobs. The hydration
+      // hook (`useStoreHydration`) is authoritative for those.
       partialize: (s) => ({
-        jobs: s.jobs,
-        people: s.people,
-        crews: s.crews,
-        trucks: s.trucks,
-        customers: s.customers,
-        projects: s.projects,
-        regions: s.regions,
-        timeOff: s.timeOff,
         templates: s.templates,
         checklists: s.checklists,
         checklistResponses: s.checklistResponses,
@@ -843,8 +1013,9 @@ export const useStore = create<State>()(
         region: s.region,
         tweaks: s.tweaks,
         demoDataEnabled: s.demoDataEnabled,
+        savedQuickFilters: s.savedQuickFilters,
       }),
-      version: 1,
+      version: 2,
     },
   ),
 );

@@ -106,6 +106,8 @@
   overflow: hidden;
 }
 .dispatch-main.no-rail { grid-template-columns: 14px 1fr; }
+/* Kanban / Gantt / Map — no rail and no stub, content takes full width. */
+.dispatch-main.no-rail-no-stub { grid-template-columns: 1fr; }
 .unscheduled-rail {
   border-right: 1px solid var(--border);
   background: var(--surface-card);
@@ -123,6 +125,12 @@
 }
 .rail-title { font-family: var(--font-subhead); font-weight: 700; font-size: 14px; }
 .rail-list { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+/* Off-screen cards defer paint/layout — keeps scroll smooth when the unscheduled
+   queue blows up (~500+ rows after a Zuper bootstrap with full history). */
+.rail-list .unsched-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 110px;
+}
 
 /* ============= UNSCHEDULED JOB CARD ============= */
 .unsched-card {
@@ -1072,6 +1080,119 @@
 .brief .btn-primary { background: var(--jetson-green); color: var(--forest); }
 .brief .btn-outline { background: transparent; border-color: rgba(251,250,241,0.3); color: var(--off-white); }
 .brief .btn-outline:hover { background: rgba(251,250,241,0.08); }
+.brief-risk-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  border-top: 1px solid rgba(251,250,241,0.12);
+  margin-top: 14px;
+  padding-top: 12px;
+  position: relative;
+}
+.brief-risk-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.brief-risk-summary span {
+  border: 1px solid rgba(251,250,241,0.16);
+  border-radius: 999px;
+  color: rgba(251,250,241,0.72);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 9px;
+}
+.brief-risk-summary .risk-alert {
+  background: rgba(197,48,48,0.22);
+  border-color: rgba(255,164,138,0.45);
+  color: #FFA48A;
+}
+.brief-impact-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+.brief-impact-list button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid rgba(251,250,241,0.14);
+  border-radius: 8px;
+  background: rgba(251,250,241,0.06);
+  color: var(--off-white);
+  font-family: inherit;
+  min-width: 0;
+  padding: 7px 9px;
+  text-align: left;
+  cursor: pointer;
+}
+.brief-impact-list button:hover { background: rgba(251,250,241,0.1); }
+.brief-impact-score {
+  border-radius: 6px;
+  background: var(--jetson-green);
+  color: var(--forest);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 5px;
+}
+.brief-impact-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+}
+.brief-impact-money {
+  color: rgba(251,250,241,0.62);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.brief-agent-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid rgba(251,250,241,0.12);
+  margin-top: 12px;
+  padding-top: 12px;
+  position: relative;
+}
+.brief-agent-label,
+.brief-agent-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+}
+.brief-agent-label {
+  color: rgba(251,250,241,0.72);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  margin-right: 2px;
+  text-transform: uppercase;
+}
+.brief-agent-row button {
+  border: 1px solid rgba(251,250,241,0.16);
+  border-radius: 8px;
+  background: rgba(251,250,241,0.06);
+  color: var(--off-white);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 10px;
+}
+.brief-agent-row button:hover { background: rgba(251,250,241,0.1); }
+.brief-agent-row button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
 
 /* Dispatch toolbar — job-type filter dropdown */
 .dispatch-type-filter {

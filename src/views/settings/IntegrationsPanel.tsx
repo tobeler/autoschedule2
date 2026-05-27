@@ -16,6 +16,7 @@ import { Icon } from '../../components/Icon';
 import { useStore } from '../../store';
 import { HubspotFieldMapping } from './HubspotFieldMapping';
 import { client } from '../../api/client';
+import type { HubspotEntityMapping } from '../../types';
 
 const LAST_SYNC_STORAGE_KEY = 'jetson-fsm-v1.hubspotSync.lastAt';
 
@@ -99,14 +100,45 @@ export function IntegrationsPanel() {
   const totalMappedFields = hubspotMapping.reduce((n, e) => n + e.fields.length, 0);
   const dev = isDevEnv();
 
+  const setHubspotMapping = useStore((s) => s.setHubspotMapping);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        await client.hubspot.getMapping();
-        if (!cancelled) setConnectionState('connected');
+        const mapping = await client.hubspot.getMapping();
+        if (!cancelled) {
+          // Hydrate the store so the "N fields mapped" badge updates and
+          // future tabs/sessions see the same numbers. The API echoes back
+          // strings for `entity`/`direction`; cast to the typed app shape.
+          setHubspotMapping(mapping as unknown as HubspotEntityMapping[]);
+          setConnectionState('connected');
+        }
       } catch {
         if (!cancelled) setConnectionState('disconnected');
+      }
+    })();
+    // Backfill lastSyncAt from audit_log when local state doesn't have it.
+    // Otherwise the panel shows "never synced" on a fresh device or after a
+    // cache clear even though the integration ran many times on the server.
+    void (async () => {
+      if (cancelled) return;
+      if (lastSyncAt) return;
+      try {
+        const recent = await client.auditLog.list({
+          entityType: 'hubspot',
+          limit: 20,
+        });
+        const lastSync = (recent.data || []).find((r) =>
+          /\/hubspot\/sync\b/i.test(r.action || ''),
+        );
+        if (lastSync && !cancelled) {
+          setLastSyncAt(lastSync.createdAt);
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem(LAST_SYNC_STORAGE_KEY, lastSync.createdAt);
+          }
+        }
+      } catch {
+        // best-effort — silent failure is fine, just leaves the label alone
       }
     })();
     return () => {
@@ -225,6 +257,9 @@ export function IntegrationsPanel() {
           setLastResult(res.errors[0] ?? 'Sync returned errors.');
         }
         setLastSyncAt(res.finishedAt);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(LAST_SYNC_STORAGE_KEY, res.finishedAt);
+        }
         setDemoMode(false);
       }
     } catch (err) {
@@ -357,6 +392,9 @@ export function IntegrationsPanel() {
         </button>
       </div>
 
+      {/* V1/V2 data-model toggles — control which HubSpot sources sync runs */}
+      {connected && <V1V2Toggles />}
+
       {/* Dev-only token paste — surfaces when the server isn't connected. */}
       {dev && !connected && (
         <div
@@ -463,8 +501,8 @@ function DemoDataCard() {
           </div>
           <div className="muted small" style={{ marginTop: 2 }}>
             {enabled
-              ? `Seeded with ${jobsLen} jobs · ${peopleLen} technicians · ${crewsLen} crews. Turn off to clear and start fresh.`
-              : 'All collections empty. Run HubSpot Sync to populate from your real portal.'}
+              ? `Demo overlay active · ${jobsLen} jobs · ${peopleLen} technicians · ${crewsLen} crews. Real DB rows are untouched and reappear on next reload.`
+              : 'Showing real data from Postgres. Toggle on to overlay the local store with seed data (your DB is never modified).'}
           </div>
         </div>
         <button
@@ -482,32 +520,170 @@ function DemoDataCard() {
             style={{ maxWidth: 440 }}
           >
             <div className="modal-header">
-              <h3 style={{ margin: 0 }}>Clear demo data?</h3>
+              <h3 style={{ margin: 0 }}>Turn off demo mode?</h3>
             </div>
             <div className="modal-body">
               <p>
-                This empties jobs, technicians, crews, trucks, customers, projects, regions, time-off,
-                templates, and checklists. Persisted to localStorage — restart pulls real HubSpot data.
+                The local seed overlay is removed; your real DB rows (HubSpot + Zuper sync) reappear on next page reload.
               </p>
-              <p className="muted small">You can reload the demo from this same toggle later.</p>
+              <p className="muted small">No data is deleted — your Postgres tables are untouched.</p>
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost btn-sm" onClick={() => setConfirmingDisable(false)}>
                 Cancel
               </button>
               <button
-                className="btn btn-danger btn-sm"
+                className="btn btn-primary btn-sm"
                 onClick={() => {
                   setEnabled(false);
                   setConfirmingDisable(false);
                 }}
               >
-                Clear demo data
+                Turn off demo
               </button>
             </div>
           </div>
         </div>
       )}
     </>
+  );
+}
+
+// =============================================================
+// V1/V2 data-model toggles. Inset under the HubSpot card so the
+// user can independently enable/disable each source-of-truth model
+// without affecting Contacts/Deals (which are shared).
+// =============================================================
+interface IntegrationFlagsState {
+  hubspotV1: boolean;
+  hubspotV2: boolean;
+  zuperWriteback: boolean;
+}
+
+function V1V2Toggles() {
+  const [flags, setFlags] = useState<IntegrationFlagsState | null>(null);
+  const [pending, setPending] = useState<keyof IntegrationFlagsState | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch('/api/v1/settings/integrations', { credentials: 'include' });
+        if (!r.ok) return;
+        const data = (await r.json()) as IntegrationFlagsState;
+        if (!cancelled) setFlags(data);
+      } catch {
+        // silent — surfaces as "loading…" until retry
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function toggle(key: keyof IntegrationFlagsState) {
+    if (!flags) return;
+    const next = { ...flags, [key]: !flags[key] };
+    setPending(key);
+    setFlags(next); // optimistic
+    try {
+      const r = await fetch('/api/v1/settings/integrations', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ [key]: next[key] }),
+      });
+      if (!r.ok) throw new Error('PUT failed');
+      const updated = (await r.json()) as IntegrationFlagsState;
+      setFlags(updated);
+    } catch {
+      setFlags(flags); // revert
+    } finally {
+      setPending(null);
+    }
+  }
+
+  if (!flags) {
+    return (
+      <div className="muted small" style={{ marginLeft: 60, marginTop: 4 }}>
+        <Icon name="info" size={11} /> Loading data-model toggles…
+      </div>
+    );
+  }
+
+  const Row = ({
+    label,
+    sub,
+    value,
+    flagKey,
+  }: {
+    label: string;
+    sub: string;
+    value: boolean;
+    flagKey: keyof IntegrationFlagsState;
+  }) => (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '6px 0',
+      }}
+    >
+      <button
+        className={'tweak-toggle' + (value ? ' on' : '')}
+        onClick={() => toggle(flagKey)}
+        disabled={pending === flagKey}
+        aria-label={(value ? 'Disable' : 'Enable') + ' ' + label}
+        style={{ flex: '0 0 auto' }}
+      >
+        <span className="tweak-toggle-dot" />
+      </button>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 500 }}>
+          {label}
+          {value ? (
+            <span className="badge badge-onsite" style={{ marginLeft: 8, fontSize: 10 }}>
+              On
+            </span>
+          ) : (
+            <span className="badge badge-scheduled" style={{ marginLeft: 8, fontSize: 10 }}>
+              Off
+            </span>
+          )}
+        </div>
+        <div className="muted small" style={{ marginTop: 1 }}>
+          {sub}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div
+      className="integ-card"
+      style={{
+        marginLeft: 60,
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        gap: 0,
+      }}
+    >
+      <div className="muted small" style={{ marginBottom: 6 }}>
+        <Icon name="info" size={11} /> Data model — toggles control which HubSpot sources the next sync includes. Existing rows are kept; rows from a disabled source go stale until you re-enable + sync.
+      </div>
+      <Row
+        label="V1 — Installations (legacy)"
+        sub="Pulls HubSpot Installation custom object (2-31703261). Currently the primary source: ~2,800 records."
+        value={flags.hubspotV1}
+        flagKey="hubspotV1"
+      />
+      <Row
+        label="V2 — Native Projects"
+        sub="Pulls HubSpot Projects (0-970) + Jobs (2-62483808). Currently small but grows as you move to the new model."
+        value={flags.hubspotV2}
+        flagKey="hubspotV2"
+      />
+    </div>
   );
 }

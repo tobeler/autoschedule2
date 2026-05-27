@@ -10,12 +10,21 @@ import { PageHeader } from '../../components/PageHeader';
 import { useStore } from '../../store';
 import { TODAY, fmtDate, fmtTime } from '../../data/helpers';
 import { getCustomer, jobsForProject } from '../../data/selectors';
-import type { Project, ProjectStatus } from '../../types';
+import type { Customer, Job, Project, ProjectStatus } from '../../types';
+import { resolveJobRegion } from '../../lib/region-resolve';
 import { ProjectDetailDrawer } from './ProjectDetailDrawer';
-import { AddProjectModal } from './AddProjectModal';
-import { EditProjectModal } from './EditProjectModal';
-import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
-import { IconButton } from '../../components/IconButton';
+import {
+  makeSorter,
+  matchesSearch,
+  nextSort,
+  tokenizeQuery,
+  type SortState,
+} from '../../lib/table';
+import {
+  REGION_PREFIXES,
+  regionPrefixFromTeamName,
+  useRegionFilter,
+} from '../../lib/region-filter';
 
 interface ProjectStatusMeta {
   label: string;
@@ -65,6 +74,88 @@ export function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
 }
 
 type StatusFilter = ProjectStatus | 'all';
+type SourceFilter = 'all' | 'v1' | 'v2';
+// Region filter values come from useRegionFilter so the chip selection
+// stays in sync with the topbar RegionPicker and every other list view.
+type RegionFilter = ReturnType<typeof useRegionFilter>['region'];
+
+type SortKey =
+  | 'customer'
+  | 'type'
+  | 'status'
+  | 'jobs'
+  | 'nextVisit'
+  | 'value'
+  | 'dealId';
+
+// Status filter chips sort by display order, not enum order.
+const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'proposed', label: 'Proposed' },
+  { key: 'sold', label: 'Sold' },
+  { key: 'in_progress', label: 'In progress' },
+  { key: 'complete', label: 'Complete' },
+  { key: 'warranty', label: 'Warranty' },
+  { key: 'cancelled', label: 'Cancelled' },
+];
+
+const SOURCE_FILTERS: { key: SourceFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'v1', label: 'V1' },
+  { key: 'v2', label: 'V2' },
+];
+
+const REGION_FILTERS: { key: RegionFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  ...REGION_PREFIXES.map((prefix) => ({ key: prefix, label: prefix })),
+];
+
+const VALID_REGIONS = new Set<RegionFilter>(REGION_PREFIXES);
+
+type ProjectRegion = Exclude<RegionFilter, 'all'>;
+
+function regionFromCustomerAddress(customer: Customer | undefined): ProjectRegion | null {
+  if (!customer?.address) return null;
+  // Grab the segment after the last comma, then the 2-letter state code.
+  const tail = customer.address.split(',').pop()?.trim() ?? '';
+  const code = tail.slice(0, 2).toUpperCase() as ProjectRegion;
+  return VALID_REGIONS.has(code) ? code : null;
+}
+
+function regionForProject(
+  customer: Customer | undefined,
+  projectJobs: Job[],
+  project?: Pick<Project, 'name' | 'id'>,
+): ProjectRegion | null {
+  // 1. Pick the most-common Zuper team prefix across linked jobs.
+  const byJobTeam = new Map<ProjectRegion, number>();
+  for (const job of projectJobs) {
+    const region = regionPrefixFromTeamName(job.zuperTeamName);
+    if (!region) continue;
+    byJobTeam.set(region, (byJobTeam.get(region) ?? 0) + 1);
+  }
+  const [topRegion] =
+    Array.from(byJobTeam.entries()).sort((a, b) => b[1] - a[1])[0] ?? [];
+  if (topRegion) return topRegion;
+
+  // 2. Customer address state.
+  const fromCust = regionFromCustomerAddress(customer);
+  if (fromCust) return fromCust;
+
+  // 3. Multi-signal resolver across each linked job (title parsing,
+  // project name parsing). First match wins.
+  if (project) {
+    for (const j of projectJobs) {
+      const r = resolveJobRegion(j, customer ?? null, project);
+      if (r && VALID_REGIONS.has(r as ProjectRegion)) return r as ProjectRegion;
+    }
+  }
+  return null;
+}
+
+function sourceBucket(p: Project): 'v1' | 'v2' {
+  return p.source === 'legacy_installation' ? 'v1' : 'v2';
+}
 
 export function ProjectsView() {
   const projects = useStore((s) => s.projects);
@@ -72,20 +163,26 @@ export function ProjectsView() {
   const jobs = useStore((s) => s.jobs);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  // Region filter is shared with the topbar picker — single source of truth.
+  const { region: regionFilter, setRegion: setRegionFilter } = useRegionFilter();
   const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<SortState<SortKey> | null>({
+    key: 'customer',
+    dir: 'asc',
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showAdd, setShowAdd] = useState(false);
-  const [editProject, setEditProject] = useState<Project | null>(null);
-  const [deleteProject, setDeleteProject] = useState<Project | null>(null);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const removeProjectAction = useStore((s) => s.removeProject);
-  const pushToast = useStore((s) => s.pushToast);
+  // ProjectsView is intentionally READ-ONLY. Projects mirror HubSpot deals;
+  // creating/editing/deleting them locally would diverge from the source of
+  // truth without writing back (which we don't do). Add/Edit/Delete UI was
+  // removed to avoid the illusion of local CRUD.
 
-  function activeJobsForProject(id: string) {
-    return jobs.filter(
-      (j) => j.projectId === id && j.status !== 'complete',
-    );
-  }
+  // Customer lookup map — O(1) per row instead of an array scan.
+  const customerById = useMemo(() => {
+    const m = new Map<string, Customer>();
+    for (const c of customers) m.set(c.id, c);
+    return m;
+  }, [customers]);
 
   const enriched = useMemo(() => {
     const todayMs = TODAY.getTime();
@@ -99,62 +196,123 @@ export function ProjectsView() {
         )
         .sort((a, b) => (a.date || '').localeCompare(b.date || ''))[0];
       const isStale = !nextJob && p.status === 'in_progress';
-      return { ...p, projJobs, completedJobs, nextJob, isStale };
+      const customer = customerById.get(p.customer);
+      const region = regionForProject(customer, projJobs, p);
+      return {
+        ...p,
+        projJobs,
+        completedJobs,
+        nextJob,
+        isStale,
+        customer_ref: customer,
+        region,
+      };
     });
-  }, [projects, jobs]);
+  }, [projects, jobs, customerById]);
 
-  const counts = {
-    all: enriched.length,
-    proposed: enriched.filter((p) => p.status === 'proposed').length,
-    sold: enriched.filter((p) => p.status === 'sold').length,
-    in_progress: enriched.filter((p) => p.status === 'in_progress').length,
-    complete: enriched.filter((p) => p.status === 'complete').length,
-    warranty: enriched.filter((p) => p.status === 'warranty').length,
-    cancelled: enriched.filter((p) => p.status === 'cancelled').length,
-  };
+  type EnrichedProject = (typeof enriched)[number];
 
-  const filtered = enriched.filter((p) => {
-    if (statusFilter !== 'all' && p.status !== statusFilter) return false;
-    if (query) {
-      const q = query.toLowerCase();
-      const cust = getCustomer(customers, p.customer);
-      if (
-        !p.name.toLowerCase().includes(q) &&
-        !p.id.toLowerCase().includes(q) &&
-        !(cust?.name || '').toLowerCase().includes(q)
-      )
-        return false;
-    }
-    return true;
-  });
+  const counts = useMemo(
+    () => ({
+      all: enriched.length,
+      proposed: enriched.filter((p) => p.status === 'proposed').length,
+      sold: enriched.filter((p) => p.status === 'sold').length,
+      in_progress: enriched.filter((p) => p.status === 'in_progress').length,
+      complete: enriched.filter((p) => p.status === 'complete').length,
+      warranty: enriched.filter((p) => p.status === 'warranty').length,
+      cancelled: enriched.filter((p) => p.status === 'cancelled').length,
+      v1: enriched.filter((p) => sourceBucket(p) === 'v1').length,
+      v2: enriched.filter((p) => sourceBucket(p) === 'v2').length,
+      CO: enriched.filter((p) => p.region === 'CO').length,
+      MA: enriched.filter((p) => p.region === 'MA').length,
+      BC: enriched.filter((p) => p.region === 'BC').length,
+      NY: enriched.filter((p) => p.region === 'NY').length,
+      CA: enriched.filter((p) => p.region === 'CA').length,
+    }),
+    [enriched],
+  );
 
-  const totalValue = filtered.reduce((s, p) => s + (p.value || 0), 0);
+  const queryTokens = useMemo(() => tokenizeQuery(query), [query]);
 
-  const filters: [StatusFilter, string, number][] = [
-    ['all', 'All', counts.all],
-    ['proposed', 'Proposed', counts.proposed],
-    ['sold', 'Sold', counts.sold],
-    ['in_progress', 'In progress', counts.in_progress],
-    ['warranty', 'Warranty', counts.warranty],
-    ['complete', 'Complete', counts.complete],
-  ];
+  const filtered = useMemo(() => {
+    return enriched.filter((p) => {
+      if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+      if (sourceFilter !== 'all' && sourceBucket(p) !== sourceFilter) return false;
+      if (regionFilter !== 'all' && p.region !== regionFilter) return false;
+      if (queryTokens.length === 0) return true;
+      return matchesSearch(
+        [
+          p.customer_ref?.name,
+          p.name,
+          p.hubspotDealId,
+          p.customer_ref?.address,
+        ],
+        queryTokens,
+      );
+    });
+  }, [enriched, statusFilter, sourceFilter, regionFilter, queryTokens]);
+
+  // Sort extractors — strings sort by locale, numbers/dates natural.
+  const sortExtractors: Record<SortKey, (row: EnrichedProject) => unknown> = useMemo(
+    () => ({
+      customer: (row) => row.customer_ref?.name ?? '',
+      type: (row) => row.type ?? '',
+      status: (row) => row.status,
+      jobs: (row) => row.projJobs.length,
+      nextVisit: (row) => row.nextJob?.date ?? null,
+      value: (row) => row.value ?? null,
+      dealId: (row) => row.hubspotDealId ?? '',
+    }),
+    [],
+  );
+
+  const sorted = useMemo(() => {
+    const sorter = makeSorter(sort, sortExtractors);
+    // toSorted keeps `filtered` immutable for downstream memo stability.
+    return filtered.slice().sort(sorter);
+  }, [filtered, sort, sortExtractors]);
+
 
   const selected = selectedId ? projects.find((p) => p.id === selectedId) ?? null : null;
+
+  function handleSort(key: SortKey) {
+    setSort((prev) => nextSort(prev, key));
+  }
 
   return (
     <div className="proj-view">
       <PageHeader
         eyebrow="Projects"
         title="Projects"
-        subtitle="Scope-of-work tied to a customer property. Jobs roll up here."
-      >
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={() => setShowAdd(true)}
-        >
-          <Icon name="plus" size={14} /> New project
-        </button>
-      </PageHeader>
+        subtitle={`${projects.length} deals synced from HubSpot · read-only mirror. Jobs are linked from Zuper.`}
+      />
+      {/* Data-quality banner — surfaces the volume of jobs without a project link
+          so dispatchers know why some project rows show "No linked jobs". */}
+      {(() => {
+        const unlinkedJobs = jobs.filter((j) => !j.projectId).length;
+        if (unlinkedJobs === 0) return null;
+        return (
+          <div
+            className="muted small"
+            style={{
+              margin: '0 16px 8px',
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: 'var(--bg-subtle)',
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+            }}
+          >
+            <Icon name="info" size={14} />
+            <span>
+              {unlinkedJobs} of {jobs.length} jobs are not yet linked to a project
+              — they appear under "Jobs" but won't roll up here until HubSpot
+              deal IDs are written onto them in Zuper.
+            </span>
+          </div>
+        );
+      })()}
 
       <div className="proj-toolbar">
         <div
@@ -163,60 +321,126 @@ export function ProjectsView() {
         >
           <Icon name="search" size={14} />
           <input
-            placeholder="Search by customer, project name, ID…"
+            placeholder="Search customer, project, deal id, address…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <div className="seg" style={{ marginLeft: 'auto' }}>
-          {filters.map(([k, l, c]) => (
-            <button
-              key={k}
-              className={statusFilter === k ? 'active' : ''}
-              onClick={() => setStatusFilter(k)}
-            >
-              {l}{' '}
-              <span className="muted" style={{ marginLeft: 4, fontSize: 10 }}>
-                {c}
-              </span>
-            </button>
-          ))}
-        </div>
+      </div>
+
+      <div
+        className="proj-toolbar"
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 8,
+          rowGap: 6,
+          marginTop: -4,
+        }}
+      >
+        <FilterChipGroup
+          label="Status"
+          options={STATUS_FILTERS}
+          value={statusFilter}
+          onChange={setStatusFilter}
+          counts={counts}
+        />
+        <FilterChipGroup
+          label="Source"
+          options={SOURCE_FILTERS}
+          value={sourceFilter}
+          onChange={setSourceFilter}
+          counts={counts}
+        />
+        <FilterChipGroup
+          label="Region"
+          options={REGION_FILTERS}
+          value={regionFilter}
+          onChange={setRegionFilter}
+          counts={counts}
+        />
       </div>
 
       <div className="proj-summary">
         <div className="proj-summary-stat">
           <div className="l">Showing</div>
-          <div className="v">{filtered.length}</div>
+          <div className="v">
+            {sorted.length}
+            <span
+              className="muted"
+              style={{ fontSize: 13, fontWeight: 500, marginLeft: 6 }}
+            >
+              of {enriched.length}
+            </span>
+          </div>
         </div>
-        <div className="proj-summary-stat">
-          <div className="l">Pipeline value</div>
-          <div className="v">${totalValue.toLocaleString()}</div>
-        </div>
+{/* Pipeline value intentionally hidden — dispatch decisions don't depend on deal $. */}
         <div className="proj-summary-stat">
           <div className="l">Stale</div>
           <div
             className="v"
             style={{
-              color: filtered.some((p) => p.isStale) ? '#C53030' : 'var(--fg)',
+              color: sorted.some((p) => p.isStale) ? '#C53030' : 'var(--fg)',
             }}
           >
-            {filtered.filter((p) => p.isStale).length}
+            {sorted.filter((p) => p.isStale).length}
           </div>
         </div>
       </div>
 
       <div className="proj-table">
         <div className="proj-table-header">
-          <div className="col-id">Project</div>
-          <div className="col-cust">Customer</div>
-          <div className="col-status">Status</div>
-          <div className="col-jobs">Jobs</div>
-          <div className="col-next">Next visit</div>
-          <div className="col-value">Value</div>
-          <div className="col-deal">Deal</div>
+          <SortHeaderCell
+            className="col-id"
+            label="Project / Type"
+            sortKey="type"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-cust"
+            label="Customer"
+            sortKey="customer"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-status"
+            label="Status"
+            sortKey="status"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-jobs"
+            label="Jobs"
+            sortKey="jobs"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-next"
+            label="Next visit"
+            sortKey="nextVisit"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-value"
+            label="Value"
+            sortKey="value"
+            state={sort}
+            onClick={handleSort}
+          />
+          <SortHeaderCell
+            className="col-deal"
+            label="Deal"
+            sortKey="dealId"
+            state={sort}
+            onClick={handleSort}
+          />
         </div>
-        {filtered.map((p) => (
+        {sorted.map((p) => (
           <ProjectRow
             key={p.id}
             project={p}
@@ -224,23 +448,12 @@ export function ProjectsView() {
             completedJobs={p.completedJobs}
             nextJob={p.nextJob}
             isStale={p.isStale}
+            region={p.region}
             selected={selectedId === p.id}
             onClick={() => setSelectedId(p.id)}
-            menuOpen={openMenuId === p.id}
-            onMenuToggle={() =>
-              setOpenMenuId(openMenuId === p.id ? null : p.id)
-            }
-            onEdit={() => {
-              setEditProject(p);
-              setOpenMenuId(null);
-            }}
-            onDelete={() => {
-              setDeleteProject(p);
-              setOpenMenuId(null);
-            }}
           />
         ))}
-        {filtered.length === 0 && (
+        {sorted.length === 0 && (
           <div className="proj-empty">
             <Icon name="briefcase" size={28} stroke="var(--mid-gray)" />
             <div
@@ -248,7 +461,7 @@ export function ProjectsView() {
             >
               No projects match
             </div>
-            <div className="muted small">Try a different status filter or clear search.</div>
+            <div className="muted small">Try a different filter or clear search.</div>
           </div>
         )}
       </div>
@@ -257,64 +470,6 @@ export function ProjectsView() {
         <ProjectDetailDrawer
           project={selected}
           onClose={() => setSelectedId(null)}
-          onEdit={() => setEditProject(selected)}
-          onDelete={() => setDeleteProject(selected)}
-        />
-      )}
-
-      {showAdd && <AddProjectModal onClose={() => setShowAdd(false)} />}
-      {editProject && (
-        <EditProjectModal
-          project={editProject}
-          onClose={() => setEditProject(null)}
-        />
-      )}
-      {deleteProject && (
-        <ConfirmDeleteModal
-          entityLabel={deleteProject.name}
-          body={(() => {
-            const blockers = activeJobsForProject(deleteProject.id);
-            if (blockers.length > 0) {
-              return (
-                <div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: '#781E1E',
-                    }}
-                  >
-                    {deleteProject.name} has {blockers.length} active job
-                    {blockers.length === 1 ? '' : 's'} — cancel or reassign first.
-                  </div>
-                  <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
-                    {blockers.slice(0, 5).map((j) => (
-                      <li key={j.id} className="mono">
-                        {j.id} · {j.status}
-                      </li>
-                    ))}
-                    {blockers.length > 5 && (
-                      <li className="muted">+{blockers.length - 5} more…</li>
-                    )}
-                  </ul>
-                </div>
-              );
-            }
-            return (
-              <div className="muted small">
-                Completed jobs that referenced this project keep their history.
-              </div>
-            );
-          })()}
-          blocked={activeJobsForProject(deleteProject.id).length > 0}
-          confirmText={'Delete ' + deleteProject.id}
-          onCancel={() => setDeleteProject(null)}
-          onConfirm={() => {
-            removeProjectAction(deleteProject.id);
-            pushToast('Deleted ' + deleteProject.name);
-            setDeleteProject(null);
-            if (selectedId === deleteProject.id) setSelectedId(null);
-          }}
         />
       )}
     </div>
@@ -327,12 +482,9 @@ interface RowProps {
   completedJobs: number;
   nextJob: { id: string; date: string | null; startHour: number | null } | undefined;
   isStale: boolean;
+  region: ProjectRegion | null;
   selected: boolean;
   onClick: () => void;
-  menuOpen: boolean;
-  onMenuToggle: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
 }
 
 function ProjectRow({
@@ -341,12 +493,9 @@ function ProjectRow({
   completedJobs,
   nextJob,
   isStale,
+  region,
   selected,
   onClick,
-  menuOpen,
-  onMenuToggle,
-  onEdit,
-  onDelete,
 }: RowProps) {
   const customers = useStore((s) => s.customers);
   const customer = getCustomer(customers, project.customer);
@@ -368,8 +517,22 @@ function ProjectRow({
       <div className="col-id">
         <div className="proj-row-stripe" style={{ background: meta.color }}></div>
         <div>
-          <div className="proj-row-id mono">{project.id}</div>
-          <div className="proj-row-name">{project.name}</div>
+          {/*
+            Customer-name + project-type is the primary label. The
+            project's own name (often a verbose deal-name) is a subtitle.
+            We deliberately do NOT surface the synthetic project id here
+            (hs-i-… / hs-p-… / hs-d-…) — Erik doesn't want ID numbers in
+            list views.
+          */}
+          <div className="proj-row-name" style={{ fontWeight: 600 }}>
+            {customer ? customer.name : (project.name || 'Unknown customer')}
+            {project.type ? ' — ' + project.type : ''}
+          </div>
+          {project.name && customer ? (
+            <div className="muted small" style={{ marginTop: 2 }}>
+              {project.name}
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="col-cust">
@@ -397,6 +560,21 @@ function ProjectRow({
       </div>
       <div className="col-status">
         <ProjectStatusBadge status={project.status} />
+        {region && (
+          <span
+            className="badge"
+            title={`Region: ${region}`}
+            style={{
+              background: 'rgba(60,213,103,0.12)',
+              color: 'var(--forest, #1F8A5B)',
+              fontWeight: 600,
+              fontSize: 10,
+              marginLeft: 6,
+            }}
+          >
+            {region}
+          </span>
+        )}
         {isStale && (
           <span
             className="badge"
@@ -480,79 +658,120 @@ function ProjectRow({
             <Icon name="hubspot" size={10} /> {project.hubspotDealId}
           </span>
         )}
-        <span
-          onClick={(e) => {
-            e.stopPropagation();
-            onMenuToggle();
-          }}
-          style={{
-            display: 'inline-flex',
-            marginLeft: 6,
-            verticalAlign: 'middle',
-          }}
-        >
-          <IconButton icon="more" label="Project actions" />
-        </span>
-        {menuOpen && (
-          <>
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                onMenuToggle();
-              }}
-              style={{ position: 'fixed', inset: 0, zIndex: 50 }}
-            />
-            <div
-              role="menu"
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                position: 'absolute',
-                right: 4,
-                top: 28,
-                minWidth: 140,
-                background: 'var(--surface-card)',
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.1))',
-                padding: 4,
-                zIndex: 51,
-              }}
-            >
-              <button
-                type="button"
-                onClick={onEdit}
-                style={projMenuStyle()}
-              >
-                <Icon name="settings" size={12} /> Edit
-              </button>
-              <button
-                type="button"
-                onClick={onDelete}
-                style={projMenuStyle('#C53030')}
-              >
-                <Icon name="x" size={12} /> Delete
-              </button>
-            </div>
-          </>
-        )}
       </div>
     </div>
   );
 }
 
-function projMenuStyle(color?: string): React.CSSProperties {
-  return {
-    width: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '6px 10px',
-    background: 'transparent',
-    border: 'none',
-    textAlign: 'left',
-    cursor: 'pointer',
-    fontSize: 12,
-    borderRadius: 6,
-    color: color ?? 'var(--fg)',
-  };
+// -----------------------------------------------------------------
+// Filter chip group — labelled segmented control with live counts.
+// Generic over the chip-value type so each filter (status/source/region)
+// shares one render but keeps strict typing on `value`/`onChange`.
+// -----------------------------------------------------------------
+interface FilterChipGroupProps<V extends string> {
+  label: string;
+  options: { key: V; label: string }[];
+  value: V;
+  onChange: (next: V) => void;
+  counts: Record<string, number>;
+}
+
+function FilterChipGroup<V extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  counts,
+}: FilterChipGroupProps<V>) {
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          color: 'var(--fg-muted)',
+        }}
+      >
+        {label}
+      </span>
+      <div className="seg">
+        {options.map((o) => {
+          const count = counts[o.key];
+          return (
+            <button
+              key={o.key}
+              type="button"
+              className={value === o.key ? 'active' : ''}
+              onClick={() => onChange(o.key)}
+            >
+              {o.label}
+              {typeof count === 'number' && (
+                <span className="muted" style={{ marginLeft: 4, fontSize: 10 }}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------
+// SortHeaderCell — div-grid equivalent of <SortableHeader>. The
+// project list uses a CSS grid header row (not a <table>), so we
+// inline a div-based version that mirrors the same UX: click to
+// toggle asc/desc, chevron when active, faint ↕ when inactive.
+// -----------------------------------------------------------------
+interface SortHeaderCellProps {
+  label: string;
+  sortKey: SortKey;
+  state: SortState<SortKey> | null;
+  onClick: (key: SortKey) => void;
+  className: string;
+}
+
+function SortHeaderCell({
+  label,
+  sortKey,
+  state,
+  onClick,
+  className,
+}: SortHeaderCellProps) {
+  const active = state?.key === sortKey;
+  const dir = active ? state!.dir : null;
+  return (
+    <div
+      className={className}
+      role="button"
+      tabIndex={0}
+      aria-sort={
+        active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'
+      }
+      onClick={() => onClick(sortKey)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick(sortKey);
+        }
+      }}
+      style={{
+        cursor: 'pointer',
+        userSelect: 'none',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+      }}
+    >
+      {label}
+      {active ? (
+        <Icon name={dir === 'asc' ? 'chevron_up' : 'chevron_down'} size={11} />
+      ) : (
+        <span style={{ opacity: 0.3, fontSize: 11 }}>↕</span>
+      )}
+    </div>
+  );
 }

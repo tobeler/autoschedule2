@@ -105,7 +105,7 @@ export function SmartScheduleModal() {
           <div>
             <div className="eyebrow-sm">Smart schedule</div>
             <div style={{ fontSize: 16, fontWeight: 700 }}>
-              {job.id} · {customer?.name ?? job.address}
+              {customer?.name ?? job.address ?? 'Untitled'}
             </div>
             {jt && (
               <div className="muted small" style={{ marginTop: 2 }}>

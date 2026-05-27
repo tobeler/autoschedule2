@@ -19,7 +19,7 @@ import {
 } from '../../data/selectors';
 import type { Job, Project } from '../../types';
 import { PROJECT_STATUS_META, ProjectStatusBadge } from './ProjectsView';
-import { hubspotProjectUrl, hubspotContactUrl } from '../../integrations/hubspot/urls';
+import { hubspotProjectUrl, hubspotContactUrl, hubspotDealUrl } from '../../integrations/hubspot/urls';
 
 interface ProjectDetailDrawerProps {
   project: Project;
@@ -265,19 +265,14 @@ export function ProjectDetailDrawer({
                   borderRadius: 8,
                 }}
               >
-                No jobs scheduled yet. Click "Add job" to create the first one.
+                No linked jobs yet. Jobs in Zuper need to be associated with
+                this deal to appear here.
               </div>
             ) : (
               <div className="proj-jobs-list">
                 {renderJobBlocks(projJobs, openJob)}
               </div>
             )}
-            <button
-              className="btn btn-outline btn-sm"
-              style={{ marginTop: 10, width: '100%' }}
-            >
-              <Icon name="plus" size={12} /> Add job to project
-            </button>
           </div>
 
           {/* OTHER PROJECTS FOR THIS PROPERTY */}
@@ -340,34 +335,16 @@ export function ProjectDetailDrawer({
           <button className="btn btn-outline btn-sm" onClick={onClose}>
             Close
           </button>
-          {onEdit && (
-            <button
-              className="btn btn-outline btn-sm"
-              onClick={() => {
-                onEdit();
-                onClose();
-              }}
+          {project.hubspotDealId && (
+            <a
+              className="btn btn-dark btn-sm"
+              href={hubspotDealUrl(project.hubspotDealId)}
+              target="_blank"
+              rel="noreferrer"
             >
-              <Icon name="settings" size={12} /> Edit project
-            </button>
+              <Icon name="hubspot" size={12} /> Open deal in HubSpot
+            </a>
           )}
-          {onDelete && (
-            <button
-              className="btn btn-danger btn-sm"
-              onClick={() => {
-                onDelete();
-                onClose();
-              }}
-            >
-              <Icon name="x" size={12} /> Delete project
-            </button>
-          )}
-          <button className="btn btn-dark btn-sm">
-            <Icon name="hubspot" size={12} /> Open deal in HubSpot
-          </button>
-          <button className="btn btn-primary btn-sm">
-            <Icon name="plus" size={12} /> Add job
-          </button>
         </div>
       </div>
     </div>
@@ -414,10 +391,15 @@ interface ProjectJobRowProps {
 function ProjectJobRow({ job, onClick, crewLookup }: ProjectJobRowProps) {
   const jt = getJobType(job.type);
   const crew = getCrew(crewLookup, job.crewId);
-  if (!jt) return null;
+  // Fall through to a generic render when the type isn't in our JOB_TYPES map —
+  // dropping the row silently made entire projects look empty for any Zuper
+  // category we hadn't seeded a label for.
+  const jtLabel = jt?.label ?? job.type;
+  const jtShort = jt?.short ?? job.type;
+  const jtColor = jt?.color ?? 'mid-gray';
   return (
     <div className="proj-job-row" onClick={onClick} role="button" tabIndex={0}>
-      <div className="proj-job-accent" style={{ background: 'var(--' + jt.color + ')' }}></div>
+      <div className="proj-job-accent" style={{ background: 'var(--' + jtColor + ')' }}></div>
       <div className="proj-job-when">
         <div style={{ fontWeight: 700, fontSize: 12 }}>
           {job.date
@@ -433,11 +415,8 @@ function ProjectJobRow({ job, onClick, crewLookup }: ProjectJobRowProps) {
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="row" style={{ gap: 6 }}>
-          <span className="mono" style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
-            {job.id}
-          </span>
           <span className="jt-tag" style={{ fontSize: 9 }}>
-            {jt.short}
+            {jtShort}
           </span>
           <StatusBadge status={job.status} />
           {job.continuationOf && (
@@ -446,7 +425,7 @@ function ProjectJobRow({ job, onClick, crewLookup }: ProjectJobRowProps) {
             </span>
           )}
         </div>
-        <div style={{ fontWeight: 600, fontSize: 13, marginTop: 3 }}>{jt.label}</div>
+        <div style={{ fontWeight: 600, fontSize: 13, marginTop: 3 }}>{jtLabel}</div>
         <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
           {crew?.name || 'Unassigned'} · {hoursToStr(job.durationHrs)} ·{' '}
           {statusLabel(job.status)}

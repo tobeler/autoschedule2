@@ -10,13 +10,41 @@ import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
 import { JobTypeTag } from '../../components/JobTypeTag';
 import { PageHeader } from '../../components/PageHeader';
+import { SortableHeader } from '../../components/SortableHeader';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import { useStore } from '../../store';
 import { TODAY, dateKey, fmtTime } from '../../data/helpers';
 import { getCrew } from '../../data/selectors';
-import type { Truck } from '../../types';
+import {
+  chipMatches,
+  makeSorter,
+  nextSort,
+  type SortState,
+} from '../../lib/table';
+import type { Truck, TruckKind, TruckStatus } from '../../types';
 import { AddTruckModal } from './AddTruckModal';
 import { EditTruckModal } from './EditTruckModal';
+
+type TruckSortKey =
+  | 'name'
+  | 'plate'
+  | 'kind'
+  | 'capacity'
+  | 'assignedCrew'
+  | 'status'
+  | 'utilization';
+
+const TRUCK_STATUS_FILTERS: TruckStatus[] = ['available', 'shop', 'assigned'];
+const TRUCK_STATUS_LABEL: Record<TruckStatus, string> = {
+  available: 'Available',
+  shop: 'In shop',
+  assigned: 'Assigned',
+};
+const TRUCK_KIND_FILTERS: TruckKind[] = ['install', 'electrical', 'plumbing'];
+
+function effectiveStatus(t: Truck): TruckStatus {
+  return t.status ?? 'assigned';
+}
 
 export function FleetView() {
   const trucks = useStore((s) => s.trucks);
@@ -29,6 +57,12 @@ export function FleetView() {
   const [editTruck, setEditTruck] = useState<Truck | null>(null);
   const [deleteTruck, setDeleteTruck] = useState<Truck | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<TruckStatus | 'all'>('all');
+  const [kindFilter, setKindFilter] = useState<TruckKind | 'all'>('all');
+  const [sort, setSort] = useState<SortState<TruckSortKey> | null>({
+    key: 'name',
+    dir: 'asc',
+  });
 
   const todayDk = dateKey(TODAY);
 
@@ -64,6 +98,37 @@ export function FleetView() {
     );
   }
 
+  const activeStatuses = useMemo<Set<TruckStatus>>(
+    () => (statusFilter === 'all' ? new Set() : new Set([statusFilter])),
+    [statusFilter],
+  );
+  const activeKinds = useMemo<Set<TruckKind>>(
+    () => (kindFilter === 'all' ? new Set() : new Set([kindFilter])),
+    [kindFilter],
+  );
+
+  const visibleTrucks = useMemo(() => {
+    const filtered = trucks.filter((t) => {
+      if (!chipMatches(activeStatuses, effectiveStatus(t))) return false;
+      if (!chipMatches(activeKinds, t.kind)) return false;
+      return true;
+    });
+    const sorter = makeSorter<Truck, TruckSortKey>(sort, {
+      name: (t) => t.name,
+      plate: (t) => t.plate,
+      kind: (t) => t.kind,
+      capacity: (t) => t.capacity,
+      assignedCrew: (t) => getCrew(crews, t.assignedCrew)?.name ?? '',
+      status: (t) => effectiveStatus(t),
+      utilization: (t) => utilization[t.id] ?? 0,
+    });
+    return filtered.slice().sort(sorter);
+  }, [trucks, crews, utilization, activeStatuses, activeKinds, sort]);
+
+  function toggleSort(k: TruckSortKey) {
+    setSort((prev) => nextSort(prev, k));
+  }
+
   function confirmDelete(truck: Truck) {
     const blockers = activeJobsForTruck(truck.id);
     if (blockers.length > 0) return; // button is disabled
@@ -88,7 +153,7 @@ export function FleetView() {
           ' available'
         }
       >
-        <button className="btn btn-outline btn-sm">
+        <button className="btn btn-outline btn-sm" disabled title="Map view available when truck telematics is connected">
           <Icon name="grid" size={14} /> Map view
         </button>
         <button
@@ -137,22 +202,104 @@ export function FleetView() {
           </div>
         </div>
 
+        <div
+          className="row"
+          style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}
+        >
+          <button
+            className={'filter-chip ' + (statusFilter === 'all' ? 'active' : '')}
+            onClick={() => setStatusFilter('all')}
+          >
+            All statuses
+          </button>
+          {TRUCK_STATUS_FILTERS.map((st) => (
+            <button
+              key={st}
+              className={'filter-chip ' + (statusFilter === st ? 'active' : '')}
+              onClick={() => setStatusFilter(st)}
+            >
+              {TRUCK_STATUS_LABEL[st]}
+            </button>
+          ))}
+          <span
+            aria-hidden
+            style={{
+              width: 1,
+              height: 18,
+              background: 'var(--border, rgba(15,31,13,0.12))',
+              margin: '0 4px',
+            }}
+          />
+          <button
+            className={'filter-chip ' + (kindFilter === 'all' ? 'active' : '')}
+            onClick={() => setKindFilter('all')}
+          >
+            All kinds
+          </button>
+          {TRUCK_KIND_FILTERS.map((k) => (
+            <button
+              key={k}
+              className={'filter-chip ' + (kindFilter === k ? 'active' : '')}
+              onClick={() => setKindFilter(k)}
+              style={{ textTransform: 'capitalize' }}
+            >
+              {k}
+            </button>
+          ))}
+        </div>
+
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <table className="table">
             <thead>
               <tr>
-                <th>Vehicle</th>
-                <th>Type</th>
-                <th>Plate</th>
-                <th>Assigned crew</th>
+                <SortableHeader<TruckSortKey>
+                  label="Vehicle"
+                  sortKey="name"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<TruckSortKey>
+                  label="Type"
+                  sortKey="kind"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<TruckSortKey>
+                  label="Plate"
+                  sortKey="plate"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<TruckSortKey>
+                  label="Capacity"
+                  sortKey="capacity"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<TruckSortKey>
+                  label="Assigned crew"
+                  sortKey="assignedCrew"
+                  state={sort}
+                  onClick={toggleSort}
+                />
                 <th>Today</th>
-                <th>Utilization (7d)</th>
-                <th>Status</th>
+                <SortableHeader<TruckSortKey>
+                  label="Utilization (7d)"
+                  sortKey="utilization"
+                  state={sort}
+                  onClick={toggleSort}
+                />
+                <SortableHeader<TruckSortKey>
+                  label="Status"
+                  sortKey="status"
+                  state={sort}
+                  onClick={toggleSort}
+                />
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {trucks.map((t) => {
+              {visibleTrucks.map((t) => {
                 const crew = getCrew(crews, t.assignedCrew);
                 const todayJobs = jobs.filter(
                   (j) => j.truckId === t.id && j.date === todayDk,
@@ -167,7 +314,9 @@ export function FleetView() {
                         </div>
                         <div>
                           <div style={{ fontWeight: 700 }}>{t.name}</div>
-                          <div className="muted small">{t.capacity}</div>
+                          {t.vin ? (
+                            <div className="muted small mono">VIN {t.vin.slice(-6)}</div>
+                          ) : null}
                         </div>
                       </div>
                     </td>
@@ -180,6 +329,7 @@ export function FleetView() {
                       </span>
                     </td>
                     <td className="mono small">{t.plate}</td>
+                    <td className="small">{t.capacity}</td>
                     <td>
                       {crew ? (
                         crew.name
@@ -289,8 +439,8 @@ export function FleetView() {
                   </div>
                   <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
                     {active.slice(0, 5).map((j) => (
-                      <li key={j.id} className="mono">
-                        {j.id} · {j.date ?? 'unscheduled'} · {j.status}
+                      <li key={j.id}>
+                        {j.title ? j.title.split(/\s[-|]\s/)[0].trim() : 'Untitled'} · {j.date ?? 'unscheduled'} · {j.status}
                       </li>
                     ))}
                     {active.length > 5 && (

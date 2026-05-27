@@ -5,13 +5,19 @@ import type { ReactNode } from 'react';
 import type { IconName } from '../../components/Icon';
 import { useStore } from '../../store';
 import { TODAY, dateKey, fmtDate, fmtTime, hoursToStr } from '../../data/helpers';
+import type { Crew, Customer, Job, Person, TimeOff } from '../../types';
 import {
   getCrew,
   getCustomer,
+  getJobType,
   getPerson,
   roleLabel,
+  unscheduledJobs,
+  unscheduledNeedsReviewJobs,
 } from '../../data/selectors';
-import { JOB_TYPES, ROLES } from '../../data/seed';
+import { summarizeUnscheduledReviewReasons } from '../../lib/dispatch-work';
+import { realCustomerName } from '../../lib/customer-display';
+import { ROLES } from '../../data/seed';
 
 export type AttentionSev = 'urgent' | 'warn' | 'info';
 export type AttentionCategory = 'coverage' | 'schedule' | 'field' | 'heads_up';
@@ -43,14 +49,22 @@ export interface AttentionItem {
   personId?: string;
 }
 
+export interface AttentionBuildState {
+  jobs: Job[];
+  customers: Customer[];
+  people: Person[];
+  crews: Crew[];
+  timeOff: TimeOff[];
+}
+
 const SEV_ORDER: Record<AttentionSev, number> = { urgent: 0, warn: 1, info: 2 };
 
 /**
  * Build the live attention list. Reads from the global store via
  * `useStore.getState()` — safe to call from non-React code paths.
  */
-export function buildAttentionItems(): AttentionItem[] {
-  const state = useStore.getState();
+export function buildAttentionItems(input?: AttentionBuildState): AttentionItem[] {
+  const state = input ?? useStore.getState();
   const { jobs, customers, people, crews, timeOff } = state;
   const items: AttentionItem[] = [];
   const today = dateKey(TODAY);
@@ -70,7 +84,7 @@ export function buildAttentionItems(): AttentionItem[] {
           sev: 'urgent',
           cat: 'coverage',
           icon: 'user',
-          title: 'Unfilled ' + role.label + ' slot on ' + job.id,
+          title: 'Unfilled ' + role.label + ' slot · ' + (c?.name ?? job.title ?? 'Untitled'),
           desc:
             'Needs ' +
             role.label +
@@ -82,10 +96,10 @@ export function buildAttentionItems(): AttentionItem[] {
             (c?.name || (job.address || '').split('·')[0] || ''),
           meta: [
             { kind: 'due', label: 'By ' + slotStart },
-            { kind: 'tag', label: JOB_TYPES[job.type]?.short || job.type },
+            { kind: 'tag', label: getJobType(job.type)?.short || job.type },
           ],
           context: [
-            ['Job', job.id + ' · ' + (JOB_TYPES[job.type]?.label || job.type)],
+            ['Type', getJobType(job.type)?.label || job.type],
             ['Customer', c?.name || '—'],
             ['Address', job.address || '—'],
             ['Role needed', role.label + ' (' + s.level + ')'],
@@ -100,7 +114,7 @@ export function buildAttentionItems(): AttentionItem[] {
               action: 'assign',
             },
             { icon: 'user', title: 'Pick from roster', sub: 'Manually assign a person', action: 'pick' },
-            { icon: 'phone', title: 'Call subcontractor pool', sub: 'Brooks Electric · Walsh Electric on call' },
+            { icon: 'briefcase', title: 'Review external coverage', sub: 'Subcontractor option only; no message sent' },
           ],
           jobId: job.id,
         });
@@ -118,17 +132,20 @@ export function buildAttentionItems(): AttentionItem[] {
         sev: 'urgent',
         cat: 'schedule',
         icon: 'refresh',
-        title: 'Callback · ' + (c?.name || job.id),
-        desc: (job.notes || 'Customer reported recurring issue') + ' · ' + (isToday ? 'same-day' : 'unscheduled'),
+        title:
+          'Callback · ' +
+          (realCustomerName(c) ||
+            job.title?.split(/\s[-|]\s/)[0]?.trim() ||
+            'Unknown'),
+        desc: (job.notes || 'Callback from Zuper; review job details') + ' · ' + (isToday ? 'same-day' : 'unscheduled'),
         meta: [
           { kind: isToday ? 'due' : 'soft', label: isToday ? 'Today' : 'Unscheduled' },
           { kind: 'tag', label: 'Callback' },
         ],
         context: [
-          ['Job', job.id],
-          ['Customer', c?.name || '—'],
+          ['Customer', realCustomerName(c) || job.title?.split(/\s[-|]\s/)[0]?.trim() || '—'],
           ['Address', job.address || '—'],
-          ['Original job', 'J-2562 · completed May 14'],
+          ['Type', getJobType(job.type)?.label || job.type],
           ['Issue', job.notes || '—'],
         ],
         resolutions: [
@@ -136,110 +153,41 @@ export function buildAttentionItems(): AttentionItem[] {
             primary: true,
             icon: 'sparkle',
             title: isToday ? "Drop into today's slack" : 'Suggest earliest fit',
-            sub: 'Chen Crew has 1.5h gap at 3:30p',
+            sub: 'Rank by region, crew capacity, and route fit',
             action: 'schedule',
           },
-          { icon: 'phone', title: 'Call customer', sub: 'Confirm urgency + window' },
-          { icon: 'briefcase', title: 'Open original job', sub: 'View install history' },
+          {
+            icon: 'calendar',
+            title: 'Find schedule window',
+            sub: 'Pick a local slot before any customer outreach',
+            action: 'pick_window',
+          },
+          {
+            icon: 'briefcase',
+            title: 'Open job details',
+            sub: 'Review source identifiers and notes',
+            action: 'open_details',
+          },
         ],
         jobId: job.id,
       });
     });
 
-  // 3. MISSING COMMISSIONING (synthetic, anchored to J-2614)
-  items.push({
-    id: 'mc-J-2614',
-    sev: 'urgent',
-    cat: 'field',
-    icon: 'info',
-    title: 'Commissioning photos overdue on J-2614',
-    desc:
-      "Tyree's heat pump install at Margaret Chen is past the 4-hour mark · no commissioning photos uploaded yet",
-    meta: [
-      { kind: 'due', label: 'On site 4h+' },
-      { kind: 'tag', label: 'HP Install' },
-    ],
-    context: [
-      ['Job', 'J-2614 · Heat pump install'],
-      ['Crew', 'Holloway Crew · Tyree Booker (lead)'],
-      ['Customer', 'Margaret Chen · Newton'],
-      ['Status', 'On site since 8:00a'],
-      ['Photos', 'Before (4) · During (6) · After (0)'],
-    ],
-    resolutions: [
-      { primary: true, icon: 'phone', title: 'Ping Tyree on his phone', sub: 'Send "submit commissioning photos" prompt' },
-      { icon: 'bell', title: 'Add note to job', sub: 'Visible in the mobile tech app' },
-      { icon: 'check', title: 'Mark not required', sub: 'Customer agreed to skip docs' },
-    ],
-    jobId: 'J-2614',
-  });
+  // Items 3, 3b, 4 (Commissioning, Spillover, Late ETA) used to be hard-
+  // coded synthetic placeholders anchored to fictional jobs J-2611/2614/2630.
+  // Removed for the HVAC review pass — they were demo content, not real
+  // signals. The unfilled-slot scan (#1), callback scan (#2), unscheduled-
+  // queue rollup (#5), people-out from timeOff (#7), and the per-job
+  // computed bits below are all real-data driven.
 
-  // 3b. SPILLOVER REQUEST (synthetic)
-  items.push({
-    id: 'spill-J-2611',
-    sev: 'urgent',
-    cat: 'schedule',
-    icon: 'refresh',
-    title: 'Spillover: Bennett Crew needs to continue tomorrow',
-    desc:
-      "Bennett flagged J-2611 at Rachel Sondheim's at 3:42p · electrical pull running long, won't finish today · needs continuation slot",
-    meta: [
-      { kind: 'due', label: 'Confirm by 5p' },
-      { kind: 'tag', label: 'Continuation' },
-    ],
-    context: [
-      ['Job', 'J-2611 · Heat pump install'],
-      ['Crew', 'Bennett Crew · Aaliyah Bennett (lead)'],
-      ['Customer', 'Rachel Sondheim · Cambridge'],
-      ['Status', 'On site · ~6h remaining of 8h scope'],
-      ['Reason', 'Electrical pull running 2.5h longer than expected'],
-      ['Crew availability tomorrow', 'Free 8a–12p · Highland Pl walk-through 2p'],
-    ],
-    resolutions: [
-      {
-        primary: true,
-        icon: 'sparkle',
-        title: 'Create continuation · tomorrow 8a–12p',
-        sub: 'Same crew · auto-links as J-2611 cont.',
-        action: 'create_continuation',
-      },
-      { icon: 'calendar', title: 'Pick a different slot', sub: 'Open Suggest-a-Time with Bennett constraints' },
-      { icon: 'user', title: 'Hand off to Reyes Crew', sub: 'They have 9a–12p free tomorrow' },
-      { icon: 'bell', title: 'Ask Bennett for ETA estimate', sub: 'Maybe they can still finish today' },
-    ],
-    jobId: 'J-2611',
-  });
+  // Closeout/post-install cleanup is intentionally excluded from dispatch
+  // attention. This board is for getting install and service jobs scheduled,
+  // covered, and routed.
 
-  // 4. LATE ETA (synthetic — Park Crew behind)
-  items.push({
-    id: 'late-park',
-    sev: 'warn',
-    cat: 'field',
-    icon: 'clock',
-    title: 'Park Crew running 25 min behind',
-    desc:
-      'Annual tune-up at Garrett & Sasha M. set for 10:00a · ETA now 10:25a from prior stop',
-    meta: [
-      { kind: 'soft', label: 'ETA 10:25a' },
-      { kind: 'tag', label: 'Service' },
-    ],
-    context: [
-      ['Job', 'J-2630 · Care Plus tune-up'],
-      ['Crew', 'Park Crew · Noor Khan'],
-      ['Customer', 'Garrett & Sasha M. · Arlington'],
-      ['Window', '10:00a – 12:00p'],
-      ['Projected', '10:25a · 25 min late'],
-    ],
-    resolutions: [
-      { primary: true, icon: 'bell', title: 'Send "running late" SMS', sub: 'Templated · arrival in ~25 min' },
-      { icon: 'refresh', title: 'Reassign to nearer crew', sub: 'Reyes Crew is 8 min from the address' },
-      { icon: 'calendar', title: 'Reschedule for afternoon', sub: "Move to Park's 13:00 slot" },
-    ],
-    jobId: 'J-2630',
-  });
-
-  // 5. UNSCHEDULED QUEUE — bucket non-callback unscheduled
-  const unsched = jobs.filter((j) => j.status === 'unscheduled' && j.type !== 'callback');
+  // 5. UNSCHEDULED QUEUE — clean dispatch-ready work only. Zuper NEW rows
+  // such as estimates, permits, and admin board items are intentionally
+  // held out of this scheduling workflow.
+  const unsched = unscheduledJobs(jobs).filter((j) => j.type !== 'callback');
   if (unsched.length) {
     const total = unsched.reduce((s, j) => s + (j.price || 0), 0);
     items.push({
@@ -248,55 +196,63 @@ export function buildAttentionItems(): AttentionItem[] {
       cat: 'schedule',
       icon: 'calendar',
       title:
-        unsched.length + ' unscheduled job' + (unsched.length === 1 ? '' : 's') + ' for this week',
+        unsched.length + ' install/service job' + (unsched.length === 1 ? '' : 's') + ' awaiting slots',
       desc:
-        'Total $' +
-        total.toLocaleString() +
-        ' in pipeline awaiting slots · oldest sits 3 days',
-      meta: [
-        { kind: 'soft', label: 'This week' },
-        { kind: 'deal', label: 'HubSpot' },
-      ],
+        'Clean queue only: installs, service, repairs, and add-on field work awaiting slots. ' +
+        'Callbacks are listed as individual urgent items. ' +
+        'Known non-dispatch rows are held for data review.',
+      meta: [{ kind: 'soft', label: 'Dispatch-ready non-callback' }],
       context: unsched.map((j) => {
         const c = getCustomer(customers, j.customer);
-        const head = c?.name || (j.address || '').split('·')[0] || '—';
-        const tail =
-          (JOB_TYPES[j.type]?.short || j.type) + (j.price ? ' · $' + j.price.toLocaleString() : '');
-        return [j.id, head + ' · ' + tail];
+        // realCustomerName strips synthetic "Legacy install xxx" stand-ins;
+        // we then fall through to the Zuper title (most begin "{First Last} - …").
+        const name =
+          realCustomerName(c) ||
+          j.title?.split(/\s[-|]\s/)[0]?.trim() ||
+          (j.address || '').split('·')[0]?.trim() ||
+          'Unknown';
+        const typeLabel = getJobType(j.type)?.label || j.type;
+        return [name, typeLabel];
       }),
       resolutions: [
-        { primary: true, icon: 'sparkle', title: 'Batch smart-schedule', sub: 'Suggest crew + day for each', action: 'smart_schedule' },
-        { icon: 'calendar', title: 'Open unscheduled rail', sub: 'Drag into the day calendar' },
-        { icon: 'bell', title: 'Defer to next week', sub: 'Mark all as Week-of May 25' },
+        { primary: true, icon: 'calendar', title: 'Open dispatch rail', sub: 'Schedule from the clean queue; callbacks stay separate', action: 'open_dispatch' },
+        { icon: 'sparkle', title: 'Rank by revenue impact', sub: 'Use Impact sort to pick the highest-risk work first' },
+        { icon: 'briefcase', title: 'Review source deals', sub: 'Open the jobs table with HubSpot deal ids', action: 'open_jobs' },
       ],
     });
   }
 
-  // 6. TIGHT DRIVE WINDOW (synthetic)
-  items.push({
-    id: 'drive-J-2641',
-    sev: 'warn',
-    cat: 'field',
-    icon: 'truck',
-    title: 'Tight drive window into J-2641',
-    desc:
-      'Reyes Crew ends Brookline install at 4:30p · sales walk-through at Highland Pl starts 4:30p · only 18 min of buffer',
-    meta: [
-      { kind: 'soft', label: '18 min buffer' },
-      { kind: 'tag', label: 'Conflict' },
-    ],
-    context: [
-      ['Stop 1', 'J-2615 · Brookline · ends 4:30p'],
-      ['Stop 2', 'J-2641 · Highland Pl · starts 4:30p'],
-      ['Drive', '18 min via I-90 E'],
-      ['Risk', 'Customer waiting, no slack'],
-    ],
-    resolutions: [
-      { primary: true, icon: 'refresh', title: 'Push J-2641 to 5:00p', sub: 'Notify customer · 30 min buffer' },
-      { icon: 'user', title: 'Reassign walk-through to Theo', sub: "He's free at 4:30p in Cambridge" },
-    ],
-    jobId: 'J-2641',
-  });
+  const reviewUnscheduled = unscheduledNeedsReviewJobs(jobs);
+  if (reviewUnscheduled.length) {
+    const reasonCounts = summarizeUnscheduledReviewReasons(reviewUnscheduled);
+    items.push({
+      id: 'unscheduled-review',
+      sev: 'info',
+      cat: 'heads_up',
+      icon: 'alert_circle',
+      title:
+        reviewUnscheduled.length +
+        ' unscheduled row' +
+        (reviewUnscheduled.length === 1 ? '' : 's') +
+        ' held out of dispatch',
+      desc:
+        'These rows still have unscheduled status, but are not clean schedule-ready jobs. ' +
+        'They stay out of the drag rail until type, customer, and address data are dispatchable.',
+      meta: [
+        { kind: 'soft', label: 'Data quality' },
+        { kind: 'tag', label: 'Hidden from rail' },
+      ],
+      context: reasonCounts.slice(0, 8).map(([reason, count]) => [String(count), reason]),
+      resolutions: [
+        { primary: true, icon: 'briefcase', title: 'Open jobs table', sub: 'Filter Unscheduled and audit type/customer/address', action: 'open_jobs' },
+        { icon: 'calendar', title: 'Return to dispatch rail', sub: 'Only dispatch-ready jobs appear there', action: 'open_dispatch' },
+      ],
+    });
+  }
+
+  // Item 6 (tight drive window) was a synthetic Brookline → Highland Pl
+  // example. Removed — real drive-time scanning needs the property
+  // address + Google Maps integration, which isn't wired yet.
 
   // 7. PEOPLE OUT — derive from timeOff
   timeOff.forEach((t) => {
@@ -338,15 +294,15 @@ export function buildAttentionItems(): AttentionItem[] {
           'Status',
           isToday
             ? t.type === 'sick'
-              ? 'Jobs already reassigned'
-              : 'On schedule'
+              ? 'Coverage review needed'
+              : 'Check coverage before dispatch'
             : 'Heads-up only',
         ],
       ],
       resolutions: isToday
         ? [
-            { primary: true, icon: 'check', title: 'Review reassigned jobs', sub: '2 jobs moved to Reyes Crew' },
-            { icon: 'bell', title: 'Message ' + p.name.split(' ')[0], sub: 'Check in / wish well' },
+            { primary: true, icon: 'sparkle', title: 'Find coverage', sub: 'Rank replacement techs and open gaps', action: 'open_dispatch' },
+            { icon: 'calendar', title: 'See affected jobs', sub: 'Jobs assigned to ' + p.name.split(' ')[0] + ' today', action: 'open_jobs' },
           ]
         : [
             {
@@ -354,66 +310,22 @@ export function buildAttentionItems(): AttentionItem[] {
               icon: 'sparkle',
               title: 'Find coverage',
               sub: 'Suggest backup ' + roleLabel(primaryRole).toLowerCase(),
+              action: 'open_dispatch',
             },
             {
               icon: 'calendar',
               title: 'See affected jobs',
               sub: 'Jobs assigned to ' + p.name.split(' ')[0] + ' that day',
+              action: 'open_jobs',
             },
           ],
       personId: p.id,
     });
   });
 
-  // 8. WEATHER (info)
-  items.push({
-    id: 'wx-fri',
-    sev: 'info',
-    cat: 'heads_up',
-    icon: 'sparkle',
-    title: 'Rain forecast Friday afternoon',
-    desc:
-      '3 outdoor unit installs scheduled · 60% chance of heavy rain after 2p · plan for tarps + delays',
-    meta: [
-      { kind: 'soft', label: 'Fri May 22' },
-      { kind: 'tag', label: '3 jobs' },
-    ],
-    context: [
-      ['Forecast', 'Heavy rain, 60% PM · NWS'],
-      ['Affected jobs', 'J-2664 · J-2670 · J-2673'],
-      ['Crews', 'Bennett · Holloway · Sales'],
-    ],
-    resolutions: [
-      { primary: true, icon: 'calendar', title: 'Move outdoor work to AM', sub: 'Reorder Friday stops · indoor jobs last' },
-      { icon: 'bell', title: 'Notify affected customers', sub: 'Templated weather alert' },
-    ],
-  });
-
-  // 9. CUSTOMER NOTE (info)
-  items.push({
-    id: 'note-margaret',
-    sev: 'info',
-    cat: 'heads_up',
-    icon: 'bell',
-    title: 'Customer note · Margaret Chen',
-    desc:
-      '"Small dog, friendly but skittish — please call before entering side gate." · captured at booking',
-    meta: [
-      { kind: 'soft', label: 'J-2614' },
-      { kind: 'tag', label: 'Note' },
-    ],
-    context: [
-      ['Customer', 'Margaret Chen'],
-      ['Job', 'J-2614 · Heat pump install'],
-      ['Captured', 'May 18 · booking call'],
-      ['Visible to tech?', 'Yes — also in mobile app'],
-    ],
-    resolutions: [
-      { primary: true, icon: 'check', title: 'Acknowledge', sub: 'Mark as seen' },
-      { icon: 'bell', title: 'Add to job notes', sub: 'Forward to Tyree' },
-    ],
-    jobId: 'J-2614',
-  });
+  // Items 8 (weather) and 9 (Margaret Chen customer note) were synthetic
+  // placeholders. Real weather + per-customer notes need NWS + HubSpot
+  // notes-API hookups respectively — out of scope for the read-only pass.
 
   items.sort((a, b) => {
     if (SEV_ORDER[a.sev] !== SEV_ORDER[b.sev]) return SEV_ORDER[a.sev] - SEV_ORDER[b.sev];

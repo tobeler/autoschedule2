@@ -48,3 +48,27 @@ export function hubspotContactUrl(contactId: string, portalId = hubspotPortalId(
 export function hubspotDealUrl(dealId: string, portalId = hubspotPortalId()): string {
   return 'https://app.hubspot.com/contacts/' + portalId + '/record/0-3/' + dealId;
 }
+
+/** Legacy Installation custom object (objectTypeId 2-31703261). */
+export function hubspotInstallationUrl(
+  installationId: string,
+  portalId = hubspotPortalId(),
+): string {
+  return (
+    'https://app.hubspot.com/contacts/' +
+    portalId +
+    '/record/2-31703261/' +
+    installationId
+  );
+}
+
+/**
+ * Zuper deep-link — opens the job in the Zuper Pro web app.
+ *
+ * The Zuper Pro UI mounts at `/dispatch/jobs/details/{job_uid}` for the
+ * Jetson tenant (us-east-1.zuperpro.com). Prior URL (`/jobs/details/{uid}`)
+ * 404'd; the dispatch prefix is required.
+ */
+export function zuperJobUrl(jobUid: string): string {
+  return 'https://us-east-1.zuperpro.com/dispatch/jobs/details/' + jobUid;
+}

@@ -18,6 +18,11 @@ import type {
   JobStatus,
 } from '../types';
 import { JOB_TYPES, ROLES, JOB_TEMPLATES } from './seed';
+import {
+  getSupplementalJobType,
+  isActionableUnscheduledJob,
+  isUnscheduledNeedsReviewJob,
+} from '../lib/dispatch-work';
 
 // ---- Entity lookups (use these everywhere) ----------------------------------
 export const getPerson = (people: Person[], id: string | null | undefined) =>
@@ -30,11 +35,12 @@ export const getCustomer = (customers: Customer[], id: string | null | undefined
   id ? customers.find((c) => c.id === id) : undefined;
 export const getProject = (projects: Project[], id: string | null | undefined) =>
   id ? projects.find((p) => p.id === id) : undefined;
-export const getJobType = (t: string): JobTypeDef | undefined => JOB_TYPES[t];
+export const getJobType = (t: string): JobTypeDef | undefined => JOB_TYPES[t] ?? getSupplementalJobType(t);
 
 // ---- Job queries ------------------------------------------------------------
 export const jobsOn = (jobs: Job[], date: string) => jobs.filter((j) => j.date === date);
-export const unscheduledJobs = (jobs: Job[]) => jobs.filter((j) => j.status === 'unscheduled');
+export const unscheduledJobs = (jobs: Job[]) => jobs.filter(isActionableUnscheduledJob);
+export const unscheduledNeedsReviewJobs = (jobs: Job[]) => jobs.filter(isUnscheduledNeedsReviewJob);
 export const jobsForCrew = (jobs: Job[], crewId: string, date: string) =>
   jobs.filter(
     (j) => j.date === date && (j.crewId === crewId || (j.extraCrewIds || []).includes(crewId)),
@@ -48,6 +54,7 @@ export function statusLabel(s: JobStatus): string {
     onsite: 'On site',
     complete: 'Complete',
     callback: 'Callback',
+    cancelled: 'Cancelled',
   } as const)[s];
 }
 

@@ -30,7 +30,13 @@ import {
   suggestAssignments,
 } from '../data/selectors';
 import { fmtDate, fmtTime, hoursToStr, parseDateKey } from '../data/helpers';
-import { hubspotProjectUrl } from '../integrations/hubspot/urls';
+import { realCustomerName } from '../lib/customer-display';
+import {
+  hubspotDealUrl,
+  hubspotInstallationUrl,
+  hubspotProjectUrl,
+  zuperJobUrl,
+} from '../integrations/hubspot/urls';
 import { autoFillSlots } from '../lib/assignment';
 import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
 import { SuggestTimeOverlay } from './SuggestTimePicker';
@@ -163,7 +169,6 @@ export function JobDetailDrawer() {
       <div className="drawer-backdrop" onClick={close}></div>
       <aside className="drawer" role="dialog" aria-label={`Job ${job.id}`}>
         <div className="drawer-header">
-          <span className="mono small muted">{job.id}</span>
           <JobTypeTag type={job.type} size="lg" />
           <div className="topbar-spacer"></div>
           {job.status !== 'unscheduled' && (
@@ -259,11 +264,55 @@ export function JobDetailDrawer() {
         </div>
 
         {/* ===== TITLE BAND ===== */}
+        {/*
+         * Title priority: real customer name → job.title (Zuper carries the
+         * verbatim job title, e.g. "Michelle Burghardt | Installation: ...")
+         * → address → literal "Job". Customers synced from HubSpot installs
+         * arrive as "Legacy install <id>" placeholders, which we treat as
+         * empty so the Zuper title can take over.
+         */}
         <div style={{ padding: '14px 20px 0', background: 'var(--surface-card)' }}>
-          <h2 className="page-title">{customer?.name || job.address || 'Job'}</h2>
+          {(() => {
+            // Title parsing: prefer the real customer name; else parse the
+            // Zuper title into "<Name> — <scope>" by splitting on " | " or
+            // " - ". Falls through to the verbatim title / address.
+            const realName =
+              customer?.name && !/^Legacy install\b/i.test(customer.name)
+                ? customer.name
+                : null;
+            const rawTitle = job.title?.trim() ?? '';
+            const delimMatch = rawTitle.match(/^(.+?)\s+[|-]\s+(.+)$/);
+            const parsedName = delimMatch ? delimMatch[1].trim() : null;
+            const parsedScope = delimMatch ? delimMatch[2].trim() : null;
+            const primary =
+              realName || parsedName || rawTitle || job.address || 'Job';
+            const scope = realName && rawTitle ? rawTitle : parsedScope;
+            return (
+              <>
+                <h2 className="page-title">{primary}</h2>
+                {scope && scope !== primary && (
+                  <div
+                    className="small muted"
+                    style={{ marginTop: 2, lineHeight: 1.35 }}
+                    title={scope}
+                  >
+                    {scope}
+                  </div>
+                )}
+              </>
+            );
+          })()}
           <div className="row small muted" style={{ marginTop: 6 }}>
-            <Icon name="map_pin" size={13} />
-            <span>{job.address}</span>
+            {job.address ? (
+              <>
+                <Icon name="map_pin" size={13} />
+                <span>{job.address}</span>
+              </>
+            ) : (
+              <span className="muted" style={{ fontStyle: 'italic' }}>
+                No address synced
+              </span>
+            )}
             {job.startHour != null && job.date && (
               <>
                 <span className="divider-v" style={{ height: 12 }}></span>
@@ -279,9 +328,10 @@ export function JobDetailDrawer() {
             {job.hubspotDealId && (
               <span
                 className="badge"
+                title={`HubSpot deal ${job.hubspotDealId}`}
                 style={{ background: 'rgba(255,122,89,0.15)', color: '#9F3D24' }}
               >
-                <Icon name="hubspot" size={11} /> {job.hubspotDealId}
+                <Icon name="hubspot" size={11} /> HubSpot
               </span>
             )}
             {unfilledCount > 0 && (
@@ -349,7 +399,21 @@ export function JobDetailDrawer() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="eyebrow">Part of project</div>
                 <div className="row" style={{ gap: 6 }}>
-                  <div className="name">{project.name}</div>
+                  <div className="name">
+                    {(() => {
+                      // Project names in our DB are largely the synthetic
+                      // "Legacy install <id>" placeholder, which is meaningless
+                      // to a dispatcher. Compose a real label from the
+                      // customer name + project type instead.
+                      const rawName = project.name?.trim() ?? '';
+                      const isPlaceholder =
+                        /^Legacy install\b/i.test(rawName) || /^hs-[ipd]-/i.test(rawName);
+                      if (!isPlaceholder && rawName) return rawName;
+                      const cust = realCustomerName(customer);
+                      const type = project.type?.trim() || 'Install';
+                      return cust ? `${cust} — ${type}` : type;
+                    })()}
+                  </div>
                   {project.hubspotProjectId && (
                     <a
                       href={hubspotProjectUrl(project.hubspotProjectId)}
@@ -365,7 +429,7 @@ export function JobDetailDrawer() {
                   )}
                 </div>
                 <div className="meta">
-                  {project.id} · {projectCompleted}/{projectSiblings.length} jobs ·{' '}
+                  {projectCompleted}/{projectSiblings.length} jobs ·{' '}
                   {projectStatusLabel(project.status)}
                 </div>
               </div>
@@ -461,9 +525,23 @@ export function JobDetailDrawer() {
               unfilledCount={unfilledCount}
               onAutoFill={autoFillThisJob}
               onPatch={(patch) => updateJob({ ...job, ...patch })}
-              projectOptions={projects.filter(
-                (p) => job.customer == null || p.customer === job.customer,
-              )}
+              // Project options:
+              //   1. always include the currently-linked project (even if it
+              //      doesn't share a customer — happens with orphan Zuper rows)
+              //   2. always include the deal-matched suggestion so the auto-
+              //      detect badge can resolve it on first render
+              //   3. otherwise filter by customer when the job has one
+              projectOptions={projects.filter((p) => {
+                if (job.projectId && p.id === job.projectId) return true;
+                if (
+                  job.hubspotDealId &&
+                  p.hubspotDealId &&
+                  p.hubspotDealId === job.hubspotDealId
+                )
+                  return true;
+                return job.customer == null || p.customer === job.customer;
+              })}
+              allProjects={projects}
             />
           )}
 
@@ -568,19 +646,18 @@ export function JobDetailDrawer() {
 
       {confirmDelete && (
         <ConfirmDeleteModal
-          entityLabel={'Job ' + job.id}
+          entityLabel={customer?.name ?? job.title ?? 'this job'}
           body={
             <div className="muted small">
-              Removes <span className="mono">{job.id}</span> from the schedule
-              and all rollups. Past records linked to this job stay in audit
-              history.
+              Removes this job from the schedule and all rollups. Past records
+              linked to this job stay in audit history.
             </div>
           }
-          confirmText={'Delete ' + job.id}
+          confirmText="Delete job"
           onCancel={() => setConfirmDelete(false)}
           onConfirm={() => {
             removeJob(job.id);
-            pushToast('Deleted ' + job.id);
+            pushToast('Deleted ' + (customer?.name ?? job.title ?? 'job'));
             setConfirmDelete(false);
             close();
           }}
@@ -686,12 +763,7 @@ function UnscheduledHero({
             {requiredRoles.length === 1 ? '' : 's'}
           </div>
         </div>
-        {job.price != null && (
-          <div>
-            <div className="k">Value</div>
-            <div className="v">${job.price.toLocaleString()}</div>
-          </div>
-        )}
+        {/* Deal/job value intentionally hidden — irrelevant to dispatch decisions. */}
       </div>
 
       {/* Phase 5 placeholder — real picker lands later. */}
@@ -789,6 +861,64 @@ function UnscheduledHero({
   );
 }
 
+// External-system link buttons. We replaced the editable HubSpot/Zuper id
+// inputs (text entries that nobody types into in practice) with clickable
+// deep-link chips. Read-only — the IDs are set by sync, never by hand.
+function ExternalLinksRow({ job }: { job: Job }) {
+  // For Zuper-sourced jobs, the synthetic id has the form `zup-<uid>`. The
+  // canonical zuperJobUid is preferred if present.
+  const zuperUid =
+    job.zuperJobUid ||
+    (typeof job.id === 'string' && job.id.startsWith('zup-')
+      ? job.id.slice(4)
+      : null);
+
+  // For V1 projects we link the linked Installation record. Project id has
+  // the form `hs-i-<id>` for V1 rows.
+  const installationId =
+    job.projectId && job.projectId.startsWith('hs-i-')
+      ? job.projectId.slice('hs-i-'.length)
+      : null;
+
+  const links: Array<{ label: string; href: string }> = [];
+  if (job.hubspotDealId) {
+    links.push({
+      label: 'HubSpot deal',
+      href: hubspotDealUrl(job.hubspotDealId),
+    });
+  }
+  if (installationId) {
+    links.push({
+      label: 'HubSpot installation',
+      href: hubspotInstallationUrl(installationId),
+    });
+  }
+  if (zuperUid) {
+    links.push({ label: 'Zuper job', href: zuperJobUrl(zuperUid) });
+  }
+
+  if (links.length === 0) {
+    return <div className="muted small">No linked external records.</div>;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      {links.map((l) => (
+        <a
+          key={l.href}
+          href={l.href}
+          target="_blank"
+          rel="noreferrer"
+          className="btn btn-outline btn-sm"
+          style={{ textDecoration: 'none' }}
+        >
+          <Icon name="external_link" size={11} /> {l.label}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 // =============================================================
 // TAB: OVERVIEW
 // =============================================================
@@ -800,6 +930,7 @@ function OverviewTab({
   onAutoFill,
   onPatch,
   projectOptions,
+  allProjects,
 }: {
   job: Job;
   crewName: string | undefined;
@@ -808,6 +939,7 @@ function OverviewTab({
   onAutoFill: () => void;
   onPatch: (patch: Partial<Job>) => void;
   projectOptions: import('../types').Project[];
+  allProjects: import('../types').Project[];
 }) {
   const jt = getJobType(job.type);
 
@@ -819,6 +951,22 @@ function OverviewTab({
     job.price != null ? String(job.price) : '',
   );
   const [dealDraft, setDealDraft] = useState(job.hubspotDealId ?? '');
+
+  // Auto-association: when projectId is null but we have a HubSpot deal id,
+  // try to resolve a project that already carries the same dealId. We display
+  // the match as the selected option but never write through automatically —
+  // the user clicks "Link permanently" to persist the link.
+  const autoMatchedProject = useMemo(() => {
+    if (job.projectId) return null;
+    if (!job.hubspotDealId) return null;
+    return (
+      allProjects.find((p) => p.hubspotDealId === job.hubspotDealId) ?? null
+    );
+  }, [allProjects, job.hubspotDealId, job.projectId]);
+
+  // Visual selection: when an auto-match exists, show it pre-selected even
+  // though job.projectId is still null in the store.
+  const effectiveProjectId = job.projectId ?? autoMatchedProject?.id ?? '';
 
   return (
     <>
@@ -842,7 +990,25 @@ function OverviewTab({
               : 'Unscheduled'}
           </dd>
           <dt>Crew</dt>
-          <dd>{crewName || '—'}</dd>
+          <dd>
+            {crewName || (
+              job.zuperTeamName ? (
+                <span className="muted">
+                  {/*
+                   * Zuper-sourced jobs ship a team name (e.g. "CO-DE-3") but
+                   * we don't sync crews yet, so crewId is null. Surface the
+                   * Zuper team so dispatch can still see who picked it up.
+                   */}
+                  Zuper team:{' '}
+                  <span className="mono" style={{ color: 'var(--fg)' }}>
+                    {job.zuperTeamName}
+                  </span>
+                </span>
+              ) : (
+                '—'
+              )
+            )}
+          </dd>
           <dt>Truck</dt>
           <dd>{truckLabel || '—'}</dd>
         </dl>
@@ -863,6 +1029,11 @@ function OverviewTab({
               onBlur={() => {
                 if (addressDraft !== job.address) onPatch({ address: addressDraft });
               }}
+              placeholder={
+                job.zuperJobUid
+                  ? 'Not synced from Zuper — type to override'
+                  : 'Street, City, State'
+              }
             />
           </div>
           <div className="field">
@@ -894,35 +1065,66 @@ function OverviewTab({
               }}
             />
           </div>
-          <div className="field">
-            <label className="label">HubSpot deal id</label>
-            <input
-              className="input mono"
-              value={dealDraft}
-              placeholder="DEAL-…"
-              onChange={(e) => setDealDraft(e.target.value)}
-              onBlur={() => {
-                const next = dealDraft.trim() || null;
-                if (next !== job.hubspotDealId) onPatch({ hubspotDealId: next });
-              }}
-            />
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
+            <label className="label">External links</label>
+            <ExternalLinksRow job={job} />
           </div>
-          <div className="field">
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
             <label className="label">Project</label>
             <select
               className="select"
-              value={job.projectId ?? ''}
+              value={effectiveProjectId}
               onChange={(e) =>
                 onPatch({ projectId: e.target.value || null })
               }
             >
               <option value="">— None —</option>
-              {projectOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.id} · {p.name}
-                </option>
-              ))}
+              {projectOptions.map((p) => {
+                const isPlaceholder =
+                  !p.name ||
+                  /^Legacy install\b/i.test(p.name) ||
+                  /^hs-[ipd]-/i.test(p.name);
+                const label = isPlaceholder
+                  ? `Untitled project · ${p.type || 'Retrofit'}`
+                  : p.name;
+                return (
+                  <option key={p.id} value={p.id}>
+                    {label}
+                  </option>
+                );
+              })}
             </select>
+            {autoMatchedProject && (
+              <div
+                className="row small"
+                style={{
+                  marginTop: 6,
+                  gap: 8,
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span
+                  className="badge"
+                  style={{
+                    background: 'rgba(255,122,89,0.15)',
+                    color: '#9F3D24',
+                    fontSize: 11,
+                  }}
+                  title={`Matched on HubSpot deal ${job.hubspotDealId}`}
+                >
+                  <Icon name="sparkle" size={10} /> Auto-detected from HubSpot deal
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => onPatch({ projectId: autoMatchedProject.id })}
+                  title="Save this project link to the job"
+                >
+                  <Icon name="check" size={11} /> Link permanently
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -946,31 +1148,39 @@ function OverviewTab({
             {job.driveTimeMin > 0 ? `${job.driveTimeMin} min from prior stop` : ''}
           </span>
         </div>
-        <div className="map-stub" style={{ height: 200, position: 'relative' }}>
-          <div className="map-pin" style={{ top: '58%', left: '52%' }}>
+        {!job.address && (
+          <div className="muted small" style={{ padding: '12px 0' }}>
+            <Icon name="map_pin" size={12} /> No address synced from Zuper yet.
+            The map will populate once the address is filled in above.
+          </div>
+        )}
+        {job.address && (
+          <div className="map-stub" style={{ height: 200, position: 'relative' }}>
+            <div className="map-pin" style={{ top: '58%', left: '52%' }}>
+              <div
+                className="pin-dot"
+                style={{ background: 'var(--jetson-green)', color: 'var(--forest)' }}
+              >
+                <Icon name="home" size={12} />
+              </div>
+            </div>
             <div
-              className="pin-dot"
-              style={{ background: 'var(--jetson-green)', color: 'var(--forest)' }}
+              style={{
+                position: 'absolute',
+                left: 8,
+                top: 8,
+                background: 'var(--surface-card)',
+                padding: '4px 10px',
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 700,
+                boxShadow: 'var(--shadow-sm)',
+              }}
             >
-              <Icon name="home" size={12} />
+              {job.address}
             </div>
           </div>
-          <div
-            style={{
-              position: 'absolute',
-              left: 8,
-              top: 8,
-              background: 'var(--surface-card)',
-              padding: '4px 10px',
-              borderRadius: 999,
-              fontSize: 11,
-              fontWeight: 700,
-              boxShadow: 'var(--shadow-sm)',
-            }}
-          >
-            {job.address}
-          </div>
-        </div>
+        )}
       </div>
 
       {unfilledCount > 0 && (
@@ -1014,6 +1224,8 @@ function CrewTab({
   truckCapacity: string | undefined;
 }) {
   const people = useStore((s) => s.people);
+  const crews = useStore((s) => s.crews);
+  const updateJob = useStore((s) => s.updateJob);
 
   const suggestions = useMemo(() => {
     return suggestAssignments(job, people)
@@ -1024,6 +1236,30 @@ function CrewTab({
       }, {});
   }, [job, people]);
 
+  // When the job has no local job_slots populated, surface the assigned
+  // crew's members so the dispatcher can see who's on the job. Match priority:
+  //   1. job.crewId (direct local FK — set when bootstrap-crews ran)
+  //   2. crew whose name matches the source-of-truth Zuper team name
+  // This is the dispatcher answer to "who's actually on this job right now".
+  const zuperCrew = useMemo(() => {
+    if (job.crewId) {
+      const direct = crews.find((c) => c.id === job.crewId);
+      if (direct) return direct;
+    }
+    if (job.zuperTeamName) {
+      return crews.find((c) => c.name === job.zuperTeamName) ?? null;
+    }
+    return null;
+  }, [crews, job.crewId, job.zuperTeamName]);
+
+  const zuperCrewMembers = useMemo(() => {
+    if (!zuperCrew) return [];
+    return zuperCrew.members
+      .map((id) => people.find((p) => p.id === id))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p));
+  }, [zuperCrew, people]);
+
+
   return (
     <>
       <div className="drawer-section">
@@ -1031,15 +1267,71 @@ function CrewTab({
           <div className="drawer-section-title" style={{ margin: 0 }}>
             <Icon name="users" size={14} /> Crew composition
           </div>
-          <div style={{ marginLeft: 'auto' }}>
-            <button className="btn btn-outline btn-sm" onClick={onAutoFill}>
-              <Icon name="sparkle" size={12} /> Auto-fill
-            </button>
-          </div>
+          {/* Auto-fill is meaningless when there are no slots to fill (the
+              common case for Zuper-sourced jobs). Hide it so dispatch doesn't
+              wonder why the button is a no-op. */}
+          {job.slots.length > 0 && (
+            <div style={{ marginLeft: 'auto' }}>
+              <button className="btn btn-outline btn-sm" onClick={onAutoFill}>
+                <Icon name="sparkle" size={12} /> Auto-fill
+              </button>
+            </div>
+          )}
         </div>
 
         {job.slots.length === 0 && (
-          <div className="muted small">No required slots for this job type.</div>
+          <div className="muted small">
+            {job.zuperTeamName ? (
+              <>
+                Assigned in Zuper to team{' '}
+                <span className="mono" style={{ color: 'var(--fg)' }}>
+                  {job.zuperTeamName}
+                </span>
+                . Reassign here when AutoSchedule owns the crew.
+              </>
+            ) : (
+              'No required slots for this job type.'
+            )}
+          </div>
+        )}
+
+        {/* Zuper-team member roster — when we have no local slots but the
+            job carries a Zuper team name, surface the people on that team
+            from the locally-mirrored crews so the dispatcher can see who
+            Zuper has on it without leaving the drawer. */}
+        {job.slots.length === 0 && zuperCrewMembers.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div className="small muted" style={{ marginBottom: 6 }}>
+              Zuper team roster ({zuperCrewMembers.length})
+            </div>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+              {zuperCrewMembers.map((p) => (
+                <div
+                  key={p.id}
+                  className="row"
+                  style={{
+                    gap: 6,
+                    alignItems: 'center',
+                    padding: '4px 8px',
+                    background: 'var(--bg-2, rgba(0,0,0,0.04))',
+                    borderRadius: 6,
+                    fontSize: 13,
+                  }}
+                  title={`${(p.roles && p.roles[0]) || 'tech'}${p.level ? ` · ${p.level}` : ''}`}
+                >
+                  <span className="mono" style={{ opacity: 0.6, fontSize: 11 }}>
+                    {p.name
+                      .split(/\s+/)
+                      .slice(0, 2)
+                      .map((w) => w[0])
+                      .join('')
+                      .toUpperCase()}
+                  </span>
+                  <span>{p.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         {job.slots.map((slot) => (
@@ -1053,7 +1345,25 @@ function CrewTab({
           />
         ))}
 
-        <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} disabled>
+        <button
+          className="btn btn-ghost btn-sm"
+          style={{ marginTop: 8 }}
+          onClick={() => {
+            // Append an empty slot to the job's roster. The dispatcher then
+            // edits the role/level inline (the existing SlotRow editor).
+            const newSlot: import('../types').JobSlot = {
+              id: 'slot-' + Math.random().toString(36).slice(2, 8),
+              role: 'hvac_installer',
+              level: 'L1',
+              hours: job.durationHrs,
+              start: 0,
+              optional: false,
+              assignedTo: null,
+            };
+            updateJob({ ...job, slots: [...job.slots, newSlot] });
+            setEditingSlot(newSlot.id);
+          }}
+        >
           <Icon name="plus" size={12} /> Add custom slot
         </button>
       </div>
@@ -1196,11 +1506,20 @@ function TimelineTab({
     time: string;
   }
   const startHour = job.startHour ?? 8;
+  // We don't yet pull real status-change timestamps from Zuper (no actuals
+  // sync). The times below are computed from the scheduled start; surface
+  // that fact so dispatch doesn't read them as real activity.
+  const hasActuals = false;
+  const teamSub = crewName
+    ? `${crewName} notified`
+    : job.zuperTeamName
+      ? `Zuper team ${job.zuperTeamName}`
+      : 'Crew notified';
   const steps: Step[] = [
     {
       key: 'scheduled',
       label: 'Dispatched',
-      sub: crewName ? `${crewName} notified` : 'Crew notified',
+      sub: teamSub,
       done: job.status !== 'unscheduled',
       time: '7:30a',
     },
@@ -1229,11 +1548,28 @@ function TimelineTab({
 
   const nextStep = steps.find((s) => !s.done);
 
+  const isZuperJob = !!job.zuperJobUid;
+
   return (
     <div className="drawer-section">
       <div className="drawer-section-title">
         <Icon name="clock" size={14} /> Day timeline
       </div>
+      {isZuperJob && !hasActuals && (
+        <div
+          className="muted small"
+          style={{
+            marginBottom: 10,
+            padding: '6px 10px',
+            background: 'var(--bg-subtle)',
+            borderRadius: 6,
+            fontStyle: 'italic',
+          }}
+        >
+          Times below are estimated from the schedule — Zuper actual
+          timestamps aren't synced yet.
+        </div>
+      )}
       <div
         style={{
           position: 'relative',
@@ -1286,10 +1622,59 @@ function TimelineTab({
 function CustomerTab({ job }: { job: Job }) {
   const customers = useStore((s) => s.customers);
   const customer = getCustomer(customers, job.customer);
-  if (!customer) {
+  // Two failure modes for Zuper-sourced rows:
+  //   (a) `job.customer` references a customer id we never synced — `customer`
+  //       is undefined here.
+  //   (b) we did sync, but the row is a "Legacy install …" placeholder with
+  //       no name/address/phone — `customer` is set but useless.
+  // In both cases we still want to surface what we DO know: the verbatim
+  // Zuper title and the HubSpot deal link so dispatch can pivot.
+  const isPlaceholder =
+    !!customer && /^Legacy install/.test(customer.name || '');
+  if (!customer || isPlaceholder) {
+    const titleHint = job.title?.split('|')[0]?.trim() || job.title || null;
     return (
       <div className="drawer-section">
-        <div className="muted small">No customer linked to this job.</div>
+        <div className="drawer-section-title">
+          <Icon name="user" size={14} /> Customer
+          <span
+            className="badge"
+            style={{
+              marginLeft: 8,
+              background: 'rgba(255,122,89,0.15)',
+              color: '#9F3D24',
+            }}
+          >
+            <Icon name="hubspot" size={10} /> Not yet synced
+          </span>
+        </div>
+        <div className="muted small" style={{ marginTop: 6 }}>
+          Customer detail isn't pulled into Jetson yet
+          {customer ? ' (placeholder record)' : ''}. Until then, open the
+          linked record in HubSpot.
+        </div>
+        {(titleHint || job.hubspotDealId || job.customer) && (
+          <dl className="kv-list" style={{ marginTop: 10 }}>
+            {titleHint && (
+              <>
+                <dt>Job title (Zuper)</dt>
+                <dd>{titleHint}</dd>
+              </>
+            )}
+            {job.hubspotDealId && (
+              <>
+                <dt>HubSpot deal</dt>
+                <dd className="mono">{job.hubspotDealId}</dd>
+              </>
+            )}
+            {job.customer && (
+              <>
+                <dt>Customer id</dt>
+                <dd className="mono">{job.customer}</dd>
+              </>
+            )}
+          </dl>
+        )}
       </div>
     );
   }

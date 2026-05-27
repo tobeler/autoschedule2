@@ -8,10 +8,23 @@ import { Avatar } from '../../components/Avatar';
 import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
 import { PageHeader } from '../../components/PageHeader';
+import { SortableHeader } from '../../components/SortableHeader';
 import { useStore } from '../../store';
 import { TODAY, addDays, dateKey, startOfWeek } from '../../data/helpers';
 import { getPerson, getTruck, roleLabel } from '../../data/selectors';
-import type { Crew, Person } from '../../types';
+import {
+  chipMatches,
+  makeSorter,
+  nextSort,
+  type SortState,
+} from '../../lib/table';
+import {
+  REGION_PREFIXES,
+  regionPrefixFromTeamName,
+  useRegionFilter,
+  type RegionPrefix,
+} from '../../lib/region-filter';
+import type { Crew, CrewType, Person } from '../../types';
 import { WeeklyComposition } from './WeeklyComposition';
 import { AddCrewModal } from './AddCrewModal';
 import { AddMemberPicker } from './AddMemberPicker';
@@ -138,8 +151,19 @@ export function CrewsView() {
               </>
             ) : (
               <>
-                <div className="kpi-value">84%</div>
-                <div className="kpi-meta up">+6 pts vs last week</div>
+                {/*
+                  Utilization needs real crew→hours assignment data. With 0
+                  crews defined and Zuper-sourced jobs all having crewId=null,
+                  there's nothing to compute against. Show an honest "—"
+                  instead of the prior hard-coded 84%. We'll wire real
+                  utilization once crews are created in the dispatcher.
+                */}
+                <div className="kpi-value">—</div>
+                <div className="kpi-meta">
+                  {crews.length === 0
+                    ? 'Create a crew to start tracking utilization'
+                    : 'Awaiting crew assignment'}
+                </div>
               </>
             )}
           </div>
@@ -158,8 +182,32 @@ export function CrewsView() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// DEFAULT crews — permanent composition cards
+// DEFAULT crews — permanent composition cards w/ sortable header
+// + filter chips controlling order/visibility of the cards below.
 // ─────────────────────────────────────────────────────────────
+// Crew Model v2: 'install' first (the day-to-day dispatch crews), then
+// specialty crews, then 'ad_hoc' last (the Pool — office / float / dispatch
+// / admin / sub teams inherited from Zuper). Default filter is 'install'
+// so the dispatcher's primary view isn't cluttered with ad_hoc operational
+// groupings that never own a job.
+const CREW_TYPE_FILTERS: CrewType[] = ['install', 'electrical', 'sales', 'plumbing', 'solo', 'ad_hoc'];
+const CREW_TYPE_LABEL: Record<string, string> = {
+  install: 'Install',
+  electrical: 'Electrical',
+  sales: 'Sales',
+  plumbing: 'Plumbing',
+  solo: 'Solo',
+  ad_hoc: 'Pool',
+};
+const CREW_REGION_FILTERS = REGION_PREFIXES;
+type CrewRegion = RegionPrefix;
+
+function crewRegionOf(name: string): CrewRegion | null {
+  return regionPrefixFromTeamName(name);
+}
+
+type CrewSortKey = 'name' | 'type' | 'members' | 'region' | 'truck';
+
 function CrewsDefaultView() {
   const crews = useStore((s) => s.crews);
   const people = useStore((s) => s.people);
@@ -173,11 +221,49 @@ function CrewsDefaultView() {
   const [editCrew, setEditCrew] = useState<Crew | null>(null);
   const [deleteCrew, setDeleteCrew] = useState<Crew | null>(null);
   const [removeMember, setRemoveMember] = useState<{ crew: Crew; person: Person } | null>(null);
+  // Default to 'install' so the dispatcher's primary view shows real
+  // install crews, not the ~13 ad_hoc operational labels.
+  const [typeFilter, setTypeFilter] = useState<CrewType | 'all'>('install');
+  // Region filter is shared with the topbar picker — single source of truth.
+  const { region: regionFilter, setRegion: setRegionFilter } = useRegionFilter();
+  const [sort, setSort] = useState<SortState<CrewSortKey> | null>({
+    key: 'name',
+    dir: 'asc',
+  });
 
   function activeJobsForCrew(crewId: string) {
     return jobs.filter(
       (j) => j.crewId === crewId && j.status !== 'complete',
     );
+  }
+
+  const activeTypes = useMemo<Set<CrewType>>(
+    () => (typeFilter === 'all' ? new Set() : new Set([typeFilter])),
+    [typeFilter],
+  );
+  const activeRegions = useMemo<Set<CrewRegion>>(
+    () => (regionFilter === 'all' ? new Set() : new Set([regionFilter])),
+    [regionFilter],
+  );
+
+  const visibleCrews = useMemo(() => {
+    const filtered = crews.filter((c) => {
+      if (!chipMatches(activeTypes, c.type)) return false;
+      if (!chipMatches(activeRegions, crewRegionOf(c.name))) return false;
+      return true;
+    });
+    const sorter = makeSorter<Crew, CrewSortKey>(sort, {
+      name: (c) => c.name,
+      type: (c) => c.type,
+      members: (c) => c.members.length,
+      region: (c) => crewRegionOf(c.name) ?? '',
+      truck: (c) => getTruck(trucks, c.truck)?.name ?? '',
+    });
+    return filtered.slice().sort(sorter);
+  }, [crews, trucks, activeTypes, activeRegions, sort]);
+
+  function toggleSort(k: CrewSortKey) {
+    setSort((prev) => nextSort(prev, k));
   }
 
   function confirmRemoveMember() {
@@ -213,8 +299,161 @@ function CrewsDefaultView() {
         </span>
       </div>
 
+      <div
+        className="row"
+        style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}
+      >
+        <button
+          className={'filter-chip ' + (typeFilter === 'all' ? 'active' : '')}
+          onClick={() => setTypeFilter('all')}
+        >
+          All types
+        </button>
+        {CREW_TYPE_FILTERS.map((t) => (
+          <button
+            key={t}
+            className={'filter-chip ' + (typeFilter === t ? 'active' : '')}
+            onClick={() => setTypeFilter(t)}
+          >
+            {CREW_TYPE_LABEL[t] ?? t}
+          </button>
+        ))}
+        <span
+          aria-hidden
+          style={{
+            width: 1,
+            height: 18,
+            background: 'var(--border, rgba(15,31,13,0.12))',
+            margin: '0 4px',
+          }}
+        />
+        <button
+          className={'filter-chip ' + (regionFilter === 'all' ? 'active' : '')}
+          onClick={() => setRegionFilter('all')}
+        >
+          All regions
+        </button>
+        {CREW_REGION_FILTERS.map((rg) => (
+          <button
+            key={rg}
+            className={'filter-chip ' + (regionFilter === rg ? 'active' : '')}
+            onClick={() => setRegionFilter(rg)}
+          >
+            {rg}
+          </button>
+        ))}
+      </div>
+
+      {/*
+        Sort bar — applies a column-style ordering to the crew cards
+        below. Same SortableHeader UX as the table views so the toggle
+        cycle (asc → desc) is consistent site-wide.
+      */}
+      <div
+        className="card"
+        style={{ padding: 0, overflow: 'hidden', marginBottom: 12 }}
+      >
+        <table className="table" style={{ marginBottom: 0 }}>
+          <thead>
+            <tr>
+              <SortableHeader<CrewSortKey>
+                label="Crew"
+                sortKey="name"
+                state={sort}
+                onClick={toggleSort}
+              />
+              <SortableHeader<CrewSortKey>
+                label="Type"
+                sortKey="type"
+                state={sort}
+                onClick={toggleSort}
+              />
+              <SortableHeader<CrewSortKey>
+                label="Members"
+                sortKey="members"
+                state={sort}
+                onClick={toggleSort}
+                align="right"
+              />
+              <SortableHeader<CrewSortKey>
+                label="Region"
+                sortKey="region"
+                state={sort}
+                onClick={toggleSort}
+              />
+              <SortableHeader<CrewSortKey>
+                label="Truck"
+                sortKey="truck"
+                state={sort}
+                onClick={toggleSort}
+              />
+            </tr>
+          </thead>
+          <tbody>
+            {visibleCrews.map((c) => {
+              const truck = getTruck(trucks, c.truck);
+              const region = crewRegionOf(c.name);
+              return (
+                <tr
+                  key={c.id}
+                  className="clickable"
+                  onClick={() => setEditCrew(c)}
+                >
+                  <td>
+                    <div className="row" style={{ gap: 8 }}>
+                      <span
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                          background: c.color,
+                        }}
+                      />
+                      <span style={{ fontWeight: 600 }}>{c.name}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="tag" style={{ textTransform: 'capitalize' }}>
+                      {c.type}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'right' }} className="mono">
+                    {c.members.length}
+                  </td>
+                  <td>
+                    {region ? (
+                      <span className="mono small">{region}</span>
+                    ) : (
+                      <span className="muted small">—</span>
+                    )}
+                  </td>
+                  <td>
+                    {truck ? (
+                      <span className="row" style={{ gap: 6 }}>
+                        <Icon name="truck" size={12} />
+                        <span>{truck.name}</span>
+                        <span className="mono muted small">{truck.plate}</span>
+                      </span>
+                    ) : (
+                      <span className="muted small">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {visibleCrews.length === 0 && (
+              <tr>
+                <td colSpan={5} style={{ textAlign: 'center', padding: 28 }}>
+                  <span className="muted small">No crews match.</span>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
       <div className="roster-grid">
-        {crews.map((crew) => {
+        {visibleCrews.map((crew) => {
           const truck = getTruck(trucks, crew.truck);
           return (
             <div key={crew.id} className="roster-card">
@@ -325,8 +564,8 @@ function CrewsDefaultView() {
                   </div>
                   <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
                     {blockers.slice(0, 5).map((j) => (
-                      <li key={j.id} className="mono">
-                        {j.id} · {j.date ?? 'unscheduled'} · {j.status}
+                      <li key={j.id}>
+                        {j.title ? j.title.split(/\s[-|]\s/)[0].trim() : 'Untitled'} · {j.date ?? 'unscheduled'} · {j.status}
                       </li>
                     ))}
                     {blockers.length > 5 && (

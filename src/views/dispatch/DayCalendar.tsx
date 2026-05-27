@@ -14,6 +14,7 @@ import { fmtTime } from '../../data/helpers';
 import { ROLES } from '../../data/seed';
 import { useStore } from '../../store';
 import { estimateDriveTime } from '../../lib/routing';
+import { useRegionFilter, regionPrefixFromTeamName } from '../../lib/region-filter';
 import { JobBlock } from './JobBlock';
 import { LoanBlock } from './LoanBlock';
 
@@ -48,11 +49,48 @@ interface RowModel {
 }
 
 const HOUR_START = 6;
-const HOUR_END = 20;
+const HOUR_END = 22;
 const COLS = HOUR_END - HOUR_START;
 
 function leadRoles(): string[] {
   return ['hvac_lead', 'electrician', 'plumber', 'fsm'];
+}
+
+/**
+ * Pack jobs into lanes so overlapping jobs don't render on top of each other.
+ * Returns { laneByJobId, laneCount } — JobBlock applies inline top/height
+ * positioning when laneCount > 1.
+ *
+ * Especially important for the Unassigned bucket, where uncrewed Zuper jobs
+ * frequently share the same scheduled time and would otherwise stack into a
+ * single illegible block.
+ */
+function packLanes(jobs: Job[]): { laneByJobId: Map<string, number>; laneCount: number } {
+  const laneByJobId = new Map<string, number>();
+  const laneEnds: number[] = []; // end-hour of the last job placed in each lane
+  // Sort by start time so the first-fit algorithm produces a stable layout.
+  const sorted = [...jobs]
+    .filter((j) => j.startHour != null)
+    .sort((a, b) => (a.startHour ?? 0) - (b.startHour ?? 0));
+  for (const j of sorted) {
+    const start = j.startHour as number;
+    const end = start + j.durationHrs;
+    let lane = -1;
+    for (let i = 0; i < laneEnds.length; i++) {
+      if (laneEnds[i] <= start) {
+        lane = i;
+        break;
+      }
+    }
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(end);
+    } else {
+      laneEnds[lane] = end;
+    }
+    laneByJobId.set(j.id, lane);
+  }
+  return { laneByJobId, laneCount: laneEnds.length };
 }
 
 export function DayCalendar({
@@ -67,6 +105,7 @@ export function DayCalendar({
   const allCrews = useStore((s) => s.crews);
   const allTrucks = useStore((s) => s.trucks);
   const allPeople = useStore((s) => s.people);
+  const { regionSet } = useRegionFilter();
   const allJobs = useStore((s) => s.jobs);
   const moveJob = useStore((s) => s.moveJob);
   const resizeJob = useStore((s) => s.resizeJob);
@@ -98,7 +137,54 @@ export function DayCalendar({
   // ===== Build rows =====
   const rows = useMemo<RowModel[]>(() => {
     if (groupBy === 'crew') {
-      return allCrews.map((c) => {
+      // Crews now exist in our DB (materialized once from Zuper teams via
+      // POST /api/v1/zuper/bootstrap-crews). Going forward, crews are
+      // AutoSchedule-owned — rename / edit / delete freely. The link back
+      // to Zuper lives only on `crews.zuperTeamName` for audit.
+      // Surface jobs scheduled today that aren't assigned to ANY of our
+      // crews into a single "Unassigned" lane at the top of the grid.
+      const crewIds = new Set(allCrews.map((c) => c.id));
+      const unassignedJobs = jobs.filter(
+        (j) => j.startHour != null && (!j.crewId || !crewIds.has(j.crewId)),
+      );
+      const noTeamRow: RowModel | null =
+        unassignedJobs.length > 0
+          ? {
+              id: 'crew-__unassigned__',
+              name: 'Unassigned',
+              color: 'var(--mid-gray)',
+              meta: (
+                <>
+                  <Icon name="alert_circle" size={11} /> {unassignedJobs.length} scheduled, awaiting crew
+                </>
+              ),
+              avatars: [],
+              jobs: unassignedJobs,
+              loans: [],
+              homeCrew: undefined,
+              truck: null,
+            }
+          : null;
+      const unassignedRow: RowModel | null = null;
+      // teamRows preserved for the layout below; now always empty.
+      const teamRows: RowModel[] = [];
+      // Crew Model v2: hide ad_hoc crews (office / float / dispatch / admin /
+      // sub) from default dispatch lanes — these are operational labels, not
+      // real install teams. They still exist in `crews` and surface in a
+      // Pool view; we just don't clutter the dispatcher grid with 13 empty
+      // lanes for groups that never actually own a job.
+      const dispatchableCrews = allCrews.filter((c) => {
+        if (c.type === 'ad_hoc') return false;
+        // When the user has selected one or more regions, only show crew lanes
+        // whose team prefix matches. We resolve the prefix from the crew's
+        // Zuper team name (e.g. "CO-DE-1" → "CO"). Crews with no resolvable
+        // prefix are hidden when a region filter is active.
+        if (regionSet.size === 0) return true;
+        // Crew.name is the materialized team name from Zuper (e.g. "CO-DE-1").
+        const crewPrefix = regionPrefixFromTeamName(c.name);
+        return crewPrefix != null && regionSet.has(crewPrefix);
+      });
+      const crewRows = dispatchableCrews.map((c) => {
         const truck = allTrucks.find((t) => t.id === c.truck) ?? null;
         const rowJobs = jobs.filter((j) => j.crewId === c.id);
         const loans: LoanEntry[] = [];
@@ -138,6 +224,16 @@ export function DayCalendar({
           truck,
         };
       });
+      // Compose: Zuper-team virtual rows first, then any no-team bucket,
+      // then real dispatcher crews. unassignedRow is now always null —
+      // kept in scope only for the future case where we re-introduce a
+      // single bucket.
+      return [
+        ...teamRows,
+        ...(noTeamRow ? [noTeamRow] : []),
+        ...(unassignedRow ? [unassignedRow] : []),
+        ...crewRows,
+      ];
     }
 
     if (groupBy === 'truck') {
@@ -327,11 +423,18 @@ export function DayCalendar({
         </div>
 
         {/* Row body */}
-        {rows.map((row, ri) => (
+        {rows.map((row, ri) => {
+          // Lane-pack so overlapping jobs (most common in the Unassigned bucket)
+          // stack vertically instead of piling on top of each other.
+          const { laneByJobId, laneCount } = packLanes(row.jobs);
+          const baseH = density === 'compact' ? 56 : 72;
+          const perLane = density === 'compact' ? 52 : 68;
+          const rowH = laneCount > 1 ? Math.max(baseH, laneCount * perLane + 12) : baseH;
+          return (
           <Fragment key={row.id}>
             <div
               className="daygrid-row-header"
-              style={{ minHeight: density === 'compact' ? 56 : 72 }}
+              style={{ minHeight: rowH }}
             >
               <div className="daygrid-row-color" style={{ background: row.color }} />
               <div className="daygrid-row-label">
@@ -344,7 +447,7 @@ export function DayCalendar({
             <div
               className={'daygrid-row' + (ri % 2 ? ' alt' : '')}
               style={{
-                minHeight: density === 'compact' ? 56 : 72,
+                minHeight: rowH,
                 width: COLS * colW + 'px',
               }}
               onDragOver={(e) => {
@@ -460,6 +563,8 @@ export function DayCalendar({
                   onClick={() => onJobClick(j)}
                   onResize={resizeJob}
                   allRowJobs={row.jobs}
+                  laneIndex={laneByJobId.get(j.id) ?? 0}
+                  laneCount={laneCount}
                 />
               ))}
 
@@ -486,7 +591,8 @@ export function DayCalendar({
               )}
             </div>
           </Fragment>
-        ))}
+          );
+        })}
 
         {rows.length === 0 && (
           <div

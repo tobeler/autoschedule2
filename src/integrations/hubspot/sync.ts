@@ -140,6 +140,31 @@ function dealStageToStatus(stage: string | null | undefined): typeof projects.$i
   return 'proposed';
 }
 
+function installationStageToStatus(stage: string | null | undefined): typeof projects.$inferInsert['status'] {
+  switch ((stage ?? '').toLowerCase()) {
+    case 'ready for install':
+    case 'scheduled':
+      return 'sold';
+    case 'install incomplete':
+    case 'close-out':
+    case 'awaiting inspection':
+      return 'in_progress';
+    case 'complete':
+    case 'closed':
+      return 'complete';
+    case 'cancelled':
+    case 'canceled':
+      return 'cancelled';
+    case 'on hold':
+    case 'pending':
+    case 'pending rebate approval':
+    case 'requote':
+      return 'sold';
+    default:
+      return 'sold';
+  }
+}
+
 function num(s: string | null | undefined): string | null {
   if (s === null || s === undefined || s === '') return null;
   const n = Number(s);
@@ -152,6 +177,32 @@ function makeRegionShort(name: string): string {
     .replace(/[^A-Za-z]/g, '')
     .slice(0, 2)
     .toUpperCase() || 'XX';
+}
+
+// Heuristic for service areas whose HubSpot `countries` field is empty.
+// Jetson operates in US (CO, MA, NY, CA) and Canada (BC). Recognize BC/AB
+// and a few common Canadian city names so they don't get parented to
+// "United States" by default.
+function inferCountryFromServiceAreaName(name: string, code: string): string | null {
+  const haystack = (name + ' ' + code).toUpperCase();
+  if (/\b(BC|AB|ON|QC|VANCOUVER|TORONTO|MONTREAL|CALGARY)\b/.test(haystack)) {
+    return 'Canada';
+  }
+  return null;
+}
+
+function legacyInstallationDescription(inst: HubspotInstallation): string {
+  const stage = inst.properties.pipeline_stage_sync ?? null;
+  const addressParts = [
+    inst.properties.full_address,
+    inst.properties.address_city,
+    inst.properties.state_province_region,
+    inst.properties.address_zip,
+  ].filter((s): s is string => Boolean(s && s.length));
+  const parts = ['Imported from legacy Installations object.'];
+  if (stage) parts.push('Installation pipeline: ' + stage + '.');
+  if (addressParts.length) parts.push(addressParts.join(', '));
+  return parts.join(' ');
 }
 
 interface SyncOptions {
@@ -216,26 +267,21 @@ export function parseInstallationToProject(
   hsInstallation: HubspotInstallation,
   opts: { customerId?: string | null } = {},
 ): AppProject {
-  const addressParts = [
-    hsInstallation.properties.full_address,
-    hsInstallation.properties.address_city,
-    hsInstallation.properties.state_province_region,
-    hsInstallation.properties.address_zip,
-  ].filter((s): s is string => Boolean(s && s.length));
   return {
     id: projectIdForLegacyInstallation(hsInstallation.id),
     customer: opts.customerId ?? 'hs-legacy-cust-' + hsInstallation.id,
     name: 'Legacy install ' + hsInstallation.id,
     type: 'Retrofit',
-    status: 'complete',
+    status: installationStageToStatus(hsInstallation.properties.pipeline_stage_sync) as AppProjectStatus,
     soldDate: null,
-    targetCompletion: hsInstallation.properties.entered_complete_stage_date ?? null,
+    targetCompletion:
+      hsInstallation.properties.zuper_job_installation_scheduled_start_time ??
+      hsInstallation.properties.entered_complete_stage_date ??
+      null,
     value: null,
     hubspotDealId: null,
     primaryCrew: null,
-    description: addressParts.length
-      ? 'Imported from legacy Installations object. ' + addressParts.join(', ')
-      : 'Imported from legacy Installations object.',
+    description: legacyInstallationDescription(hsInstallation),
     hubspotProjectId: null,
     source: 'legacy_installation',
   };
@@ -322,6 +368,16 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
   let contactRecords: HubspotContact[] = [];
 
   // -------- Fetch phase (network) ------------------------------------------
+  //
+  // V1/V2 toggle: read settings_kv flags so users can disable the legacy
+  // Installations pull (V1) or the native Projects pull (V2) independently
+  // from Settings → Integrations. Service Areas + Contacts + Deals are
+  // shared and always run when either V1 or V2 is on.
+  const { getAllIntegrationFlags } = await import('@/lib/settings');
+  const flags = await getAllIntegrationFlags();
+  result.notes.push(
+    `Flags: V1 installations ${flags.hubspotV1 ? 'on' : 'off'}, V2 native projects ${flags.hubspotV2 ? 'on' : 'off'}.`,
+  );
 
   try {
     serviceAreaRecords = await listServiceAreas();
@@ -330,11 +386,15 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
     result.errors.push('Service areas: ' + describeError(err));
   }
 
-  try {
-    projectRecords = await searchProjects({ limit: opts.limit });
-    result.counts.projects = projectRecords.length;
-  } catch (err) {
-    result.errors.push('Projects: ' + describeError(err));
+  if (flags.hubspotV2) {
+    try {
+      projectRecords = await searchProjects({ limit: opts.limit });
+      result.counts.projects = projectRecords.length;
+    } catch (err) {
+      result.errors.push('Projects: ' + describeError(err));
+    }
+  } else {
+    result.notes.push('Skipped native projects pull (V2 toggle is off).');
   }
 
   for (const proj of projectRecords) {
@@ -379,10 +439,14 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
     result.errors.push('Contacts batch: ' + describeError(err));
   }
 
-  try {
-    installationRecords = await searchInstallations({ limit: opts.limit });
-  } catch (err) {
-    result.errors.push('Installations: ' + describeError(err));
+  if (flags.hubspotV1) {
+    try {
+      installationRecords = await searchInstallations({ limit: opts.limit });
+    } catch (err) {
+      result.errors.push('Installations: ' + describeError(err));
+    }
+  } else {
+    result.notes.push('Skipped legacy installations pull (V1 toggle is off).');
   }
 
   // -------- Write phase (one transaction) ----------------------------------
@@ -392,7 +456,18 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
       // 1) Service areas → regions (parent country + sub regions).
       const byCountry = new Map<string, HubspotServiceArea[]>();
       for (const sa of serviceAreaRecords) {
-        const country = (sa.properties.countries ?? 'United States').split(';')[0].trim() || 'United States';
+        const rawCountry = (sa.properties.countries ?? '').split(';')[0].trim();
+        // HubSpot's `countries` field is often empty on service areas, so
+        // we'd default everything to US. That's wrong for BC, AB, etc.
+        // Infer from the name/short-code as a fallback so non-US regions
+        // don't get parented to "United States".
+        const country =
+          rawCountry ||
+          inferCountryFromServiceAreaName(
+            sa.properties.name ?? '',
+            sa.properties.service_area_code ?? '',
+          ) ||
+          'United States';
         if (!byCountry.has(country)) byCountry.set(country, []);
         byCountry.get(country)!.push(sa);
       }
@@ -570,16 +645,27 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
         // Synthesize a stand-in customer when we can't reuse one (legacy
         // installs may pre-date the contact in our `customers` table).
         const standInCustomerId = 'hs-legacy-cust-' + inst.id;
+        const addressJoined = addressParts.join(', ');
         await tx
           .insert(customers)
           .values({
             id: standInCustomerId,
             name: 'Legacy install ' + inst.id,
-            address: addressParts.join(', '),
+            address: addressJoined,
             phone: '',
             hubspotId: null,
           })
-          .onConflictDoNothing({ target: customers.id });
+          // Backfill the address on existing rows whose address is still
+          // empty — these were created in an earlier sync before the
+          // full_address/city/state fields were pulled. Doing this on
+          // conflict lets a re-sync populate addresses without manual
+          // migration. Name is preserved (so the customer-name backfill
+          // from job titles isn't clobbered).
+          .onConflictDoUpdate({
+            target: customers.id,
+            set: { address: addressJoined, updatedAt: new Date() },
+            setWhere: sql`coalesce(customers.address, '') = '' and ${addressJoined} <> ''`,
+          });
         await tx
           .insert(projects)
           .values({
@@ -587,21 +673,29 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
             customerId: standInCustomerId,
             name: 'Legacy install ' + inst.id,
             type: 'Retrofit',
-            status: 'complete',
+            status: installationStageToStatus(inst.properties.pipeline_stage_sync),
             soldDate: null,
-            targetCompletion: inst.properties.entered_complete_stage_date ?? null,
+            targetCompletion:
+              inst.properties.zuper_job_installation_scheduled_start_time ??
+              inst.properties.entered_complete_stage_date ??
+              null,
             value: null,
             hubspotDealId: null,
             hubspotProjectId: null,
             source: 'legacy_installation',
-            description: 'Imported from legacy Installations object.',
+            description: legacyInstallationDescription(inst),
             designNotes: null,
           })
           .onConflictDoUpdate({
             target: projects.id,
             set: {
-              status: 'complete',
+              status: installationStageToStatus(inst.properties.pipeline_stage_sync),
+              targetCompletion:
+                inst.properties.zuper_job_installation_scheduled_start_time ??
+                inst.properties.entered_complete_stage_date ??
+                null,
               source: 'legacy_installation',
+              description: legacyInstallationDescription(inst),
               updatedAt: new Date(),
             },
           });
@@ -670,16 +764,23 @@ export async function pullHubspotForDemo(opts: SyncOptions = {}): Promise<DemoPu
   const contactsByDeal = new Map<string, string[]>();
   let contactRecords: HubspotContact[] = [];
 
+  // V1/V2 flags also apply to the demo pull so the laptop demo matches
+  // what the DB sync would do.
+  const { getAllIntegrationFlags } = await import('@/lib/settings');
+  const flags = await getAllIntegrationFlags();
+
   try {
     serviceAreaRecords = await listServiceAreas();
   } catch (err) {
     out.errors.push('Service areas: ' + describeError(err));
   }
 
-  try {
-    projectRecords = await searchProjects({ limit: opts.limit });
-  } catch (err) {
-    out.errors.push('Projects: ' + describeError(err));
+  if (flags.hubspotV2) {
+    try {
+      projectRecords = await searchProjects({ limit: opts.limit });
+    } catch (err) {
+      out.errors.push('Projects: ' + describeError(err));
+    }
   }
 
   for (const proj of projectRecords) {
@@ -722,10 +823,12 @@ export async function pullHubspotForDemo(opts: SyncOptions = {}): Promise<DemoPu
     out.errors.push('Contacts batch: ' + describeError(err));
   }
 
-  try {
-    installationRecords = await searchInstallations({ limit: opts.limit });
-  } catch (err) {
-    out.errors.push('Installations: ' + describeError(err));
+  if (flags.hubspotV1) {
+    try {
+      installationRecords = await searchInstallations({ limit: opts.limit });
+    } catch (err) {
+      out.errors.push('Installations: ' + describeError(err));
+    }
   }
 
   // -------- Parse phase (pure, no DB) ---------------------------------------
@@ -931,12 +1034,25 @@ export async function syncInstallation(installationId: string): Promise<{ ok: bo
         customerId: standInCustomerId,
         name: 'Legacy install ' + inst.id,
         type: 'Retrofit',
-        status: 'complete',
+        status: installationStageToStatus(inst.properties.pipeline_stage_sync),
+        targetCompletion:
+          inst.properties.zuper_job_installation_scheduled_start_time ??
+          inst.properties.entered_complete_stage_date ??
+          null,
+        description: legacyInstallationDescription(inst),
         source: 'legacy_installation',
       })
       .onConflictDoUpdate({
         target: projects.id,
-        set: { status: 'complete', updatedAt: new Date() },
+        set: {
+          status: installationStageToStatus(inst.properties.pipeline_stage_sync),
+          targetCompletion:
+            inst.properties.zuper_job_installation_scheduled_start_time ??
+            inst.properties.entered_complete_stage_date ??
+            null,
+          description: legacyInstallationDescription(inst),
+          updatedAt: new Date(),
+        },
       });
     return { ok: true, message: 'Synced installation ' + installationId };
   } catch (err) {

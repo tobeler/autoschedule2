@@ -5,10 +5,22 @@
 import { Icon } from '../../components/Icon';
 import { useStore } from '../../store';
 import { buildAttentionItems } from '../attention/AttentionView';
+import type { Job } from '../../types';
 
-export function AttentionCTA() {
+export function AttentionCTA({ jobs: scopedJobs }: { jobs?: Job[] }) {
   const setTab = useStore((s) => s.setTab);
-  const items = buildAttentionItems();
+  const jobs = useStore((s) => s.jobs);
+  const customers = useStore((s) => s.customers);
+  const people = useStore((s) => s.people);
+  const crews = useStore((s) => s.crews);
+  const timeOff = useStore((s) => s.timeOff);
+  const items = buildAttentionItems({
+    jobs: scopedJobs ?? jobs,
+    customers,
+    people,
+    crews,
+    timeOff,
+  });
   const urgent = items.filter((i) => i.sev === 'urgent').length;
   const warn = items.filter((i) => i.sev === 'warn').length;
   const total = items.length;
