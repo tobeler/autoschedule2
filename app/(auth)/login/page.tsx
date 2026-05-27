@@ -109,6 +109,65 @@ function LoginForm() {
   );
 }
 
+// SSR-safe placeholder for the Suspense boundary. The LoginForm body
+// uses `useSearchParams` which forces client-side rendering, so without
+// a fallback the user saw a dark blank page for ~200ms during hydration.
+// This skeleton renders the exact same shell from the server so the
+// "page didn't load" perception goes away.
+function LoginFallback() {
+  return (
+    <div
+      style={{
+        width: 'min(360px, 92vw)',
+        padding: '32px 28px',
+        background: '#1a1d24',
+        border: '1px solid #2a2e38',
+        borderRadius: 12,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 14,
+        color: '#e8eaf0',
+      }}
+    >
+      <h1
+        style={{
+          fontSize: 20,
+          fontWeight: 600,
+          margin: 0,
+          color: '#ffffff',
+        }}
+      >
+        Jetson · Sign in
+      </h1>
+      <p
+        style={{
+          margin: 0,
+          fontSize: 13,
+          color: '#b4b8c0',
+          lineHeight: 1.5,
+        }}
+      >
+        Use your <strong style={{ color: '#e8eaf0' }}>@jetsonhome.com</strong>{' '}
+        Google account.
+      </p>
+      <div
+        style={{
+          marginTop: 4,
+          padding: '10px 14px',
+          background: '#f4f4f4',
+          border: '1px solid #d0d3d8',
+          borderRadius: 8,
+          textAlign: 'center',
+          color: '#888',
+          fontSize: 13,
+        }}
+      >
+        Loading…
+      </div>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   return (
     <main
@@ -121,7 +180,7 @@ export default function LoginPage() {
         fontFamily: 'var(--font-sans, system-ui, sans-serif)',
       }}
     >
-      <Suspense fallback={null}>
+      <Suspense fallback={<LoginFallback />}>
         <LoginForm />
       </Suspense>
     </main>
