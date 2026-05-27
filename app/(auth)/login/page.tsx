@@ -24,24 +24,35 @@ function LoginForm() {
       style={{
         width: 'min(360px, 92vw)',
         padding: '32px 28px',
-        background: 'var(--panel, #1a1d24)',
-        border: '1px solid var(--line, #2a2e38)',
+        background: '#1a1d24',
+        border: '1px solid #2a2e38',
         borderRadius: 12,
         display: 'flex',
         flexDirection: 'column',
         gap: 14,
+        color: '#e8eaf0',
       }}
     >
-      <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>Jetson · Sign in</h1>
+      <h1
+        style={{
+          fontSize: 20,
+          fontWeight: 600,
+          margin: 0,
+          color: '#ffffff',
+        }}
+      >
+        Jetson · Sign in
+      </h1>
       <p
         style={{
           margin: 0,
           fontSize: 13,
-          color: 'var(--muted, #8a8e96)',
+          color: '#b4b8c0',
           lineHeight: 1.5,
         }}
       >
-        Use your <strong>@jetsonhome.com</strong> Google account.
+        Use your <strong style={{ color: '#e8eaf0' }}>@jetsonhome.com</strong>{' '}
+        Google account.
       </p>
       <button
         type="button"
@@ -105,8 +116,8 @@ export default function LoginPage() {
         minHeight: '100vh',
         display: 'grid',
         placeItems: 'center',
-        background: 'var(--bg, #0f1115)',
-        color: 'var(--fg, #e8eaf0)',
+        background: '#0f1115',
+        color: '#e8eaf0',
         fontFamily: 'var(--font-sans, system-ui, sans-serif)',
       }}
     >
