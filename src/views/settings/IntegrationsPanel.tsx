@@ -117,6 +117,30 @@ export function IntegrationsPanel() {
         if (!cancelled) setConnectionState('disconnected');
       }
     })();
+    // Backfill lastSyncAt from audit_log when local state doesn't have it.
+    // Otherwise the panel shows "never synced" on a fresh device or after a
+    // cache clear even though the integration ran many times on the server.
+    void (async () => {
+      if (cancelled) return;
+      if (lastSyncAt) return;
+      try {
+        const recent = await client.auditLog.list({
+          entityType: 'hubspot',
+          limit: 20,
+        });
+        const lastSync = (recent.data || []).find((r) =>
+          /\/hubspot\/sync\b/i.test(r.action || ''),
+        );
+        if (lastSync && !cancelled) {
+          setLastSyncAt(lastSync.createdAt);
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem(LAST_SYNC_STORAGE_KEY, lastSync.createdAt);
+          }
+        }
+      } catch {
+        // best-effort — silent failure is fine, just leaves the label alone
+      }
+    })();
     return () => {
       cancelled = true;
     };
