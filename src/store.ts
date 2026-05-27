@@ -938,7 +938,13 @@ export const useStore = create<State>()(
       setProjects: (projects) => set({ projects }),
       setRegions: (regions) => set({ regions }),
 
-      demoDataEnabled: true,
+      // Default off: real HubSpot/Zuper data is the source of truth on first
+      // load. The flag flips only when a user clicks "Reload demo" in
+      // Settings → Integrations. useStoreHydration also auto-corrects this
+      // flag to `false` after the first successful API hydration, so any
+      // user with a stale persisted `true` from before this change gets
+      // self-healed on next page load.
+      demoDataEnabled: false,
       setDemoDataEnabled: (v) => {
         if (v) {
           // Entering demo mode: overlay the local store with seed data.
