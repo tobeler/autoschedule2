@@ -24,7 +24,12 @@ import {
   nextSort,
   type SortState,
 } from '../../lib/table';
-import { useRegionFilter } from '../../lib/region-filter';
+import {
+  REGION_PREFIXES,
+  regionPrefixFromTeamName,
+  useRegionFilter,
+  type RegionPrefix,
+} from '../../lib/region-filter';
 import type { Crew, Level, Person, RoleKey, TimeOff, TimeOffType } from '../../types';
 import { SkillsMatrix } from '../crews/SkillsMatrix';
 import { AddTechnicianModal } from './AddTechnicianModal';
@@ -44,8 +49,8 @@ type StatusValue = 'available' | 'out_today' | 'on_loan' | 'on_vacation';
 
 const LEVEL_FILTERS: Level[] = ['L1', 'L2', 'L3'];
 const LEVEL_RANK: Record<Level, number> = { L1: 1, L2: 2, L3: 3 };
-const REGION_FILTERS = ['CO', 'MA', 'BC', 'NY'] as const;
-type Region = (typeof REGION_FILTERS)[number];
+const REGION_FILTERS = REGION_PREFIXES;
+type Region = RegionPrefix;
 const STATUS_FILTERS: StatusValue[] = [
   'available',
   'out_today',
@@ -54,12 +59,7 @@ const STATUS_FILTERS: StatusValue[] = [
 ];
 
 function regionOf(team: string | null | undefined): Region | null {
-  if (!team) return null;
-  const prefix = team.split('-')[0]?.trim().toUpperCase();
-  if (prefix && (REGION_FILTERS as readonly string[]).includes(prefix)) {
-    return prefix as Region;
-  }
-  return null;
+  return regionPrefixFromTeamName(team);
 }
 
 interface RowData {
@@ -937,4 +937,3 @@ function SkillsMatrixDrawer({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
-

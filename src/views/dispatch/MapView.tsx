@@ -230,10 +230,13 @@ export function MapView({ date, jobs, onJobClick }: MapViewProps) {
             gap: 6,
           }}
         >
-          <button className="btn btn-icon btn-outline">
+          {/* Zoom controls are no-ops until real map tiles are wired (the
+              current map is a decorative SVG with hashed pin positions, not
+              a real lat/lng layer). Disabled to avoid the dead-button feel. */}
+          <button className="btn btn-icon btn-outline" disabled title="Zoom available when map tiles are connected">
             <Icon name="plus" size={14} />
           </button>
-          <button className="btn btn-icon btn-outline">
+          <button className="btn btn-icon btn-outline" disabled title="Zoom available when map tiles are connected">
             <span style={{ fontWeight: 800, fontSize: 16 }}>−</span>
           </button>
         </div>
@@ -245,7 +248,7 @@ export function MapView({ date, jobs, onJobClick }: MapViewProps) {
             <div>
               <div className="rail-title">Today's routes</div>
               <div className="muted small">
-                Optimized · saved 47 min vs unsorted
+                Sorted by start time
               </div>
             </div>
             <div style={{ marginLeft: 'auto' }}>

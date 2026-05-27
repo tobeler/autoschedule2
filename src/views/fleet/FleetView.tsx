@@ -153,7 +153,7 @@ export function FleetView() {
           ' available'
         }
       >
-        <button className="btn btn-outline btn-sm">
+        <button className="btn btn-outline btn-sm" disabled title="Map view available when truck telematics is connected">
           <Icon name="grid" size={14} /> Map view
         </button>
         <button

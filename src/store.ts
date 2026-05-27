@@ -109,6 +109,20 @@ interface State {
   toast: string | null;
   showWizard: boolean;
   smartScheduleJobId: string | null;
+  /**
+   * Pending Zuper writeback awaiting dispatcher confirmation.
+   * - `summary`: human copy for the modal ("Reschedule J-1234 to Thu 9am")
+   * - `onConfirm`: applies the write (calls writeback module, returns silently
+   *   when the writeback flag is OFF).
+   * - `onCancel`: revert the local optimistic change.
+   * Set by store mutations whose downstream effect would push to Zuper.
+   */
+  pendingZuperWrite: {
+    summary: string;
+    action: 'reschedule' | 'assign' | 'status' | 'cancel';
+    onConfirm: () => void;
+    onCancel: () => void;
+  } | null;
 
   // ---- runtime mode (not persisted) ----
   /** True when hydrated from the API and writes go through the REST layer. */
@@ -132,6 +146,8 @@ interface State {
   closeWizard: () => void;
   openSmartSchedule: (jobId: string) => void;
   closeSmartSchedule: () => void;
+  setPendingZuperWrite: (p: State['pendingZuperWrite']) => void;
+  clearPendingZuperWrite: () => void;
   setRegion: (r: RegionSelection) => void;
   setTweak: <K extends keyof Tweaks>(k: K, v: Tweaks[K]) => void;
 
@@ -202,7 +218,7 @@ const DEFAULT_TWEAKS: Tweaks = {
   dark: false,
 };
 
-const DEFAULT_REGION: RegionSelection = { regionId: 'co', subId: 'co-d' };
+const DEFAULT_REGION: RegionSelection = { regionId: '', subId: '' };
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -211,6 +227,15 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 function logApiError(action: string, err: unknown): void {
   // eslint-disable-next-line no-console
   console.error(`store.${action} write-through failed`, err);
+}
+
+function formatHourLocal(h: number): string {
+  const totalMin = Math.round(h * 60);
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  const ampm = hh < 12 ? 'AM' : 'PM';
+  const display = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh;
+  return mm === 0 ? `${display} ${ampm}` : `${display}:${String(mm).padStart(2, '0')} ${ampm}`;
 }
 
 export const useStore = create<State>()(
@@ -239,6 +264,7 @@ export const useStore = create<State>()(
       toast: null,
       showWizard: false,
       smartScheduleJobId: null,
+      pendingZuperWrite: null,
 
       apiMode: false,
       hydrated: false,
@@ -253,6 +279,8 @@ export const useStore = create<State>()(
           selectedJobId: id,
           selectedJobInitialTab: opts?.initialTab ?? null,
         }),
+      setPendingZuperWrite: (p) => set({ pendingZuperWrite: p }),
+      clearPendingZuperWrite: () => set({ pendingZuperWrite: null }),
       collapseSidebar: (v) => set({ sidebarCollapsed: v }),
       pushToast: (msg) => {
         set({ toast: msg });
@@ -701,6 +729,64 @@ export const useStore = create<State>()(
               logApiError('moveJob', err);
             });
         }
+
+        // CONFIRMATION + WRITEBACK
+        //
+        // Only Zuper-sourced jobs flow back to Zuper, AND only in API mode.
+        // Demo mode has no Supabase + no Zuper credentials, so showing the
+        // confirm modal there would lead to a guaranteed-failed fetch and a
+        // confusing toast — better to silently no-op until apiMode flips on.
+        // The modal renders the exact change ("Reschedule J-1234 to Thu 9am");
+        // confirm POSTs to a server-only writeback route that calls the Zuper
+        // API (gated by the integrations.zuper.writeback_enabled flag, so this
+        // is a no-op until that flag is flipped on); cancel reverts the
+        // optimistic local change.
+        if (target.zuperJobUid && get().apiMode) {
+          const isReschedule = next.date != null && next.startHour != null;
+          const isUnschedule = movingToUnscheduled;
+          const summary = isUnschedule
+            ? `Mark ${target.zuperJobUid.slice(0, 8)}… as unscheduled in Zuper`
+            : isReschedule
+              ? `Reschedule ${target.zuperJobUid.slice(0, 8)}… → ${next.date} ${formatHourLocal(next.startHour!)}`
+              : `Update ${target.zuperJobUid.slice(0, 8)}… in Zuper`;
+          get().setPendingZuperWrite({
+            summary,
+            action: isUnschedule ? 'cancel' : 'reschedule',
+            onConfirm: () => {
+              get().clearPendingZuperWrite();
+              if (!isReschedule || !next.date || next.startHour == null) return;
+              void (async () => {
+                try {
+                  const res = await fetch('/api/v1/zuper/writeback/reschedule', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      zuperJobUid: target.zuperJobUid,
+                      date: next.date,
+                      startHour: next.startHour,
+                      durationHrs: next.durationHrs,
+                      teamName: next.zuperTeamName ?? null,
+                    }),
+                  });
+                  const body = (await res.json()) as { ok: boolean; applied: boolean; error?: string };
+                  if (!body.ok) get().pushToast('Zuper writeback failed: ' + (body.error ?? 'unknown'));
+                  else if (!body.applied) get().pushToast('Local change saved (Zuper writeback OFF)');
+                  else get().pushToast('Pushed to Zuper');
+                } catch (err) {
+                  get().pushToast('Zuper writeback unreachable');
+                  // eslint-disable-next-line no-console
+                  console.error('writeback reschedule failed', err);
+                }
+              })();
+            },
+            onCancel: () => {
+              set({ jobs: prev });
+              get().pushToast('Move reverted');
+              get().clearPendingZuperWrite();
+            },
+          });
+        }
       },
 
       updateTemplate: (key, tpl) => {
@@ -818,19 +904,12 @@ export const useStore = create<State>()(
     {
       name: 'jetson-fsm-v1',
       storage: createJSONStorage(() => localStorage),
-      // Persist only what's safe to round-trip via localStorage. In API
-      // mode the hydration hook will overwrite these on mount with fresh
-      // server data; in demo mode the persisted snapshot is the source
-      // of truth.
+      // Persist only user preferences + small definitional data. The bulk
+      // collections (jobs, customers, projects) are re-hydrated from the
+      // API on every page load — persisting them to localStorage blew the
+      // 5MB quota once the dataset hit ~6,000 Zuper jobs. The hydration
+      // hook (`useStoreHydration`) is authoritative for those.
       partialize: (s) => ({
-        jobs: s.jobs,
-        people: s.people,
-        crews: s.crews,
-        trucks: s.trucks,
-        customers: s.customers,
-        projects: s.projects,
-        regions: s.regions,
-        timeOff: s.timeOff,
         templates: s.templates,
         checklists: s.checklists,
         checklistResponses: s.checklistResponses,
@@ -839,7 +918,7 @@ export const useStore = create<State>()(
         tweaks: s.tweaks,
         demoDataEnabled: s.demoDataEnabled,
       }),
-      version: 1,
+      version: 2,
     },
   ),
 );

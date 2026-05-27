@@ -8,6 +8,7 @@ export const SubRegionSchema = z
   .object({
     id: z.string(),
     name: z.string(),
+    short: z.string().optional(),
     headcount: z.number().int().nonnegative(),
     crews: z.number().int().nonnegative(),
   })

@@ -15,6 +15,10 @@ import type {
   ZuperTeam,
   ZuperUser,
 } from './types';
+import {
+  normalizeRegionPrefix,
+  type RegionPrefix,
+} from '../../lib/region-core';
 
 const BASE_URL =
   process.env.ZUPER_BASE_URL ?? 'https://us-east-1.zuperpro.com';
@@ -68,6 +72,53 @@ async function zuperGet<T>(endpoint: string): Promise<T> {
   // Unreachable because the retry loop either returns or throws.
   throw new ZuperApiError(0, 'Zuper unreachable');
 }
+
+/**
+ * Low-level WRITE (PUT/POST). Same retry behaviour as zuperGet. Throws
+ * `ZuperConfigError` when unconfigured, `ZuperApiError` on upstream failure.
+ *
+ * Used by the writeback module (`./writeback.ts`). Kept here so all HTTP
+ * concerns live in one place. We intentionally do NOT export this — callers
+ * go through the typed writeback helpers, which gate behaviour on the
+ * `integrations.zuper.writeback_enabled` feature flag.
+ */
+async function zuperWrite<TReq, TRes>(
+  method: 'PUT' | 'POST' | 'PATCH',
+  endpoint: string,
+  body: TReq,
+): Promise<TRes> {
+  const apiKey = process.env.ZUPER_API_KEY;
+  if (!apiKey) throw new ZuperConfigError();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, attempt * 1500));
+
+    const res = await fetch(`${BASE_URL}/api${endpoint}`, {
+      method,
+      headers: {
+        'x-api-key': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (res.status === 429 || res.status === 529) {
+      if (attempt < 2) continue;
+      throw new ZuperApiError(res.status, 'Zuper rate limited after 3 attempts');
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new ZuperApiError(
+        res.status,
+        `Zuper ${method} ${endpoint} → ${res.status}${text ? ': ' + text.slice(0, 200) : ''}`,
+      );
+    }
+    return (await res.json()) as TRes;
+  }
+  throw new ZuperApiError(0, 'Zuper unreachable');
+}
+
+export const _zuperWriteInternal = zuperWrite;
 
 const MAX_PAGES = 10; // 10 × 1000 = 10,000 record ceiling per call.
 
@@ -137,27 +188,16 @@ export function getServiceAreaCode(job: Pick<ZuperJob, 'custom_fields'>): string
 // Resolution order matches jetson-kpi's inferRegion(): team prefix →
 // Service Area Code → property address state. Returns null if no match.
 
-const REGION_PREFIXES = new Set(['MA', 'CO', 'NY', 'BC', 'CA']);
-
-export type RegionPrefix = 'MA' | 'CO' | 'NY' | 'BC' | 'CA';
-
 export function inferRegion(job: ZuperJob): RegionPrefix | null {
-  // 1) Team name prefix (e.g. "CO-DE-1", "BC-NV-2").
-  const teamName = job.assigned_to_team?.[0]?.team?.team_name?.toUpperCase();
-  if (teamName) {
-    const prefix = teamName.split('-')[0];
-    if (REGION_PREFIXES.has(prefix)) return prefix as RegionPrefix;
-  }
+  // 1) Team name (e.g. "CO-DE-1", "Dispatch MA-BO").
+  const teamName = job.assigned_to_team?.[0]?.team?.team_name;
+  const fromTeam = normalizeRegionPrefix(teamName);
+  if (fromTeam) return fromTeam;
   // 2) Service Area Code custom field (e.g. "BC-NV", "CO-DE", "MA-BO").
-  const sac = getServiceAreaCode(job)?.toUpperCase();
-  if (sac) {
-    const prefix = sac.split('-')[0];
-    if (REGION_PREFIXES.has(prefix)) return prefix as RegionPrefix;
-  }
+  const fromServiceArea = normalizeRegionPrefix(getServiceAreaCode(job));
+  if (fromServiceArea) return fromServiceArea;
   // 3) Property address state.
-  const state = job.property?.property_address?.state?.toUpperCase();
-  if (state && REGION_PREFIXES.has(state)) return state as RegionPrefix;
-  return null;
+  return normalizeRegionPrefix(job.property?.property_address?.state);
 }
 
 /** Current status_type from the job_status history array. */

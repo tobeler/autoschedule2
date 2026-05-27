@@ -8,9 +8,9 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { addDays, dateKey, startOfWeek, TODAY } from '../../data/helpers';
-import { unscheduledJobs } from '../../data/selectors';
+import { unscheduledJobs, unscheduledNeedsReviewJobs } from '../../data/selectors';
 import { Icon } from '../../components/Icon';
-import { useRegionFilter } from '../../lib/region-filter';
+import { regionPrefixFromTeamName, useRegionFilter } from '../../lib/region-filter';
 
 import { DispatchBrief } from './DispatchBrief';
 import {
@@ -66,52 +66,49 @@ export function DispatchView() {
   }
 
   // Region filter is now centralized in src/lib/region-filter.ts — all
-  // list views read/write the same store selection. activeRegion is
-  // 'all' | 'CO' | 'MA' | 'BC' | 'NY' (no 'CA' bucket — collapsed into BC).
+  // list views read/write the same store selection.
   const regionPrefix = activeRegion === 'all' ? null : activeRegion;
 
   function matchesRegion(j: { zuperTeamName?: string | null }): boolean {
     if (!regionPrefix) return true;
-    const team = (j.zuperTeamName ?? '').toUpperCase();
-    // CA-* teams currently roll up under the BC bucket (same timezone +
-    // operational region in our data set).
-    if (regionPrefix === 'BC') {
-      return team.startsWith('BC-') || team.startsWith('CA-');
-    }
-    return team.startsWith(regionPrefix + '-');
+    return regionPrefixFromTeamName(j.zuperTeamName) === regionPrefix;
   }
 
-  const visibleJobs = useMemo(() => {
+  const filteredJobs = useMemo(() => {
     let base = jobs;
-    if (range === 'day') base = jobs.filter((j) => j.date === dateKey(date));
-    else if (range === 'week') {
-      const start = addDays(date, -date.getDay());
-      const keys = Array.from({ length: 7 }).map((_, i) =>
-        dateKey(addDays(start, i)),
-      );
-      base = jobs.filter((j) => j.date != null && keys.includes(j.date));
-    } else if (range === 'month') {
-      const prefix =
-        date.getFullYear() +
-        '-' +
-        String(date.getMonth() + 1).padStart(2, '0');
-      base = jobs.filter((j) => j.date != null && j.date.startsWith(prefix));
-    }
-    if (typeFilter.length > 0) base = base.filter((j) => typeFilter.includes(j.type));
-    if (sourceFilter !== 'all') base = base.filter((j) => matchesSourceFilter(j.projectId));
-    if (regionPrefix) base = base.filter(matchesRegion);
-    return base;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobs, date, range, typeFilter, sourceFilter, projectSourceById, regionPrefix]);
-
-  const unsched = useMemo(() => {
-    let base = unscheduledJobs(jobs);
     if (typeFilter.length > 0) base = base.filter((j) => typeFilter.includes(j.type));
     if (sourceFilter !== 'all') base = base.filter((j) => matchesSourceFilter(j.projectId));
     if (regionPrefix) base = base.filter(matchesRegion);
     return base;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobs, typeFilter, sourceFilter, projectSourceById, regionPrefix]);
+
+  const visibleJobs = useMemo(() => {
+    let base = filteredJobs;
+    if (range === 'day') base = filteredJobs.filter((j) => j.date === dateKey(date));
+    else if (range === 'week') {
+      const start = addDays(date, -date.getDay());
+      const keys = Array.from({ length: 7 }).map((_, i) =>
+        dateKey(addDays(start, i)),
+      );
+      base = filteredJobs.filter((j) => j.date != null && keys.includes(j.date));
+    } else if (range === 'month') {
+      const prefix =
+        date.getFullYear() +
+        '-' +
+        String(date.getMonth() + 1).padStart(2, '0');
+      base = filteredJobs.filter((j) => j.date != null && j.date.startsWith(prefix));
+    }
+    return base;
+  }, [filteredJobs, date, range]);
+
+  const unsched = useMemo(() => {
+    return unscheduledJobs(filteredJobs);
+  }, [filteredJobs]);
+
+  const unschedReview = useMemo(() => {
+    return unscheduledNeedsReviewJobs(filteredJobs);
+  }, [filteredJobs]);
 
   const dayMode = range === 'day' && layout === 'calendar';
   // Phase 15.1b — surface the Unscheduled rail (and its collapsed strip)
@@ -149,18 +146,19 @@ export function DispatchView() {
       {range === 'day' && showBrief && (
         <DispatchBrief
           date={date}
-          jobs={jobs}
+          jobs={filteredJobs}
           onNewJob={openWizard}
           onHide={() => setShowBrief(false)}
         />
       )}
 
-      {range === 'day' && <AttentionCTA />}
+      {range === 'day' && <AttentionCTA jobs={filteredJobs} />}
 
       <div className={mainClass}>
         {railVisible && (
           <UnscheduledRail
             jobs={unsched}
+            reviewCount={unschedReview.length}
             onJobClick={(j) => selectJob(j.id)}
             onCollapse={() => setShowRail(false)}
           />

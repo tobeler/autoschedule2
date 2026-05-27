@@ -97,6 +97,10 @@ export const TERMINAL_STATUSES = new Set([
 /**
  * Active dispatch statuses (jobs the dispatcher cares about today). Anything
  * not in this set + not terminal is treated as backlog.
+ *
+ * FOLLOW_UP / FOLLOW_UP_SAME_JOB are included because dispatchers need to see
+ * callback work as active jobs — historically these were excluded and we ended
+ * up with zero status='callback' rows in the DB.
  */
 export const ACTIVE_STATUSES = new Set([
   'NEW',
@@ -105,4 +109,6 @@ export const ACTIVE_STATUSES = new Set([
   'ON_MY_WAY',
   'STARTED',
   'ON_HOLD',
+  'FOLLOW_UP',
+  'FOLLOW_UP_SAME_JOB',
 ]);

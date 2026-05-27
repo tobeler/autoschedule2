@@ -158,7 +158,18 @@ function projectAndCustomerFor(
   };
 }
 
-export async function bootstrapActiveJobsFromZuper(): Promise<BootstrapResult> {
+export interface BootstrapOptions {
+  /**
+   * When true, also pull COMPLETED / CLOSED / CANCELED / CANNOT_COMPLETE /
+   * FAILED jobs so dispatchers can see past weeks. Defaults to false to keep
+   * the active dispatch dataset lean.
+   */
+  includeTerminal?: boolean;
+}
+
+export async function bootstrapActiveJobsFromZuper(
+  opts: BootstrapOptions = {},
+): Promise<BootstrapResult> {
   const result: BootstrapResult = {
     ok: false,
     startedAt: new Date().toISOString(),
@@ -191,7 +202,9 @@ export async function bootstrapActiveJobsFromZuper(): Promise<BootstrapResult> {
     return result;
   }
 
-  const activeJobs = zJobs.filter((j) => ACTIVE_STATUSES.has(currentStatus(j)));
+  const activeJobs = opts.includeTerminal
+    ? zJobs.filter((j) => currentStatus(j) !== '') // keep everything with a known status
+    : zJobs.filter((j) => ACTIVE_STATUSES.has(currentStatus(j)));
   result.activeKept = activeJobs.length;
 
   const maps = await buildLookupMaps();
@@ -255,7 +268,11 @@ export async function bootstrapActiveJobsFromZuper(): Promise<BootstrapResult> {
                 date: startDate,
                 startHour: startH != null ? String(startH) : null,
                 durationHrs: String(durationHoursBetween(start, end)),
-                address: joinAddress(zJob),
+                // The bulk /jobs endpoint returns null property_address for
+                // most rows, so joinAddress() comes back empty here. Only
+                // overwrite the stored address when the new value is non-empty,
+                // otherwise we'd wipe addresses that enrich has already filled.
+                ...(joinAddress(zJob) ? { address: joinAddress(zJob) } : {}),
                 hubspotDealId,
                 zuperTeamName: teamName,
                 endDate,

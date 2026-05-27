@@ -16,6 +16,7 @@ import { Avatar } from '../../components/Avatar';
 import { fmtTime, hoursToStr } from '../../data/helpers';
 import { getJobType } from '../../data/selectors';
 import { useStore } from '../../store';
+import { jobDisplayName } from '../../lib/customer-display';
 
 interface JobBlockProps {
   job: Job;
@@ -161,25 +162,7 @@ export function JobBlock({
       </div>
 
       <div className="job-block-title">
-        {(() => {
-          // "{Customer} — {Job type}" when both are known. When the linked
-          // customer record is missing, parse the verbatim Zuper title — it
-          // almost always begins with "{First Last} - …" — and use that as
-          // the customer name. Falls back to type-only, then the verbatim
-          // title, then address.
-          const typeLabel = jt?.short || jt?.label;
-          const name =
-            customer?.name ??
-            (job.title
-              ? job.title.split(/\s[-|]\s/)[0].trim()
-              : null);
-          if (name && typeLabel) return name + ' — ' + typeLabel;
-          if (name) return name;
-          if (typeLabel) return typeLabel;
-          if (job.title) return job.title;
-          if (job.address) return job.address.split('·')[0].trim();
-          return 'Untitled';
-        })()}
+        {jobDisplayName(job, customer, jt, { prefer: 'short' })}
       </div>
 
       {!compact && (

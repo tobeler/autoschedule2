@@ -14,7 +14,6 @@ import { dateKey, TODAY } from './data/helpers';
 import { DispatchView } from './views/dispatch/DispatchView';
 import { AttentionView, buildAttentionItems } from './views/attention/AttentionView';
 import { JobsView } from './views/jobs/JobsView';
-import { ProjectsView } from './views/projects/ProjectsView';
 import { TechniciansView } from './views/technicians/TechniciansView';
 import { CrewsView } from './views/crews/CrewsView';
 import { FleetView } from './views/fleet/FleetView';
@@ -25,6 +24,8 @@ import { SettingsView } from './views/settings/SettingsView';
 import { JobDetailDrawer } from './modals/JobDetailDrawer';
 import { NewJobWizard } from './modals/NewJobWizard/NewJobWizard';
 import { SmartScheduleModal } from './modals/SmartScheduleModal';
+import { ZuperWriteConfirmModal } from './modals/ZuperWriteConfirmModal';
+import { BrowserErrorReporter } from './components/BrowserErrorReporter';
 
 import { useStoreHydration } from './hooks/useStoreHydration';
 import { useStoreRealtime } from './hooks/useStoreRealtime';
@@ -53,7 +54,6 @@ export default function App() {
   const setRegion = useStore((s) => s.setRegion);
 
   const jobs = useStore((s) => s.jobs);
-  const projects = useStore((s) => s.projects);
   const people = useStore((s) => s.people);
 
   // Keyboard: Escape closes drawer
@@ -88,10 +88,18 @@ export default function App() {
   const urgentCount = attentionItems.filter((i) => i.sev === 'urgent').length;
   const totalAttention = attentionItems.length;
 
+  // Projects is hidden for now: HubSpot's "Installation" object is being
+  // deprecated in favor of native "Jobs" in HubSpot. Until the deal/install/
+  // job linkage stabilizes, dispatchers work directly off the Jobs view.
+  // Jobs badge counts ACTIVE jobs only (matches the default filter in
+  // JobsView and the dispatcher's mental model — historical jobs aren't
+  // actionable work).
+  const activeJobsCount = jobs.filter(
+    (j) => j.status !== 'complete' && j.status !== 'cancelled',
+  ).length;
   const navItems: NavItem[] = [
     { id: 'dispatch', label: 'Dispatch', icon: 'calendar', badge: unscheduledJobs(jobs).length || null },
-    { id: 'projects', label: 'Projects', icon: 'home', badge: projects.length },
-    { id: 'jobs', label: 'Jobs', icon: 'briefcase', badge: jobs.length },
+    { id: 'jobs', label: 'Jobs', icon: 'briefcase', badge: activeJobsCount },
     { id: 'technicians', label: 'Technicians', icon: 'user', badge: people.length },
     { id: 'crews', label: 'Crews', icon: 'users' },
     { id: 'fleet', label: 'Trucks', icon: 'truck' },
@@ -135,21 +143,21 @@ export default function App() {
         {!sidebarCollapsed && <div className="sidebar-section">Quick filters</div>}
         {!sidebarCollapsed && (
           <>
-            <button className="nav-item">
+            <button className="nav-item" onClick={() => setTab('dispatch')}>
               <span
                 className="dot"
                 style={{ width: 8, height: 8, background: 'var(--jt-heatpump)', borderRadius: '50%' }}
               />
               Heat pumps today<span className="nav-badge">{jobs.filter((j) => j.type === 'heatpump' && j.date === dateKey(TODAY)).length}</span>
             </button>
-            <button className="nav-item">
+            <button className="nav-item" onClick={() => setTab('attention')}>
               <span
                 className="dot"
                 style={{ width: 8, height: 8, background: 'var(--jt-callback)', borderRadius: '50%' }}
               />
-              Callbacks<span className="nav-badge">{jobs.filter((j) => j.status === 'callback').length}</span>
+              Callbacks<span className="nav-badge">{jobs.filter((j) => j.type === 'callback' && j.status !== 'complete' && j.status !== 'cancelled').length}</span>
             </button>
-            <button className="nav-item">
+            <button className="nav-item" onClick={() => setTab('attention')}>
               <Icon name="user" size={16} className="nav-icon" />
               Unfilled slots
               <span className="nav-badge">
@@ -175,7 +183,10 @@ export default function App() {
           <span className="muted small" style={{ marginLeft: 4, marginRight: 4 }}>
             ·
           </span>
-          <RegionPicker value={region} onChange={(r) => r && setRegion(r)} />
+          <RegionPicker
+            value={region}
+            onChange={(r) => setRegion(r ?? { regionId: '', subId: '' })}
+          />
 
           <div className="topbar-spacer" />
 
@@ -197,7 +208,6 @@ export default function App() {
           {tab === 'dispatch' && <DispatchView />}
           {tab === 'attention' && <AttentionView />}
           {tab === 'jobs' && <JobsView />}
-          {tab === 'projects' && <ProjectsView />}
           {tab === 'technicians' && <TechniciansView />}
           {tab === 'crews' && <CrewsView />}
           {tab === 'fleet' && <FleetView />}
@@ -210,6 +220,8 @@ export default function App() {
       {selectedJobId && <JobDetailDrawer />}
       {showWizard && <NewJobWizard />}
       {smartScheduleJobId && <SmartScheduleModal />}
+      <ZuperWriteConfirmModal />
+      <BrowserErrorReporter />
 
       <Toast />
     </div>

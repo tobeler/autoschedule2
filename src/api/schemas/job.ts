@@ -55,6 +55,7 @@ export const JobSchema = z
     daysSpanned: z.number().optional(),
     zuperJobUid: z.string().nullable().optional(),
     zuperTeamName: z.string().nullable().optional(),
+    assignedTechIds: z.array(z.string()).nullable().optional(),
     // Actuals — written by the transition endpoint.
     actualsEnRouteAt: z.string().nullable().optional(),
     actualsInProgressAt: z.string().nullable().optional(),
@@ -90,6 +91,7 @@ export const JobCreateSchema = z
     endDate: z.string().optional(),
     endHour: z.number().optional(),
     daysSpanned: z.number().optional(),
+    assignedTechIds: z.array(z.string()).nullable().optional(),
   })
   .openapi('JobCreate');
 

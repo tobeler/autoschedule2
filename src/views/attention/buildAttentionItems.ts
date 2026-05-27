@@ -5,13 +5,18 @@ import type { ReactNode } from 'react';
 import type { IconName } from '../../components/Icon';
 import { useStore } from '../../store';
 import { TODAY, dateKey, fmtDate, fmtTime, hoursToStr } from '../../data/helpers';
+import type { Crew, Customer, Job, Person, TimeOff } from '../../types';
 import {
   getCrew,
   getCustomer,
+  getJobType,
   getPerson,
   roleLabel,
+  unscheduledJobs,
+  unscheduledNeedsReviewJobs,
 } from '../../data/selectors';
-import { JOB_TYPES, ROLES } from '../../data/seed';
+import { summarizeUnscheduledReviewReasons } from '../../lib/dispatch-work';
+import { ROLES } from '../../data/seed';
 
 export type AttentionSev = 'urgent' | 'warn' | 'info';
 export type AttentionCategory = 'coverage' | 'schedule' | 'field' | 'heads_up';
@@ -43,14 +48,22 @@ export interface AttentionItem {
   personId?: string;
 }
 
+export interface AttentionBuildState {
+  jobs: Job[];
+  customers: Customer[];
+  people: Person[];
+  crews: Crew[];
+  timeOff: TimeOff[];
+}
+
 const SEV_ORDER: Record<AttentionSev, number> = { urgent: 0, warn: 1, info: 2 };
 
 /**
  * Build the live attention list. Reads from the global store via
  * `useStore.getState()` — safe to call from non-React code paths.
  */
-export function buildAttentionItems(): AttentionItem[] {
-  const state = useStore.getState();
+export function buildAttentionItems(input?: AttentionBuildState): AttentionItem[] {
+  const state = input ?? useStore.getState();
   const { jobs, customers, people, crews, timeOff } = state;
   const items: AttentionItem[] = [];
   const today = dateKey(TODAY);
@@ -82,10 +95,10 @@ export function buildAttentionItems(): AttentionItem[] {
             (c?.name || (job.address || '').split('·')[0] || ''),
           meta: [
             { kind: 'due', label: 'By ' + slotStart },
-            { kind: 'tag', label: JOB_TYPES[job.type]?.short || job.type },
+            { kind: 'tag', label: getJobType(job.type)?.short || job.type },
           ],
           context: [
-            ['Job', job.id + ' · ' + (JOB_TYPES[job.type]?.label || job.type)],
+            ['Job', job.id + ' · ' + (getJobType(job.type)?.label || job.type)],
             ['Customer', c?.name || '—'],
             ['Address', job.address || '—'],
             ['Role needed', role.label + ' (' + s.level + ')'],
@@ -100,7 +113,7 @@ export function buildAttentionItems(): AttentionItem[] {
               action: 'assign',
             },
             { icon: 'user', title: 'Pick from roster', sub: 'Manually assign a person', action: 'pick' },
-            { icon: 'phone', title: 'Call subcontractor pool', sub: 'Brooks Electric · Walsh Electric on call' },
+            { icon: 'briefcase', title: 'Review external coverage', sub: 'Subcontractor option only; no message sent' },
           ],
           jobId: job.id,
         });
@@ -119,7 +132,7 @@ export function buildAttentionItems(): AttentionItem[] {
         cat: 'schedule',
         icon: 'refresh',
         title: 'Callback · ' + (c?.name || job.id),
-        desc: (job.notes || 'Customer reported recurring issue') + ' · ' + (isToday ? 'same-day' : 'unscheduled'),
+        desc: (job.notes || 'Callback from Zuper; review job details') + ' · ' + (isToday ? 'same-day' : 'unscheduled'),
         meta: [
           { kind: isToday ? 'due' : 'soft', label: isToday ? 'Today' : 'Unscheduled' },
           { kind: 'tag', label: 'Callback' },
@@ -128,7 +141,7 @@ export function buildAttentionItems(): AttentionItem[] {
           ['Job', job.id],
           ['Customer', c?.name || '—'],
           ['Address', job.address || '—'],
-          ['Original job', 'J-2562 · completed May 14'],
+          ['Source', job.zuperJobUid ? 'Zuper ' + job.zuperJobUid : job.hubspotDealId ? 'HubSpot deal ' + job.hubspotDealId : '—'],
           ['Issue', job.notes || '—'],
         ],
         resolutions: [
@@ -136,11 +149,21 @@ export function buildAttentionItems(): AttentionItem[] {
             primary: true,
             icon: 'sparkle',
             title: isToday ? "Drop into today's slack" : 'Suggest earliest fit',
-            sub: 'Chen Crew has 1.5h gap at 3:30p',
+            sub: 'Rank by region, crew capacity, and route fit',
             action: 'schedule',
           },
-          { icon: 'phone', title: 'Call customer', sub: 'Confirm urgency + window' },
-          { icon: 'briefcase', title: 'Open original job', sub: 'View install history' },
+          {
+            icon: 'calendar',
+            title: 'Find schedule window',
+            sub: 'Pick a local slot before any customer outreach',
+            action: 'pick_window',
+          },
+          {
+            icon: 'briefcase',
+            title: 'Open job details',
+            sub: 'Review source identifiers and notes',
+            action: 'open_details',
+          },
         ],
         jobId: job.id,
       });
@@ -153,60 +176,14 @@ export function buildAttentionItems(): AttentionItem[] {
   // queue rollup (#5), people-out from timeOff (#7), and the per-job
   // computed bits below are all real-data driven.
 
-  // 3. OVERDUE — past-dated jobs still in a non-terminal status. This is
-  // the single biggest blind spot for HVAC ops: jobs scheduled for last
-  // Tuesday that never got marked complete or cancelled. Bucket them as
-  // one rollup with a count so the topbar doesn't fill with 480 items.
-  const overdueJobs = jobs.filter(
-    (j) =>
-      j.date != null &&
-      j.date < today &&
-      j.status !== 'complete' &&
-      j.status !== 'cancelled',
-  );
-  if (overdueJobs.length > 0) {
-    const oldest = overdueJobs.reduce<string | null>(
-      (m, j) => (m == null || (j.date && j.date < m) ? j.date! : m),
-      null,
-    );
-    items.push({
-      id: 'overdue-rollup',
-      sev: 'urgent',
-      cat: 'schedule',
-      icon: 'alert_circle',
-      title: overdueJobs.length + ' overdue jobs need closeout',
-      desc:
-        'These jobs were scheduled for a past date but are still marked active ' +
-        '— probably need to be marked complete or rescheduled. Oldest: ' +
-        (oldest ?? '—') +
-        '.',
-      meta: [
-        { kind: 'due', label: 'Past' },
-        { kind: 'tag', label: overdueJobs.length + ' jobs' },
-      ],
-      context: [
-        ['Count', String(overdueJobs.length)],
-        ['Oldest date', oldest ?? '—'],
-        ['Statuses', Array.from(new Set(overdueJobs.map((j) => j.status))).join(', ')],
-      ],
-      resolutions: [
-        {
-          primary: true,
-          icon: 'check',
-          title: 'Review and mark complete',
-          sub: 'Open Jobs tab → filter past-dated active',
-        },
-        {
-          icon: 'calendar',
-          title: 'Bulk reschedule',
-          sub: 'For jobs still on the calendar but not yet done',
-        },
-      ],
-    });
-  }
+  // Closeout/post-install cleanup is intentionally excluded from dispatch
+  // attention. This board is for getting install and service jobs scheduled,
+  // covered, and routed.
 
-  // 5. UNSCHEDULED QUEUE — bucket non-callback unscheduled
-  const unsched = jobs.filter((j) => j.status === 'unscheduled' && j.type !== 'callback');
+  // 5. UNSCHEDULED QUEUE — clean dispatch-ready work only. Zuper NEW rows
+  // such as estimates, permits, and admin board items are intentionally
+  // held out of this scheduling workflow.
+  const unsched = unscheduledJobs(jobs).filter((j) => j.type !== 'callback');
   if (unsched.length) {
     const total = unsched.reduce((s, j) => s + (j.price || 0), 0);
     items.push({
@@ -215,26 +192,56 @@ export function buildAttentionItems(): AttentionItem[] {
       cat: 'schedule',
       icon: 'calendar',
       title:
-        unsched.length + ' unscheduled job' + (unsched.length === 1 ? '' : 's') + ' for this week',
+        unsched.length + ' install/service job' + (unsched.length === 1 ? '' : 's') + ' awaiting slots',
       desc:
-        'Total $' +
+        'Clean queue only: installs, service, repairs, and add-on field work awaiting slots. ' +
+        'Callbacks are listed as individual urgent items. ' +
+        'Known non-dispatch rows are held for data review. Total $' +
         total.toLocaleString() +
-        ' in pipeline awaiting slots · oldest sits 3 days',
+        '.',
       meta: [
-        { kind: 'soft', label: 'This week' },
+        { kind: 'soft', label: 'Dispatch-ready non-callback' },
         { kind: 'deal', label: 'HubSpot' },
       ],
       context: unsched.map((j) => {
         const c = getCustomer(customers, j.customer);
         const head = c?.name || (j.address || '').split('·')[0] || '—';
         const tail =
-          (JOB_TYPES[j.type]?.short || j.type) + (j.price ? ' · $' + j.price.toLocaleString() : '');
+          (getJobType(j.type)?.short || j.type) + (j.price ? ' · $' + j.price.toLocaleString() : '');
         return [j.id, head + ' · ' + tail];
       }),
       resolutions: [
-        { primary: true, icon: 'sparkle', title: 'Batch smart-schedule', sub: 'Suggest crew + day for each', action: 'smart_schedule' },
-        { icon: 'calendar', title: 'Open unscheduled rail', sub: 'Drag into the day calendar' },
-        { icon: 'bell', title: 'Defer to next week', sub: 'Mark all as Week-of May 25' },
+        { primary: true, icon: 'calendar', title: 'Open dispatch rail', sub: 'Schedule from the clean queue; callbacks stay separate', action: 'open_dispatch' },
+        { icon: 'sparkle', title: 'Rank by revenue impact', sub: 'Use Impact sort to pick the highest-risk work first' },
+        { icon: 'briefcase', title: 'Review source deals', sub: 'Open the jobs table with HubSpot deal ids', action: 'open_jobs' },
+      ],
+    });
+  }
+
+  const reviewUnscheduled = unscheduledNeedsReviewJobs(jobs);
+  if (reviewUnscheduled.length) {
+    const reasonCounts = summarizeUnscheduledReviewReasons(reviewUnscheduled);
+    items.push({
+      id: 'unscheduled-review',
+      sev: 'info',
+      cat: 'heads_up',
+      icon: 'alert_circle',
+      title:
+        reviewUnscheduled.length +
+        ' unscheduled row' +
+        (reviewUnscheduled.length === 1 ? '' : 's') +
+        ' held out of dispatch',
+      desc:
+        'These rows still have unscheduled status, but are not clean schedule-ready jobs. ' +
+        'They stay out of the drag rail until type, customer, and address data are dispatchable.',
+      meta: [
+        { kind: 'soft', label: 'Data quality' },
+        { kind: 'tag', label: 'Hidden from rail' },
+      ],
+      context: reasonCounts.slice(0, 8).map(([reason, count]) => [String(count), reason]),
+      resolutions: [
+        { primary: true, icon: 'briefcase', title: 'Open jobs table', sub: 'Filter Unscheduled and audit type/customer/address', action: 'open_jobs' },
+        { icon: 'calendar', title: 'Return to dispatch rail', sub: 'Only dispatch-ready jobs appear there', action: 'open_dispatch' },
       ],
     });
   }
@@ -283,15 +290,15 @@ export function buildAttentionItems(): AttentionItem[] {
           'Status',
           isToday
             ? t.type === 'sick'
-              ? 'Jobs already reassigned'
-              : 'On schedule'
+              ? 'Coverage review needed'
+              : 'Check coverage before dispatch'
             : 'Heads-up only',
         ],
       ],
       resolutions: isToday
         ? [
-            { primary: true, icon: 'check', title: 'Review reassigned jobs', sub: '2 jobs moved to Reyes Crew' },
-            { icon: 'bell', title: 'Message ' + p.name.split(' ')[0], sub: 'Check in / wish well' },
+            { primary: true, icon: 'sparkle', title: 'Find coverage', sub: 'Rank replacement techs and open gaps', action: 'open_dispatch' },
+            { icon: 'calendar', title: 'See affected jobs', sub: 'Jobs assigned to ' + p.name.split(' ')[0] + ' today', action: 'open_jobs' },
           ]
         : [
             {
@@ -299,11 +306,13 @@ export function buildAttentionItems(): AttentionItem[] {
               icon: 'sparkle',
               title: 'Find coverage',
               sub: 'Suggest backup ' + roleLabel(primaryRole).toLowerCase(),
+              action: 'open_dispatch',
             },
             {
               icon: 'calendar',
               title: 'See affected jobs',
               sub: 'Jobs assigned to ' + p.name.split(' ')[0] + ' that day',
+              action: 'open_jobs',
             },
           ],
       personId: p.id,

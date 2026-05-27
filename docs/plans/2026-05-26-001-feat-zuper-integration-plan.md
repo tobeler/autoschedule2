@@ -403,7 +403,7 @@ EVENTUAL (writeback enabled, future PR):
 - Edge case: clicking "Sync now (demo)" in Settings reloads from seed + Zuper fixtures
 
 **Verification:**
-- `pnpm dev` with empty env → http://localhost:3000 shows populated board after first login
+- `pnpm dev` with empty env → http://localhost:3010 shows populated board after first login
 - Playwright snapshot of dispatch board shows ≥6 job cards
 
 

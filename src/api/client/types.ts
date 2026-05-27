@@ -5747,6 +5747,7 @@ export interface components {
             actualsEnRouteAt?: string | null;
             actualsInProgressAt?: string | null;
             actualsCompleteAt?: string | null;
+            assignedTechIds?: string[] | null;
         };
         JobTypeKey: string;
         /** @enum {string} */
@@ -5826,6 +5827,7 @@ export interface components {
             endDate?: string;
             endHour?: number;
             daysSpanned?: number;
+            assignedTechIds?: string[] | null;
         };
         JobUpdate: {
             id?: string;
@@ -5855,6 +5857,7 @@ export interface components {
             endDate?: string;
             endHour?: number;
             daysSpanned?: number;
+            assignedTechIds?: string[] | null;
         };
         JobTransition: {
             status: components["schemas"]["JobStatus"];
@@ -6119,6 +6122,7 @@ export interface components {
         SubRegion: {
             id: string;
             name: string;
+            short?: string;
             headcount: number;
             crews: number;
         };

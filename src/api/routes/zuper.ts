@@ -23,6 +23,7 @@ import { bootstrapActiveJobsFromZuper } from '@/integrations/zuper/bootstrap';
 import { bootstrapTechniciansFromZuper } from '@/integrations/zuper/bootstrap-technicians';
 import { enrichZuperJobs } from '@/integrations/zuper/enrich';
 import { bootstrapCrewsFromZuper } from '@/integrations/zuper/bootstrap-crews';
+import { rescheduleJob as zuperReschedule } from '@/integrations/zuper/writeback';
 
 import { ApiError } from '../middleware/error';
 import { ProblemResponses, jsonContent, z } from '../schemas/common';
@@ -102,7 +103,12 @@ const bootstrapRoute = createRoute({
   method: 'post',
   path: '/zuper/bootstrap',
   tags: ['zuper'],
-  summary: 'One-time pull of ACTIVE Zuper jobs to seed the dispatcher. Not a recurring sync.',
+  summary: 'Pull Zuper jobs into our DB. Pass ?all=true to include completed/closed/cancelled history.',
+  request: {
+    query: z.object({
+      all: z.string().optional().openapi({ example: 'true', description: 'Include terminal-status jobs (history)' }),
+    }),
+  },
   responses: {
     200: jsonContent(ZuperBootstrapResultSchema, 'Bootstrap result'),
     ...ProblemResponses,
@@ -114,9 +120,52 @@ const enrichRoute = createRoute({
   path: '/zuper/enrich',
   tags: ['zuper'],
   summary:
-    'One-time enrichment: fill in real addresses + customer names on Zuper-sourced jobs by calling Zuper /jobs/{uid}. Read-only against Zuper.',
+    'Fill in real addresses + customer names on Zuper-sourced jobs by calling Zuper /jobs/{uid}. Read-only against Zuper. Pass ?limit=N to cap iterations.',
+  request: {
+    query: z.object({
+      limit: z.string().optional(),
+      gapMs: z.string().optional(),
+    }),
+  },
   responses: {
     200: jsonContent(ZuperEnrichResultSchema, 'Enrichment result'),
+    ...ProblemResponses,
+  },
+});
+
+const ZuperWritebackRescheduleBody = z
+  .object({
+    zuperJobUid: z.string().min(1),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    startHour: z.number().min(0).max(24),
+    durationHrs: z.number().min(0).max(24),
+    teamName: z.string().nullable().optional(),
+  })
+  .openapi('ZuperWritebackRescheduleBody');
+
+const ZuperWritebackResult = z
+  .object({
+    ok: z.boolean(),
+    applied: z.boolean(),
+    summary: z.string().optional(),
+    error: z.string().optional(),
+  })
+  .openapi('ZuperWritebackResult');
+
+const writebackRescheduleRoute = createRoute({
+  method: 'post',
+  path: '/zuper/writeback/reschedule',
+  tags: ['zuper'],
+  summary:
+    'Push a reschedule to Zuper. Gated by integrations.zuper.writeback_enabled — returns applied=false when the flag is off (dry-run).',
+  request: {
+    body: {
+      content: { 'application/json': { schema: ZuperWritebackRescheduleBody } },
+      required: true,
+    },
+  },
+  responses: {
+    200: jsonContent(ZuperWritebackResult, 'Writeback result'),
     ...ProblemResponses,
   },
 });
@@ -220,7 +269,8 @@ export function registerZuperRoutes(app: OpenAPIHono<ApiEnv>): void {
       });
     }
     try {
-      const result = await bootstrapActiveJobsFromZuper();
+      const all = c.req.query('all') === 'true';
+      const result = await bootstrapActiveJobsFromZuper({ includeTerminal: all });
       return c.json(result, 200);
     } catch (err) {
       translateZuperError(err);
@@ -236,8 +286,40 @@ export function registerZuperRoutes(app: OpenAPIHono<ApiEnv>): void {
       });
     }
     try {
-      const result = await enrichZuperJobs();
+      const limit = Number(c.req.query('limit')) || undefined;
+      const gapMs = Number(c.req.query('gapMs')) || undefined;
+      const result = await enrichZuperJobs({ limit, gapMs });
       return c.json(result, 200);
+    } catch (err) {
+      translateZuperError(err);
+    }
+  });
+
+  app.openapi(writebackRescheduleRoute, async (c) => {
+    const body = c.req.valid('json') as {
+      zuperJobUid: string;
+      date: string;
+      startHour: number;
+      durationHrs: number;
+      teamName?: string | null;
+    };
+    try {
+      const result = await zuperReschedule({
+        zuperJobUid: body.zuperJobUid,
+        date: body.date,
+        startHour: body.startHour,
+        durationHrs: body.durationHrs,
+        teamName: body.teamName ?? null,
+      });
+      return c.json(
+        {
+          ok: result.ok,
+          applied: result.applied,
+          summary: result.preview.summary,
+          error: result.error,
+        },
+        200,
+      );
     } catch (err) {
       translateZuperError(err);
     }

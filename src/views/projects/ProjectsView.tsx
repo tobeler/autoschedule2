@@ -10,12 +10,8 @@ import { PageHeader } from '../../components/PageHeader';
 import { useStore } from '../../store';
 import { TODAY, fmtDate, fmtTime } from '../../data/helpers';
 import { getCustomer, jobsForProject } from '../../data/selectors';
-import type { Customer, Project, ProjectStatus } from '../../types';
+import type { Customer, Job, Project, ProjectStatus } from '../../types';
 import { ProjectDetailDrawer } from './ProjectDetailDrawer';
-import { AddProjectModal } from './AddProjectModal';
-import { EditProjectModal } from './EditProjectModal';
-import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
-import { IconButton } from '../../components/IconButton';
 import {
   makeSorter,
   matchesSearch,
@@ -23,7 +19,11 @@ import {
   tokenizeQuery,
   type SortState,
 } from '../../lib/table';
-import { useRegionFilter } from '../../lib/region-filter';
+import {
+  REGION_PREFIXES,
+  regionPrefixFromTeamName,
+  useRegionFilter,
+} from '../../lib/region-filter';
 
 interface ProjectStatusMeta {
   label: string;
@@ -106,25 +106,31 @@ const SOURCE_FILTERS: { key: SourceFilter; label: string }[] = [
 
 const REGION_FILTERS: { key: RegionFilter; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'CO', label: 'CO' },
-  { key: 'MA', label: 'MA' },
-  { key: 'BC', label: 'BC' },
-  { key: 'NY', label: 'NY' },
+  ...REGION_PREFIXES.map((prefix) => ({ key: prefix, label: prefix })),
 ];
 
-const VALID_REGIONS = new Set<RegionFilter>(['CO', 'MA', 'BC', 'NY']);
+const VALID_REGIONS = new Set<RegionFilter>(REGION_PREFIXES);
 
-/**
- * Pull the 2-letter region code from a customer address. Format from seed
- * + recent enrichment is "<street> · <city>, <ST>" — fall back to "no
- * match" if the trailing state token isn't one of our four regions.
- */
-function regionForCustomer(customer: Customer | undefined): RegionFilter | null {
+type ProjectRegion = Exclude<RegionFilter, 'all'>;
+
+function regionFromCustomerAddress(customer: Customer | undefined): ProjectRegion | null {
   if (!customer?.address) return null;
   // Grab the segment after the last comma, then the 2-letter state code.
   const tail = customer.address.split(',').pop()?.trim() ?? '';
-  const code = tail.slice(0, 2).toUpperCase() as RegionFilter;
+  const code = tail.slice(0, 2).toUpperCase() as ProjectRegion;
   return VALID_REGIONS.has(code) ? code : null;
+}
+
+function regionForProject(customer: Customer | undefined, projectJobs: Job[]): ProjectRegion | null {
+  const byJobTeam = new Map<ProjectRegion, number>();
+  for (const job of projectJobs) {
+    const region = regionPrefixFromTeamName(job.zuperTeamName);
+    if (!region) continue;
+    byJobTeam.set(region, (byJobTeam.get(region) ?? 0) + 1);
+  }
+  const [topRegion] =
+    Array.from(byJobTeam.entries()).sort((a, b) => b[1] - a[1])[0] ?? [];
+  return topRegion ?? regionFromCustomerAddress(customer);
 }
 
 function sourceBucket(p: Project): 'v1' | 'v2' {
@@ -146,18 +152,10 @@ export function ProjectsView() {
     dir: 'asc',
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showAdd, setShowAdd] = useState(false);
-  const [editProject, setEditProject] = useState<Project | null>(null);
-  const [deleteProject, setDeleteProject] = useState<Project | null>(null);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const removeProjectAction = useStore((s) => s.removeProject);
-  const pushToast = useStore((s) => s.pushToast);
-
-  function activeJobsForProject(id: string) {
-    return jobs.filter(
-      (j) => j.projectId === id && j.status !== 'complete',
-    );
-  }
+  // ProjectsView is intentionally READ-ONLY. Projects mirror HubSpot deals;
+  // creating/editing/deleting them locally would diverge from the source of
+  // truth without writing back (which we don't do). Add/Edit/Delete UI was
+  // removed to avoid the illusion of local CRUD.
 
   // Customer lookup map — O(1) per row instead of an array scan.
   const customerById = useMemo(() => {
@@ -179,7 +177,7 @@ export function ProjectsView() {
         .sort((a, b) => (a.date || '').localeCompare(b.date || ''))[0];
       const isStale = !nextJob && p.status === 'in_progress';
       const customer = customerById.get(p.customer);
-      const region = regionForCustomer(customer);
+      const region = regionForProject(customer, projJobs);
       return {
         ...p,
         projJobs,
@@ -209,6 +207,7 @@ export function ProjectsView() {
       MA: enriched.filter((p) => p.region === 'MA').length,
       BC: enriched.filter((p) => p.region === 'BC').length,
       NY: enriched.filter((p) => p.region === 'NY').length,
+      CA: enriched.filter((p) => p.region === 'CA').length,
     }),
     [enriched],
   );
@@ -253,7 +252,6 @@ export function ProjectsView() {
     return filtered.slice().sort(sorter);
   }, [filtered, sort, sortExtractors]);
 
-  const totalValue = sorted.reduce((s, p) => s + (p.value || 0), 0);
 
   const selected = selectedId ? projects.find((p) => p.id === selectedId) ?? null : null;
 
@@ -266,15 +264,35 @@ export function ProjectsView() {
       <PageHeader
         eyebrow="Projects"
         title="Projects"
-        subtitle="Scope-of-work tied to a customer property. Jobs roll up here."
-      >
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={() => setShowAdd(true)}
-        >
-          <Icon name="plus" size={14} /> New project
-        </button>
-      </PageHeader>
+        subtitle={`${projects.length} deals synced from HubSpot · read-only mirror. Jobs are linked from Zuper.`}
+      />
+      {/* Data-quality banner — surfaces the volume of jobs without a project link
+          so dispatchers know why some project rows show "No linked jobs". */}
+      {(() => {
+        const unlinkedJobs = jobs.filter((j) => !j.projectId).length;
+        if (unlinkedJobs === 0) return null;
+        return (
+          <div
+            className="muted small"
+            style={{
+              margin: '0 16px 8px',
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: 'var(--bg-subtle)',
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+            }}
+          >
+            <Icon name="info" size={14} />
+            <span>
+              {unlinkedJobs} of {jobs.length} jobs are not yet linked to a project
+              — they appear under "Jobs" but won't roll up here until HubSpot
+              deal IDs are written onto them in Zuper.
+            </span>
+          </div>
+        );
+      })()}
 
       <div className="proj-toolbar">
         <div
@@ -336,10 +354,7 @@ export function ProjectsView() {
             </span>
           </div>
         </div>
-        <div className="proj-summary-stat">
-          <div className="l">Pipeline value</div>
-          <div className="v">${totalValue.toLocaleString()}</div>
-        </div>
+{/* Pipeline value intentionally hidden — dispatch decisions don't depend on deal $. */}
         <div className="proj-summary-stat">
           <div className="l">Stale</div>
           <div
@@ -415,18 +430,6 @@ export function ProjectsView() {
             isStale={p.isStale}
             selected={selectedId === p.id}
             onClick={() => setSelectedId(p.id)}
-            menuOpen={openMenuId === p.id}
-            onMenuToggle={() =>
-              setOpenMenuId(openMenuId === p.id ? null : p.id)
-            }
-            onEdit={() => {
-              setEditProject(p);
-              setOpenMenuId(null);
-            }}
-            onDelete={() => {
-              setDeleteProject(p);
-              setOpenMenuId(null);
-            }}
           />
         ))}
         {sorted.length === 0 && (
@@ -446,64 +449,6 @@ export function ProjectsView() {
         <ProjectDetailDrawer
           project={selected}
           onClose={() => setSelectedId(null)}
-          onEdit={() => setEditProject(selected)}
-          onDelete={() => setDeleteProject(selected)}
-        />
-      )}
-
-      {showAdd && <AddProjectModal onClose={() => setShowAdd(false)} />}
-      {editProject && (
-        <EditProjectModal
-          project={editProject}
-          onClose={() => setEditProject(null)}
-        />
-      )}
-      {deleteProject && (
-        <ConfirmDeleteModal
-          entityLabel={deleteProject.name}
-          body={(() => {
-            const blockers = activeJobsForProject(deleteProject.id);
-            if (blockers.length > 0) {
-              return (
-                <div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: '#781E1E',
-                    }}
-                  >
-                    {deleteProject.name} has {blockers.length} active job
-                    {blockers.length === 1 ? '' : 's'} — cancel or reassign first.
-                  </div>
-                  <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
-                    {blockers.slice(0, 5).map((j) => (
-                      <li key={j.id} className="mono">
-                        {j.id} · {j.status}
-                      </li>
-                    ))}
-                    {blockers.length > 5 && (
-                      <li className="muted">+{blockers.length - 5} more…</li>
-                    )}
-                  </ul>
-                </div>
-              );
-            }
-            return (
-              <div className="muted small">
-                Completed jobs that referenced this project keep their history.
-              </div>
-            );
-          })()}
-          blocked={activeJobsForProject(deleteProject.id).length > 0}
-          confirmText={'Delete ' + deleteProject.id}
-          onCancel={() => setDeleteProject(null)}
-          onConfirm={() => {
-            removeProjectAction(deleteProject.id);
-            pushToast('Deleted ' + deleteProject.name);
-            setDeleteProject(null);
-            if (selectedId === deleteProject.id) setSelectedId(null);
-          }}
         />
       )}
     </div>
@@ -518,10 +463,6 @@ interface RowProps {
   isStale: boolean;
   selected: boolean;
   onClick: () => void;
-  menuOpen: boolean;
-  onMenuToggle: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
 }
 
 function ProjectRow({
@@ -532,10 +473,6 @@ function ProjectRow({
   isStale,
   selected,
   onClick,
-  menuOpen,
-  onMenuToggle,
-  onEdit,
-  onDelete,
 }: RowProps) {
   const customers = useStore((s) => s.customers);
   const customer = getCustomer(customers, project.customer);
@@ -683,81 +620,9 @@ function ProjectRow({
             <Icon name="hubspot" size={10} /> {project.hubspotDealId}
           </span>
         )}
-        <span
-          onClick={(e) => {
-            e.stopPropagation();
-            onMenuToggle();
-          }}
-          style={{
-            display: 'inline-flex',
-            marginLeft: 6,
-            verticalAlign: 'middle',
-          }}
-        >
-          <IconButton icon="more" label="Project actions" />
-        </span>
-        {menuOpen && (
-          <>
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                onMenuToggle();
-              }}
-              style={{ position: 'fixed', inset: 0, zIndex: 50 }}
-            />
-            <div
-              role="menu"
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                position: 'absolute',
-                right: 4,
-                top: 28,
-                minWidth: 140,
-                background: 'var(--surface-card)',
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.1))',
-                padding: 4,
-                zIndex: 51,
-              }}
-            >
-              <button
-                type="button"
-                onClick={onEdit}
-                style={projMenuStyle()}
-              >
-                <Icon name="settings" size={12} /> Edit
-              </button>
-              <button
-                type="button"
-                onClick={onDelete}
-                style={projMenuStyle('#C53030')}
-              >
-                <Icon name="x" size={12} /> Delete
-              </button>
-            </div>
-          </>
-        )}
       </div>
     </div>
   );
-}
-
-function projMenuStyle(color?: string): React.CSSProperties {
-  return {
-    width: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '6px 10px',
-    background: 'transparent',
-    border: 'none',
-    textAlign: 'left',
-    cursor: 'pointer',
-    fontSize: 12,
-    borderRadius: 6,
-    color: color ?? 'var(--fg)',
-  };
 }
 
 // -----------------------------------------------------------------

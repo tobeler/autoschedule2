@@ -38,7 +38,13 @@ export interface ApiEnv {
   };
 }
 
-const PUBLIC_PATHS = new Set(['/v1/openapi.json', '/v1/health']);
+const PUBLIC_PATHS = new Set([
+  '/v1/openapi.json',
+  '/v1/health',
+  // /v1/diag/log-error fires from window.onerror before NextAuth resolves,
+  // so it must bypass auth. Local-dev diagnostics only — no PII implications.
+  '/v1/diag/log-error',
+]);
 const DEMO_BYPASS = !process.env.NEXTAUTH_SECRET || process.env.DEMO_MODE === 'true';
 
 export function hashApiKey(secret: string): string {

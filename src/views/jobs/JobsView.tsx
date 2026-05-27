@@ -14,11 +14,15 @@ import { fmtTime } from '../../data/helpers';
 import {
   getCrew,
   getCustomer,
+  getJobType,
+  getPerson,
   getProject,
   getTruck,
   statusLabel,
+  unscheduledJobs,
+  unscheduledNeedsReviewJobs,
 } from '../../data/selectors';
-import { JOB_TYPES } from '../../data/seed';
+import { unscheduledReviewReason } from '../../lib/dispatch-work';
 import {
   type SortState,
   chipMatches,
@@ -27,7 +31,12 @@ import {
   nextSort,
   tokenizeQuery,
 } from '../../lib/table';
-import { useRegionFilter, type RegionPrefix } from '../../lib/region-filter';
+import {
+  REGION_PREFIXES,
+  regionPrefixFromTeamName,
+  useRegionFilter,
+  type RegionPrefix,
+} from '../../lib/region-filter';
 import type { Crew, Customer, Job, JobStatus, Project, Truck } from '../../types';
 import { PROJECT_STATUS_META } from '../projects/ProjectsView';
 
@@ -70,18 +79,10 @@ const SOURCE_CHIPS: { key: SourceKey; label: string }[] = [
 // the operational hierarchy used elsewhere in the app. We reuse the
 // `RegionPrefix` type from useRegionFilter so the chip values match the
 // shared region store exactly.
-const REGION_CHIPS: RegionPrefix[] = ['CO', 'MA', 'BC', 'NY'];
+const REGION_CHIPS: RegionPrefix[] = [...REGION_PREFIXES];
 
 function regionOfJob(job: Job): RegionPrefix | null {
-  const t = job.zuperTeamName;
-  if (!t) return null;
-  // Treat CA- (California Bay Area teams) as BC for now — same offset
-  // bucket and the field guide groups them together.
-  if (t.startsWith('CO-')) return 'CO';
-  if (t.startsWith('MA-')) return 'MA';
-  if (t.startsWith('BC-') || t.startsWith('CA-')) return 'BC';
-  if (t.startsWith('NY-')) return 'NY';
-  return null;
+  return regionPrefixFromTeamName(job.zuperTeamName);
 }
 
 
@@ -111,6 +112,7 @@ export function JobsView() {
   const crews = useStore((s) => s.crews);
   const trucks = useStore((s) => s.trucks);
   const projects = useStore((s) => s.projects);
+  const people = useStore((s) => s.people);
   const selectJob = useStore((s) => s.selectJob);
   const openWizard = useStore((s) => s.openWizard);
   const pushToast = useStore((s) => s.pushToast);
@@ -118,6 +120,10 @@ export function JobsView() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [statusSet, setStatusSet] = useState<Set<JobStatus>>(() => new Set());
   const [sourceSet, setSourceSet] = useState<Set<SourceKey>>(() => new Set());
+  // Hide completed + cancelled by default — the Zuper bootstrap pulls all
+  // history (4500+ completed rows) and a dispatcher rarely needs them in
+  // the table. Toggle off to include historical jobs.
+  const [activeOnly, setActiveOnly] = useState(true);
   // Region filter is shared with the topbar picker — single source of truth.
   const { region: regionFilter, setRegion: setRegionFilter } = useRegionFilter();
   const [query, setQuery] = useState('');
@@ -150,9 +156,21 @@ export function JobsView() {
   }, [projects]);
 
   const tokens = useMemo(() => tokenizeQuery(query), [query]);
+  const typeOptions = useMemo(
+    () =>
+      Array.from(new Set(jobs.map((j) => j.type)))
+        .map((type) => ({ type, meta: getJobType(type) }))
+        .sort((a, b) =>
+          (a.meta?.label ?? a.type).localeCompare(b.meta?.label ?? b.type),
+        ),
+    [jobs],
+  );
 
   const filtered = useMemo(() => {
     const list = jobs.filter((j) => {
+      // Active-only is a top-level filter that overrides nothing else; when
+      // ON (default), historical rows never reach the chip filters at all.
+      if (activeOnly && (j.status === 'complete' || j.status === 'cancelled')) return false;
       if (typeFilter !== 'all' && j.type !== typeFilter) return false;
       if (!chipMatches(statusSet, j.status)) return false;
       if (sourceSet.size > 0) {
@@ -187,7 +205,7 @@ export function JobsView() {
     const extractors: Record<JobSortKey, (j: Job) => unknown> = {
       customer: (j) =>
         (j.customer ? customerById.get(j.customer)?.name : null) ?? j.title ?? '',
-      type: (j) => JOB_TYPES[j.type]?.label ?? j.type,
+      type: (j) => getJobType(j.type)?.label ?? j.type,
       date: (j) => jobTimestamp(j),
       crew: (j) => (j.crewId ? crewById.get(j.crewId)?.name : null),
       truck: (j) => (j.truckId ? truckById.get(j.truckId)?.name : null),
@@ -199,6 +217,7 @@ export function JobsView() {
     return [...list].sort(makeSorter<Job, JobSortKey>(sort, extractors));
   }, [
     jobs,
+    activeOnly,
     typeFilter,
     statusSet,
     sourceSet,
@@ -214,11 +233,12 @@ export function JobsView() {
 
   const totalCount = jobs.length;
   const shownCount = filtered.length;
-  const activeCount = jobs.filter(
+  const activeCount = filtered.filter(
     (j) => j.status === 'scheduled' || j.status === 'enroute' || j.status === 'onsite',
   ).length;
-  const unscheduledCount = jobs.filter((j) => j.status === 'unscheduled').length;
-  const completeCount = jobs.filter((j) => j.status === 'complete').length;
+  const dispatchReadyUnscheduledCount = unscheduledJobs(filtered).length;
+  const reviewUnscheduledCount = unscheduledNeedsReviewJobs(filtered).length;
+  const completeCount = filtered.filter((j) => j.status === 'complete').length;
 
   function toggleSort(key: JobSortKey) {
     setSort((prev) => nextSort(prev, key));
@@ -247,8 +267,10 @@ export function JobsView() {
           ' jobs · ' +
           activeCount +
           ' active, ' +
-          unscheduledCount +
-          ' unscheduled, ' +
+          dispatchReadyUnscheduledCount +
+          ' dispatch-ready unscheduled, ' +
+          reviewUnscheduledCount +
+          ' held for review, ' +
           completeCount +
           ' complete this quarter'
         }
@@ -279,14 +301,14 @@ export function JobsView() {
         >
           All types
         </button>
-        {Object.entries(JOB_TYPES).map(([k, jt]) => (
+        {typeOptions.map(({ type: k, meta: jt }) => (
           <button
             key={k}
             className={'filter-chip ' + (typeFilter === k ? 'active' : '')}
             onClick={() => setTypeFilter(k)}
           >
-            <span className="dot" style={{ background: 'var(--' + jt.color + ')' }}></span>
-            {jt.label}
+            <span className="dot" style={{ background: 'var(--' + (jt?.color ?? 'jt-meeting') + ')' }}></span>
+            {jt?.label ?? k}
           </button>
         ))}
       </div>
@@ -308,6 +330,14 @@ export function JobsView() {
             {statusLabel(s)}
           </button>
         ))}
+        <span style={{ marginLeft: 12, opacity: 0.5 }}>·</span>
+        <button
+          className={'filter-chip ' + (activeOnly ? 'active' : '')}
+          onClick={() => setActiveOnly((v) => !v)}
+          title={activeOnly ? 'Showing active only — click to include historical' : 'Showing all — click to hide completed/cancelled'}
+        >
+          {activeOnly ? 'Active only' : 'Including historical'}
+        </button>
       </div>
 
       <div className="filter-row">
@@ -391,7 +421,7 @@ export function JobsView() {
                   onClick={toggleSort}
                 />
                 <SortableHeader<JobSortKey>
-                  label="Project"
+                  label="Deal / scope"
                   sortKey="project"
                   state={sort}
                   onClick={toggleSort}
@@ -404,12 +434,14 @@ export function JobsView() {
                 const crew = getCrew(crews, j.crewId);
                 const truck = getTruck(trucks, j.truckId);
                 const project = getProject(projects, j.projectId);
+                const jobType = getJobType(j.type);
                 const unfilled = j.slots.filter(
                   (s) => !s.assignedTo && !s.optional,
                 ).length;
                 const projectMeta = project
                   ? PROJECT_STATUS_META[project.status]
                   : null;
+                const reviewReason = unscheduledReviewReason(j);
                 return (
                   <tr
                     key={j.id}
@@ -423,9 +455,7 @@ export function JobsView() {
                           is no longer surfaced in the list. */}
                       <div style={{ fontWeight: 600 }}>
                         {c ? c.name : j.title || 'Unknown customer'}
-                        {JOB_TYPES[j.type]?.label
-                          ? ' — ' + JOB_TYPES[j.type].label
-                          : ''}
+                        {jobType?.label ? ' — ' + jobType.label : ''}
                       </div>
                       {j.address ? (
                         <div className="muted small">{j.address}</div>
@@ -462,16 +492,29 @@ export function JobsView() {
                     </td>
                     <td>
                       <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
-                        {j.slots.slice(0, 4).map((s) => (
-                          <RoleChip
-                            key={s.id}
-                            role={s.role}
-                            level={s.level}
-                            assignedTo={s.assignedTo}
-                            optional={s.optional}
-                            compact
-                          />
-                        ))}
+                        {j.assignedTechIds?.length
+                          ? j.assignedTechIds.slice(0, 4).map((id) => {
+                              const tech = getPerson(people, id);
+                              return (
+                                <span key={id} className="tag" style={{ fontSize: 11 }}>
+                                  <Icon name="user" size={10} />
+                                  {tech?.name ?? id}
+                                </span>
+                              );
+                            })
+                          : j.slots.slice(0, 4).map((s) => (
+                              <RoleChip
+                                key={s.id}
+                                role={s.role}
+                                level={s.level}
+                                assignedTo={s.assignedTo}
+                                optional={s.optional}
+                                compact
+                              />
+                            ))}
+                        {j.assignedTechIds && j.assignedTechIds.length > 4 && (
+                          <span className="muted small">+{j.assignedTechIds.length - 4}</span>
+                        )}
                         {unfilled > 0 && (
                           <span className="unfilled-pill">
                             <Icon name="user" size={10} /> {unfilled}
@@ -481,20 +524,36 @@ export function JobsView() {
                     </td>
                     <td>
                       <StatusBadge status={j.status} />
+                      {reviewReason ? (
+                        <div className="muted small" style={{ marginTop: 4 }}>
+                          Review: {reviewReason}
+                        </div>
+                      ) : null}
                     </td>
                     <td>
                       {project && projectMeta ? (
+                        <div style={{ maxWidth: 240 }}>
+                          <div style={{ fontWeight: 600, fontSize: 12 }}>
+                            {project.name}
+                          </div>
+                          <div className="row muted" style={{ gap: 6, fontSize: 11 }}>
+                            <span>{project.type || PROJECT_STATUS_META[project.status]?.label}</span>
+                            {project.hubspotDealId && (
+                              <span className="mono">Deal {project.hubspotDealId}</span>
+                            )}
+                          </div>
+                        </div>
+                      ) : j.hubspotDealId ? (
                         <span
                           className="badge"
                           style={{
-                            background: projectMeta.bg,
-                            color: projectMeta.fg,
+                            background: 'rgba(255,122,89,0.12)',
+                            color: '#9F3D24',
                             fontSize: 10,
-                            fontWeight: 700,
+                            fontFamily: 'var(--font-mono)',
                           }}
-                          title={project.name}
                         >
-                          {project.id}
+                          <Icon name="hubspot" size={10} /> Deal {j.hubspotDealId}
                         </span>
                       ) : (
                         <span className="muted small">—</span>

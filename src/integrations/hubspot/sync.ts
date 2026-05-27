@@ -140,6 +140,31 @@ function dealStageToStatus(stage: string | null | undefined): typeof projects.$i
   return 'proposed';
 }
 
+function installationStageToStatus(stage: string | null | undefined): typeof projects.$inferInsert['status'] {
+  switch ((stage ?? '').toLowerCase()) {
+    case 'ready for install':
+    case 'scheduled':
+      return 'sold';
+    case 'install incomplete':
+    case 'close-out':
+    case 'awaiting inspection':
+      return 'in_progress';
+    case 'complete':
+    case 'closed':
+      return 'complete';
+    case 'cancelled':
+    case 'canceled':
+      return 'cancelled';
+    case 'on hold':
+    case 'pending':
+    case 'pending rebate approval':
+    case 'requote':
+      return 'sold';
+    default:
+      return 'sold';
+  }
+}
+
 function num(s: string | null | undefined): string | null {
   if (s === null || s === undefined || s === '') return null;
   const n = Number(s);
@@ -152,6 +177,20 @@ function makeRegionShort(name: string): string {
     .replace(/[^A-Za-z]/g, '')
     .slice(0, 2)
     .toUpperCase() || 'XX';
+}
+
+function legacyInstallationDescription(inst: HubspotInstallation): string {
+  const stage = inst.properties.pipeline_stage_sync ?? null;
+  const addressParts = [
+    inst.properties.full_address,
+    inst.properties.address_city,
+    inst.properties.state_province_region,
+    inst.properties.address_zip,
+  ].filter((s): s is string => Boolean(s && s.length));
+  const parts = ['Imported from legacy Installations object.'];
+  if (stage) parts.push('Installation pipeline: ' + stage + '.');
+  if (addressParts.length) parts.push(addressParts.join(', '));
+  return parts.join(' ');
 }
 
 interface SyncOptions {
@@ -216,26 +255,21 @@ export function parseInstallationToProject(
   hsInstallation: HubspotInstallation,
   opts: { customerId?: string | null } = {},
 ): AppProject {
-  const addressParts = [
-    hsInstallation.properties.full_address,
-    hsInstallation.properties.address_city,
-    hsInstallation.properties.state_province_region,
-    hsInstallation.properties.address_zip,
-  ].filter((s): s is string => Boolean(s && s.length));
   return {
     id: projectIdForLegacyInstallation(hsInstallation.id),
     customer: opts.customerId ?? 'hs-legacy-cust-' + hsInstallation.id,
     name: 'Legacy install ' + hsInstallation.id,
     type: 'Retrofit',
-    status: 'complete',
+    status: installationStageToStatus(hsInstallation.properties.pipeline_stage_sync) as AppProjectStatus,
     soldDate: null,
-    targetCompletion: hsInstallation.properties.entered_complete_stage_date ?? null,
+    targetCompletion:
+      hsInstallation.properties.zuper_job_installation_scheduled_start_time ??
+      hsInstallation.properties.entered_complete_stage_date ??
+      null,
     value: null,
     hubspotDealId: null,
     primaryCrew: null,
-    description: addressParts.length
-      ? 'Imported from legacy Installations object. ' + addressParts.join(', ')
-      : 'Imported from legacy Installations object.',
+    description: legacyInstallationDescription(hsInstallation),
     hubspotProjectId: null,
     source: 'legacy_installation',
   };
@@ -605,21 +639,29 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
             customerId: standInCustomerId,
             name: 'Legacy install ' + inst.id,
             type: 'Retrofit',
-            status: 'complete',
+            status: installationStageToStatus(inst.properties.pipeline_stage_sync),
             soldDate: null,
-            targetCompletion: inst.properties.entered_complete_stage_date ?? null,
+            targetCompletion:
+              inst.properties.zuper_job_installation_scheduled_start_time ??
+              inst.properties.entered_complete_stage_date ??
+              null,
             value: null,
             hubspotDealId: null,
             hubspotProjectId: null,
             source: 'legacy_installation',
-            description: 'Imported from legacy Installations object.',
+            description: legacyInstallationDescription(inst),
             designNotes: null,
           })
           .onConflictDoUpdate({
             target: projects.id,
             set: {
-              status: 'complete',
+              status: installationStageToStatus(inst.properties.pipeline_stage_sync),
+              targetCompletion:
+                inst.properties.zuper_job_installation_scheduled_start_time ??
+                inst.properties.entered_complete_stage_date ??
+                null,
               source: 'legacy_installation',
+              description: legacyInstallationDescription(inst),
               updatedAt: new Date(),
             },
           });
@@ -958,12 +1000,25 @@ export async function syncInstallation(installationId: string): Promise<{ ok: bo
         customerId: standInCustomerId,
         name: 'Legacy install ' + inst.id,
         type: 'Retrofit',
-        status: 'complete',
+        status: installationStageToStatus(inst.properties.pipeline_stage_sync),
+        targetCompletion:
+          inst.properties.zuper_job_installation_scheduled_start_time ??
+          inst.properties.entered_complete_stage_date ??
+          null,
+        description: legacyInstallationDescription(inst),
         source: 'legacy_installation',
       })
       .onConflictDoUpdate({
         target: projects.id,
-        set: { status: 'complete', updatedAt: new Date() },
+        set: {
+          status: installationStageToStatus(inst.properties.pipeline_stage_sync),
+          targetCompletion:
+            inst.properties.zuper_job_installation_scheduled_start_time ??
+            inst.properties.entered_complete_stage_date ??
+            null,
+          description: legacyInstallationDescription(inst),
+          updatedAt: new Date(),
+        },
       });
     return { ok: true, message: 'Synced installation ' + installationId };
   } catch (err) {

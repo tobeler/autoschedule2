@@ -18,7 +18,12 @@ import {
   nextSort,
   type SortState,
 } from '../../lib/table';
-import { useRegionFilter } from '../../lib/region-filter';
+import {
+  REGION_PREFIXES,
+  regionPrefixFromTeamName,
+  useRegionFilter,
+  type RegionPrefix,
+} from '../../lib/region-filter';
 import type { Crew, CrewType, Person } from '../../types';
 import { WeeklyComposition } from './WeeklyComposition';
 import { AddCrewModal } from './AddCrewModal';
@@ -194,15 +199,11 @@ const CREW_TYPE_LABEL: Record<string, string> = {
   solo: 'Solo',
   ad_hoc: 'Pool',
 };
-const CREW_REGION_FILTERS = ['CO', 'MA', 'BC', 'NY'] as const;
-type CrewRegion = (typeof CREW_REGION_FILTERS)[number];
+const CREW_REGION_FILTERS = REGION_PREFIXES;
+type CrewRegion = RegionPrefix;
 
 function crewRegionOf(name: string): CrewRegion | null {
-  const prefix = name.split('-')[0]?.trim().toUpperCase();
-  if (prefix && (CREW_REGION_FILTERS as readonly string[]).includes(prefix)) {
-    return prefix as CrewRegion;
-  }
-  return null;
+  return regionPrefixFromTeamName(name);
 }
 
 type CrewSortKey = 'name' | 'type' | 'members' | 'region' | 'truck';

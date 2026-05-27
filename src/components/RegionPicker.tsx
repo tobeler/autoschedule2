@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore, type RegionSelection } from '../store';
+import {
+  REGION_LABELS,
+  normalizeRegionPrefix,
+  regionPrefixFromSubRegion,
+} from '../lib/region-filter';
 import { Icon } from './Icon';
 
 interface RegionPickerProps {
@@ -23,14 +28,19 @@ export function RegionPicker({ value, onChange }: RegionPickerProps) {
   let label = 'All regions';
   let short = 'ALL';
   if (value?.regionId && !value.subId) {
-    const r = regions.find((r) => r.id === value.regionId);
-    label = r ? 'All ' + r.name : 'All regions';
-    short = r?.short || 'ALL';
+    const key = value.regionId.toUpperCase();
+    const r = regions.find(
+      (r) => r.id === value.regionId || normalizeRegionPrefix(r.short) === key,
+    );
+    const prefix = normalizeRegionPrefix(r?.short) ?? normalizeRegionPrefix(value.regionId);
+    label = prefix ? 'All ' + REGION_LABELS[prefix] : r ? 'All ' + r.name : 'All regions';
+    short = prefix ?? r?.short ?? (key.length <= 3 ? key : 'ALL');
   } else if (value?.subId) {
     const r = regions.find((r) => r.id === value.regionId);
     const s = r?.subs.find((s) => s.id === value.subId);
-    label = s ? s.name : 'All regions';
-    short = r?.short || '';
+    const prefix = regionPrefixFromSubRegion(s);
+    label = prefix ? 'All ' + REGION_LABELS[prefix] : s ? s.name : 'All regions';
+    short = prefix ?? r?.short ?? '';
   }
 
   const totalCrews = regions.reduce((a, r) => a + r.subs.reduce((b, s) => b + s.crews, 0), 0);
@@ -52,7 +62,7 @@ export function RegionPicker({ value, onChange }: RegionPickerProps) {
           </div>
 
           <button
-            className={'region-row region-row-all' + (!value ? ' selected' : '')}
+            className={'region-row region-row-all' + (!value?.regionId ? ' selected' : '')}
             onClick={() => {
               onChange(null);
               setOpen(false);
@@ -67,12 +77,16 @@ export function RegionPicker({ value, onChange }: RegionPickerProps) {
                 {regions.length} regions · {totalCrews} crews · {totalHc} technicians
               </div>
             </div>
-            {!value && <Icon name="check" size={14} stroke="var(--jetson-green)" />}
+            {!value?.regionId && <Icon name="check" size={14} stroke="var(--jetson-green)" />}
           </button>
 
           <div className="region-picker-list">
             {regions.map((region) => {
-              const regionActive = value?.regionId === region.id && !value?.subId;
+              const regionPrefix = normalizeRegionPrefix(region.short);
+              const regionActive =
+                !value?.subId &&
+                Boolean(value?.regionId) &&
+                (value?.regionId === region.id || normalizeRegionPrefix(value?.regionId) === regionPrefix);
               const totalCrewsR = region.subs.reduce((a, s) => a + s.crews, 0);
               const totalHcR = region.subs.reduce((a, s) => a + s.headcount, 0);
               return (
@@ -80,7 +94,8 @@ export function RegionPicker({ value, onChange }: RegionPickerProps) {
                   <button
                     className={'region-row region-row-header' + (regionActive ? ' selected' : '')}
                     onClick={() => {
-                      onChange({ regionId: region.id, subId: '' });
+                      const prefix = normalizeRegionPrefix(region.short);
+                      onChange(prefix ? { regionId: prefix.toLowerCase(), subId: '' } : null);
                       setOpen(false);
                     }}
                   >
@@ -100,13 +115,20 @@ export function RegionPicker({ value, onChange }: RegionPickerProps) {
                   </button>
                   <div className="region-subs">
                     {region.subs.map((sub) => {
-                      const subActive = value?.subId === sub.id;
+                      const prefix = regionPrefixFromSubRegion(sub);
+                      const subActive =
+                        (value?.subId === sub.id) ||
+                        (!value?.subId && Boolean(prefix) && normalizeRegionPrefix(value?.regionId) === prefix);
                       return (
                         <button
                           key={sub.id}
                           className={'region-row region-row-sub' + (subActive ? ' selected' : '')}
                           onClick={() => {
-                            onChange({ regionId: region.id, subId: sub.id });
+                            onChange(
+                              prefix
+                                ? { regionId: prefix.toLowerCase(), subId: '' }
+                                : { regionId: region.id, subId: sub.id },
+                            );
                             setOpen(false);
                           }}
                         >

@@ -117,6 +117,7 @@ export function regionToDTO(row: DbRegion, subs: DbRegion[]): RegionDTO {
     subs: subs.map((s) => ({
       id: s.id,
       name: s.name,
+      short: s.short,
       headcount: s.headcount,
       crews: s.crewCount,
     })),
@@ -181,5 +182,6 @@ export function jobToDTO(
     daysSpanned: row.daysSpanned ?? undefined,
     zuperJobUid: row.zuperJobUid ?? null,
     zuperTeamName: row.zuperTeamName ?? null,
+    assignedTechIds: row.assignedTechIds ?? null,
   };
 }

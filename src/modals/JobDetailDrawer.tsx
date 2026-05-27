@@ -727,12 +727,7 @@ function UnscheduledHero({
             {requiredRoles.length === 1 ? '' : 's'}
           </div>
         </div>
-        {job.price != null && (
-          <div>
-            <div className="k">Value</div>
-            <div className="v">${job.price.toLocaleString()}</div>
-          </div>
-        )}
+        {/* Deal/job value intentionally hidden — irrelevant to dispatch decisions. */}
       </div>
 
       {/* Phase 5 placeholder — real picker lands later. */}
@@ -1209,11 +1204,11 @@ function CrewTab({
           <div className="muted small">
             {job.zuperTeamName ? (
               <>
-                Crew roster not synced for Zuper-sourced jobs. Assigned team:{' '}
+                Assigned in Zuper to team{' '}
                 <span className="mono" style={{ color: 'var(--fg)' }}>
                   {job.zuperTeamName}
                 </span>
-                .
+                . Reassign here when AutoSchedule owns the crew.
               </>
             ) : (
               'No required slots for this job type.'

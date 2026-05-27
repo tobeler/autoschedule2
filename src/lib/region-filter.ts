@@ -16,11 +16,21 @@ import { useMemo } from 'react';
 
 import { useStore } from '@/store';
 import type { Region } from '@/types';
-
-export type RegionPrefix = 'CO' | 'MA' | 'BC' | 'NY';
-export type RegionFilterValue = 'all' | RegionPrefix;
-
-const VALID_PREFIXES: readonly RegionPrefix[] = ['CO', 'MA', 'BC', 'NY'];
+export {
+  REGION_LABELS,
+  REGION_PREFIXES,
+  normalizeRegionPrefix,
+  regionPrefixFromSubRegion,
+  regionPrefixFromTeamName,
+  type RegionFilterValue,
+  type RegionPrefix,
+} from './region-core';
+import {
+  normalizeRegionPrefix,
+  regionPrefixFromSubRegion,
+  type RegionFilterValue,
+  type RegionPrefix,
+} from './region-core';
 
 // Seed IDs used by the legacy demo dataset map directly to 2-letter prefixes.
 // 'va' historically meant Vancouver — treat it as BC.
@@ -29,6 +39,7 @@ const SEED_ID_TO_PREFIX: Record<string, RegionPrefix> = {
   ma: 'MA',
   bc: 'BC',
   ny: 'NY',
+  ca: 'CA',
   va: 'BC',
 };
 
@@ -38,15 +49,18 @@ const SEED_ID_TO_PREFIX: Record<string, RegionPrefix> = {
  * directly as a seed id. Returns null if the selection doesn't map.
  */
 export function resolveRegionPrefix(
-  regionSel: { regionId: string } | null | undefined,
+  regionSel: { regionId: string; subId?: string } | null | undefined,
   regions: Region[],
 ): RegionPrefix | null {
   if (!regionSel?.regionId) return null;
   const match = regions.find((r) => r.id === regionSel.regionId);
-  const fromShort = match?.short?.toUpperCase() ?? '';
-  if ((VALID_PREFIXES as readonly string[]).includes(fromShort)) {
-    return fromShort as RegionPrefix;
+  if ('subId' in regionSel && regionSel.subId) {
+    const sub = match?.subs.find((s) => s.id === regionSel.subId);
+    if (!sub) return null;
+    return regionPrefixFromSubRegion(sub);
   }
+  const fromShort = normalizeRegionPrefix(match?.short);
+  if (fromShort) return fromShort;
   const seed = SEED_ID_TO_PREFIX[regionSel.regionId.toLowerCase()];
   if (seed) return seed;
   return null;
@@ -73,10 +87,10 @@ export function useRegionFilter(): {
       setRegionSel({ regionId: '', subId: '' });
       return;
     }
-    // Prefer a real region row whose short matches (HubSpot-sourced); fall
-    // back to the seed id convention so the picker still works in seed-only
-    // environments.
-    const match = regions.find((r) => r.short?.toUpperCase() === next);
+    // Prefer a real top-level region row whose short matches. HubSpot may
+    // instead send one parent with service-area children, so the stored seed
+    // id remains the most honest representation of an all-region bucket.
+    const match = regions.find((r) => normalizeRegionPrefix(r.short) === next);
     if (match) {
       setRegionSel({ regionId: match.id, subId: '' });
     } else {

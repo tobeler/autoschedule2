@@ -26,7 +26,7 @@ keeps HubSpot as the CRM (portal 21424670, Vancouver TZ).
 ```bash
 pnpm install
 cp .env.example .env.local            # then edit
-pnpm dev                              # http://localhost:3000
+pnpm dev                              # http://localhost:3010
 ```
 
 Useful scripts:
@@ -178,7 +178,7 @@ and timestamp. See `src/api/middleware/auditLog.ts`.
    Integrations → Private Apps → Webhooks).
 2. Replay:
    ```bash
-   curl -X POST http://localhost:3000/api/webhooks/hubspot \
+   curl -X POST http://localhost:3010/api/webhooks/hubspot \
      -H "Content-Type: application/json" \
      -H "X-HubSpot-Signature-v3: <hmac>" \
      -d '<json payload>'

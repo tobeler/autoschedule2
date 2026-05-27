@@ -85,8 +85,12 @@ export function TimesheetsView() {
   const visiblePeople = people.filter((p) => (totals[p.id] || 0) > 0);
 
   const totalHours = Object.values(totals).reduce((s, v) => s + v, 0);
-  const pendingCount = Object.values(statuses).filter((v) => v === 'pending').length;
-  const approvedCount = Object.values(statuses).filter((v) => v === 'approved').length;
+  // Scope KPI counts to people that actually appear in the grid this week.
+  // Without this, the seeded 57-person status map produced phantom "19 Pending
+  // review" counters while the grid showed "No logged hours" — directly
+  // contradictory copy.
+  const pendingCount = visiblePeople.filter((p) => statuses[p.id] === 'pending').length;
+  const approvedCount = visiblePeople.filter((p) => statuses[p.id] === 'approved').length;
   const otWeekCount = visiblePeople.filter((p) => (totals[p.id] || 0) > WEEK_OT_THRESHOLD)
     .length;
 
@@ -127,7 +131,20 @@ export function TimesheetsView() {
             <Icon name="chevron_right" size={14} />
           </button>
         </div>
-        <button className="btn btn-primary btn-sm">
+        <button
+          className="btn btn-primary btn-sm"
+          disabled={pendingCount === 0}
+          onClick={() => {
+            setStatuses((s) => {
+              const next = { ...s };
+              visiblePeople.forEach((p) => {
+                if (next[p.id] === 'pending') next[p.id] = 'approved';
+              });
+              return next;
+            });
+            pushToast(`Approved ${pendingCount} timesheet${pendingCount === 1 ? '' : 's'}`);
+          }}
+        >
           <Icon name="check" size={14} /> Approve all pending
         </button>
       </PageHeader>

@@ -139,9 +139,11 @@ export function ReportsView() {
           </div>
           <div className="kpi">
             <div className="kpi-label">First-time-fix rate</div>
-            <div className="kpi-value">{ftf.rate}%</div>
+            <div className="kpi-value">{ftf.total === 0 ? '—' : ftf.rate + '%'}</div>
             <div className="kpi-meta">
-              {ftf.total - ftf.withCallback}/{ftf.total} completed without callback
+              {ftf.total === 0
+                ? 'No completed jobs yet'
+                : `${ftf.total - ftf.withCallback}/${ftf.total} completed without callback`}
             </div>
           </div>
           <div className="kpi">
@@ -266,6 +268,16 @@ export function ReportsView() {
               </tr>
             </thead>
             <tbody>
+              {truckStats.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: 24 }}>
+                    <span className="muted small">
+                      No vehicles added yet. Add trucks in Trucks &amp; vans to see
+                      per-vehicle revenue.
+                    </span>
+                  </td>
+                </tr>
+              )}
               {truckStats.map(({ truck, jobs: jobCount, completed, revenue }) => {
                 const crew = getCrew(crews, truck.assignedCrew);
                 return (

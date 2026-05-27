@@ -156,6 +156,7 @@ export interface Project {
 export interface SubRegion {
   id: string;
   name: string;
+  short?: string;
   headcount: number;
   crews: number;
 }

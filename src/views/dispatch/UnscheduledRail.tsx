@@ -10,14 +10,16 @@ import { IconButton } from '../../components/IconButton';
 import { JobTypeTag } from '../../components/JobTypeTag';
 import { useStore } from '../../store';
 import { getJobType } from '../../data/selectors';
+import { jobDisplayName } from '../../lib/customer-display';
 
 interface UnscheduledRailProps {
   jobs: Job[];
+  reviewCount?: number;
   onJobClick: (job: Job) => void;
   onCollapse: () => void;
 }
 
-export function UnscheduledRail({ jobs, onJobClick, onCollapse }: UnscheduledRailProps) {
+export function UnscheduledRail({ jobs, reviewCount = 0, onJobClick, onCollapse }: UnscheduledRailProps) {
   const customers = useStore((s) => s.customers);
   const moveJob = useStore((s) => s.moveJob);
   const pushToast = useStore((s) => s.pushToast);
@@ -55,7 +57,8 @@ export function UnscheduledRail({ jobs, onJobClick, onCollapse }: UnscheduledRai
         <div>
           <div className="rail-title">Unscheduled</div>
           <div className="muted" style={{ fontSize: 11 }}>
-            {jobs.length} jobs · drag to schedule
+            {jobs.length} dispatch-ready
+            {reviewCount > 0 ? ' · ' + reviewCount + ' need review' : ' · clean queue'}
           </div>
         </div>
         <IconButton icon="chevron_left" label="Collapse" onClick={onCollapse} />
@@ -66,7 +69,7 @@ export function UnscheduledRail({ jobs, onJobClick, onCollapse }: UnscheduledRai
             className="muted small"
             style={{ padding: 16, textAlign: 'center' }}
           >
-            No unscheduled jobs.
+            No dispatch-ready unscheduled jobs.
           </div>
         )}
         {jobs.map((job) => {
@@ -92,27 +95,7 @@ export function UnscheduledRail({ jobs, onJobClick, onCollapse }: UnscheduledRai
                 />
               </div>
               <div className="unsched-card-name">
-                {(() => {
-                  // Compose "{Customer} — {Job type}" when both are known.
-                  // When the linked customer record is missing, parse the
-                  // upstream Zuper title — it almost always begins with
-                  // "{First Last} - …" or "{First Last} | …" — and use that
-                  // as the customer name. Type takes second priority. The
-                  // verbatim title is the last meaningful fallback.
-                  const jt = getJobType(job.type);
-                  const typeLabel = jt?.label;
-                  const name =
-                    c?.name ??
-                    (job.title
-                      ? job.title.split(/\s[-|]\s/)[0].trim()
-                      : null);
-                  if (name && typeLabel) return name + ' — ' + typeLabel;
-                  if (name) return name;
-                  if (typeLabel) return typeLabel;
-                  if (job.title) return job.title;
-                  if (job.address) return job.address;
-                  return 'Untitled';
-                })()}
+                {jobDisplayName(job, c, getJobType(job.type))}
               </div>
               <div className="unsched-card-meta" style={{ marginTop: 4 }}>
                 <Icon name="map_pin" size={11} />
@@ -127,23 +110,18 @@ export function UnscheduledRail({ jobs, onJobClick, onCollapse }: UnscheduledRai
                   {job.notes}
                 </div>
               )}
-              {job.price != null && (
+              {job.hubspotDealId && (
                 <div className="row" style={{ marginTop: 8 }}>
-                  <span className="pill" style={{ fontSize: 11 }}>
-                    ${job.price.toLocaleString()}
+                  <span
+                    className="pill"
+                    style={{
+                      fontSize: 10,
+                      background: 'rgba(255,122,89,0.12)',
+                      color: '#9F3D24',
+                    }}
+                  >
+                    <Icon name="hubspot" size={10} /> Deal
                   </span>
-                  {job.hubspotDealId && (
-                    <span
-                      className="pill"
-                      style={{
-                        fontSize: 10,
-                        background: 'rgba(255,122,89,0.12)',
-                        color: '#9F3D24',
-                      }}
-                    >
-                      <Icon name="hubspot" size={10} /> Deal
-                    </span>
-                  )}
                 </div>
               )}
             </div>

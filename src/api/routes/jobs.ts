@@ -272,6 +272,7 @@ export function registerJobRoutes(app: OpenAPIHono<ApiEnv>): void {
       endDate: body.endDate ?? null,
       endHour: body.endHour != null ? String(body.endHour) : null,
       daysSpanned: body.daysSpanned ?? null,
+      assignedTechIds: body.assignedTechIds ?? null,
     });
     if (body.slots?.length) {
       await writeJobSlots(id, body.slots as JobSlot[]);
@@ -322,6 +323,7 @@ export function registerJobRoutes(app: OpenAPIHono<ApiEnv>): void {
           endHour: body.endHour != null ? String(body.endHour) : null,
         }),
         ...(body.daysSpanned !== undefined && { daysSpanned: body.daysSpanned }),
+        ...(body.assignedTechIds !== undefined && { assignedTechIds: body.assignedTechIds }),
         updatedAt: new Date(),
       })
       .where(eq(jobs.id, id));

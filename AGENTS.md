@@ -36,6 +36,6 @@ For HubSpot work, also: `src/integrations/hubspot/schema-snapshot.json` + `src/i
 
 ## Demo + dev
 
-- `pnpm dev` → http://localhost:3000 (live, hot-reloads main)
+- `pnpm dev` → http://localhost:3010 (live, hot-reloads main)
 - Frozen demo: tag `demo-snapshot-N` + worktree at `/tmp/jetson-snapshot` serving on port 3001
 - Demo-mode bypass: when `NEXTAUTH_SECRET` is unset, auth gate is skipped and the seeded data is the source of truth. Turn off via Settings → Integrations → Demo data card once Supabase is wired.

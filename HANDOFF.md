@@ -8,7 +8,7 @@
 
 ### What works today
 
-- **Local dev server**: `pnpm dev` → http://localhost:3000
+- **Local dev server**: `pnpm dev` → http://localhost:3010
 - **Login**: `erik@jetsonhome.com` / `lAHzuN2XCtnNJJYV` (temp; bcrypt hash on `users.hashedPassword`)
 - **Supabase**: project `xqzvokokuflsbiensxbe` (AutoSchedule, us-west-2), schema applied via three migrations: `0000_init`, `0001_outbox_triggers`, `0002_zuper_columns`, `0003_zuper_reference_only`
 - **DB row counts** (as of session end):
@@ -319,4 +319,4 @@ The original plan called these out as "not in v1" — flagging here so we know w
 - Main repo: https://github.com/tobeler/autoschedule2
 - Plan file: `/Users/work/.claude/plans/curious-toasting-sifakis.md` (this codebase's source of truth for what was/will be built)
 - Demo snapshot tag: `demo-snapshot-3` (production build pinned to commit before Phase 15)
-- Demo URLs: `http://mac-mini.tail79e005.ts.net:3000` (live dev) · `:3001` (frozen snapshot)
+- Demo URLs: `http://mac-mini.tail79e005.ts.net:3010` (live dev) · `:3001` (frozen snapshot)

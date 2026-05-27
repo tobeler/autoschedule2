@@ -316,6 +316,8 @@ const INSTALLATION_PROPS = [
   'zuper_job_installation_serial_number_indoor_unit',
   'zuper_job_installation_serial_number_outdoor_unit',
   'entered_complete_stage_date',
+  'entered_ready_for_install_stage_date',
+  'pipeline_stage_sync',
   'full_address', 'address_line_2', 'address_city', 'state_province_region',
   'address_zip', 'country',
   'related_project_id',
