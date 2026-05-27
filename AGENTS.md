@@ -33,6 +33,7 @@ For HubSpot work, also: `src/integrations/hubspot/schema-snapshot.json` + `src/i
 - Hono REST API at `/api/v1/*` + OpenAPI 3.x doc at `/api/docs`
 - Zustand store with optimistic + API write-through + rollback toast — the established mutation pattern
 - Outbox table is **dormant** (2026-05-26): triggers disabled, table truncated. The original SNS-bridge rationale was forward-looking for an AWS migration that isn't on the near roadmap. Integrations now call HubSpot/Zuper directly from API mutation handlers with try/catch + toast on failure. If you re-enable the outbox later, fix the schema mismatch first (DB trigger writes `payload.id`; drainer reads `payload.jobId`).
+- **"Ready to schedule" gate** (`src/lib/ready-to-schedule.ts`): canonical predicate for what shows on the Unscheduled rail / dispatch nav badge / attention queue. Ported from rebate-dashboard's "To Be Scheduled" tab (samuellegge/rebate-dashboard, `public/pc-dashboard.js`: `rowIsScheduledOrLater`, `isZuperNeedsReschedule`, `rowHasScheduledSibling`). Both apps must agree on the rule; if you tweak one, mirror it here.
 
 ## Demo + dev
 

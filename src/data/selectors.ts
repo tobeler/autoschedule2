@@ -39,8 +39,96 @@ export const getJobType = (t: string): JobTypeDef | undefined => JOB_TYPES[t] ??
 
 // ---- Job queries ------------------------------------------------------------
 export const jobsOn = (jobs: Job[], date: string) => jobs.filter((j) => j.date === date);
-export const unscheduledJobs = (jobs: Job[]) => jobs.filter(isActionableUnscheduledJob);
+
+/**
+ * Jobs that should appear on the "to be scheduled" surface (Unscheduled rail,
+ * dispatch nav badge, attention queue impact ranking, etc.). Aligned with
+ * rebate-dashboard's "To Be Scheduled" tab rules.
+ *
+ * When the caller supplies `projects` and `customers`, the full predicate
+ * runs (sibling-job awareness + project lifecycle gating). When called with
+ * jobs alone — many older callsites do this — we degrade to the no-project
+ * variant which still applies status / type / sibling-job rules.
+ */
+export const unscheduledJobs = (
+  jobs: Job[],
+  projects?: Project[],
+  customers?: Customer[],
+): Job[] => {
+  if (projects || customers) {
+    return readyToScheduleJobs(jobs, projects ?? [], customers ?? []);
+  }
+  // No project context — still apply the new gate so we agree with
+  // rebate-dashboard on status / sibling rules; project-lifecycle blockers
+  // simply pass through.
+  return readyToScheduleJobs(jobs, [], []);
+};
+
 export const unscheduledNeedsReviewJobs = (jobs: Job[]) => jobs.filter(isUnscheduledNeedsReviewJob);
+
+// ---- "Ready to schedule" gate ----------------------------------------------
+//
+// Canonical source-of-truth for "what needs to be scheduled," ported from
+// the rebate-dashboard PC ("project coordinator") tool's "To Be Scheduled"
+// tab. See src/lib/ready-to-schedule.ts for the full predicate breakdown.
+//
+// New consumers should prefer `readyToScheduleJobs` over the looser
+// `unscheduledJobs` — it agrees with rebate-dashboard on edge cases like
+// callbacks needing reschedule, sibling-job awareness, and project-closed
+// gating.
+import {
+  isReadyToSchedule as _isReadyToSchedule,
+  whyNotReady as _whyNotReady,
+  type ReadyContext,
+  type ReadyReason,
+} from '../lib/ready-to-schedule';
+
+export function readyToScheduleJobs(
+  jobs: Job[],
+  projects: Project[] = [],
+  customers: Customer[] = [],
+): Job[] {
+  const projectsById = new Map(projects.map((p) => [p.id, p] as const));
+  const customersById = new Map(customers.map((c) => [c.id, c] as const));
+  return jobs.filter((job) =>
+    _isReadyToSchedule({
+      job,
+      project: job.projectId ? projectsById.get(job.projectId) : null,
+      customer: job.customer ? customersById.get(job.customer) : null,
+      siblingJobs: jobs,
+    }),
+  );
+}
+
+/**
+ * For each job in the supplied list, return the reasons it's NOT ready to
+ * schedule. Suitable for the "Held — see why" chips. Returns a Map keyed
+ * by job id; jobs that ARE ready map to an empty array.
+ */
+export function heldReasonsByJob(
+  jobs: Job[],
+  projects: Project[] = [],
+  customers: Customer[] = [],
+): Map<string, ReadyReason[]> {
+  const projectsById = new Map(projects.map((p) => [p.id, p] as const));
+  const customersById = new Map(customers.map((c) => [c.id, c] as const));
+  const out = new Map<string, ReadyReason[]>();
+  for (const job of jobs) {
+    out.set(
+      job.id,
+      _whyNotReady({
+        job,
+        project: job.projectId ? projectsById.get(job.projectId) : null,
+        customer: job.customer ? customersById.get(job.customer) : null,
+        siblingJobs: jobs,
+      }),
+    );
+  }
+  return out;
+}
+
+export type { ReadyContext, ReadyReason };
+export { _isReadyToSchedule as isReadyToSchedule, _whyNotReady as whyNotReady };
 export const jobsForCrew = (jobs: Job[], crewId: string, date: string) =>
   jobs.filter(
     (j) => j.date === date && (j.crewId === crewId || (j.extraCrewIds || []).includes(crewId)),

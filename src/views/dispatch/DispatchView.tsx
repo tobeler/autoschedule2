@@ -8,7 +8,10 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../../store';
 import { addDays, dateKey, startOfWeek, TODAY } from '../../data/helpers';
-import { unscheduledJobs, unscheduledNeedsReviewJobs } from '../../data/selectors';
+import {
+  readyToScheduleJobs,
+  unscheduledNeedsReviewJobs,
+} from '../../data/selectors';
 import { Icon } from '../../components/Icon';
 import { useRegionFilter } from '../../lib/region-filter';
 
@@ -32,6 +35,7 @@ import { MapView } from './MapView';
 export function DispatchView() {
   const jobs = useStore((s) => s.jobs);
   const projects = useStore((s) => s.projects);
+  const customers = useStore((s) => s.customers);
   const { regionSet, matchesRegion: matchesRegionFn } = useRegionFilter();
   const selectJob = useStore((s) => s.selectJob);
   const selectedJobId = useStore((s) => s.selectedJobId);
@@ -98,8 +102,11 @@ export function DispatchView() {
   }, [filteredJobs, date, range]);
 
   const unsched = useMemo(() => {
-    return unscheduledJobs(filteredJobs);
-  }, [filteredJobs]);
+    // Source-of-truth gate ported from rebate-dashboard's "To Be Scheduled"
+    // tab. Falls back to the old looser predicate via the legacy
+    // unscheduledNeedsReviewJobs selector for the "needs review" rail.
+    return readyToScheduleJobs(filteredJobs, projects, customers);
+  }, [filteredJobs, projects, customers]);
 
   const unschedReview = useMemo(() => {
     return unscheduledNeedsReviewJobs(filteredJobs);
