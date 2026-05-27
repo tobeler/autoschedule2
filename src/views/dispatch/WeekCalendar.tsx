@@ -86,7 +86,11 @@ export function WeekCalendar({
   const selectJob = useStore((s) => s.selectJob);
   const pushToast = useStore((s) => s.pushToast);
 
-  const days = Array.from({ length: 5 }).map((_, i) => addDays(startDate, i));
+  // 7-day week so service jobs that land on Sat/Sun stay visible. Before
+  // this was 5 days (Mon-Fri); any weekend-scheduled job rolled into the
+  // visibleJobs set (DispatchView filters 7 days) but had no day column
+  // to render in and disappeared silently.
+  const days = Array.from({ length: 7 }).map((_, i) => addDays(startDate, i));
   const weekKeys = days.map(dateKey);
   const todayKey = dateKey(TODAY);
 
