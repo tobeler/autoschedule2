@@ -115,7 +115,6 @@ export function JobsView() {
   const people = useStore((s) => s.people);
   const selectJob = useStore((s) => s.selectJob);
   const openWizard = useStore((s) => s.openWizard);
-  const pushToast = useStore((s) => s.pushToast);
 
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [statusSet, setStatusSet] = useState<Set<JobStatus>>(() => new Set());
@@ -285,7 +284,8 @@ export function JobsView() {
         </div>
         <button
           className="btn btn-outline btn-sm"
-          onClick={() => pushToast('Sync queued · HubSpot')}
+          title="HubSpot sync runs from Settings → Integrations. The bottom of that page also runs a Zuper re-bootstrap."
+          disabled
         >
           <Icon name="refresh" size={14} /> Sync HubSpot
         </button>

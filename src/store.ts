@@ -713,8 +713,14 @@ export const useStore = create<State>()(
           next = { ...next, slots: filled };
         }
         set({ jobs: prev.map((j) => (j.id === id ? next : j)) });
-        if (get().apiMode) {
-          client.jobs
+
+        // Persist the local change through to our DB. For Zuper-sourced jobs
+        // we DEFER this until the user confirms the modal — otherwise "Undo"
+        // can't reverse the DB write. For non-Zuper rows (manually created
+        // jobs etc.), persist immediately.
+        const persistLocal = () => {
+          if (!get().apiMode) return Promise.resolve();
+          return client.jobs
             .update(id, {
               date: next.date,
               startHour: next.startHour,
@@ -728,6 +734,9 @@ export const useStore = create<State>()(
               get().pushToast('Move failed — restored');
               logApiError('moveJob', err);
             });
+        };
+        if (!target.zuperJobUid) {
+          void persistLocal();
         }
 
         // CONFIRMATION + WRITEBACK
@@ -754,6 +763,9 @@ export const useStore = create<State>()(
             action: isUnschedule ? 'cancel' : 'reschedule',
             onConfirm: () => {
               get().clearPendingZuperWrite();
+              // Persist the local change FIRST (now that the dispatcher has
+              // confirmed) so Undo had something real to revert.
+              void persistLocal();
               if (!isReschedule || !next.date || next.startHour == null) return;
               void (async () => {
                 try {
@@ -781,6 +793,9 @@ export const useStore = create<State>()(
               })();
             },
             onCancel: () => {
+              // Local DB was NOT written for Zuper jobs (see persistLocal
+              // gating above), so reverting the Zustand state cleanly undoes
+              // the entire optimistic change.
               set({ jobs: prev });
               get().pushToast('Move reverted');
               get().clearPendingZuperWrite();

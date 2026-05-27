@@ -28,6 +28,10 @@ interface JobBlockProps {
   selected: boolean;
   /** All jobs on this row (for conflict detection) */
   allRowJobs: Job[];
+  /** Lane index within the row (0-based) for stack-packing overlapping jobs. */
+  laneIndex?: number;
+  /** Total lanes on this row — used to compute per-lane height. */
+  laneCount?: number;
   onClick: (job: Job, e: ReactMouseEvent<HTMLDivElement>) => void;
   onResize: (id: string, hours: number) => void;
 }
@@ -39,6 +43,8 @@ export function JobBlock({
   density,
   selected,
   allRowJobs,
+  laneIndex,
+  laneCount,
   onClick,
   onResize,
 }: JobBlockProps) {
@@ -119,11 +125,30 @@ export function JobBlock({
     (resizing ? ' resizing' : '') +
     (hasConflict ? ' conflict' : '');
 
+  // When the parent row supplies lane info (e.g. the Unassigned bucket on the
+  // dispatch board, where many uncrewed jobs share the same time window), we
+  // stack-pack them vertically within the row instead of overlapping. CSS
+  // defaults (top: 6, bottom: 6 — fills the row) are overridden by inline
+  // top/height so jobs don't pile on top of each other.
+  const usesLanes = laneCount != null && laneCount > 1 && laneIndex != null;
+  const laneStyle = usesLanes
+    ? (() => {
+        const LANE_GAP = 4;
+        const LANE_PAD = 6;
+        const usableArea = `(100% - ${LANE_PAD * 2}px - ${(laneCount! - 1) * LANE_GAP}px)`;
+        return {
+          top: `calc(${LANE_PAD}px + ${laneIndex!} * ((${usableArea}) / ${laneCount!} + ${LANE_GAP}px))`,
+          height: `calc((${usableArea}) / ${laneCount!})`,
+          bottom: 'auto' as const,
+        };
+      })()
+    : undefined;
+
   return (
     <div
       ref={blockRef}
       className={className}
-      style={{ left: left + 'px', width: width + 'px' }}
+      style={{ left: left + 'px', width: width + 'px', ...laneStyle }}
       onClick={(e) => {
         if (!resizing) onClick(job, e);
       }}

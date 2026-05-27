@@ -55,6 +55,43 @@ function leadRoles(): string[] {
   return ['hvac_lead', 'electrician', 'plumber', 'fsm'];
 }
 
+/**
+ * Pack jobs into lanes so overlapping jobs don't render on top of each other.
+ * Returns { laneByJobId, laneCount } — JobBlock applies inline top/height
+ * positioning when laneCount > 1.
+ *
+ * Especially important for the Unassigned bucket, where uncrewed Zuper jobs
+ * frequently share the same scheduled time and would otherwise stack into a
+ * single illegible block.
+ */
+function packLanes(jobs: Job[]): { laneByJobId: Map<string, number>; laneCount: number } {
+  const laneByJobId = new Map<string, number>();
+  const laneEnds: number[] = []; // end-hour of the last job placed in each lane
+  // Sort by start time so the first-fit algorithm produces a stable layout.
+  const sorted = [...jobs]
+    .filter((j) => j.startHour != null)
+    .sort((a, b) => (a.startHour ?? 0) - (b.startHour ?? 0));
+  for (const j of sorted) {
+    const start = j.startHour as number;
+    const end = start + j.durationHrs;
+    let lane = -1;
+    for (let i = 0; i < laneEnds.length; i++) {
+      if (laneEnds[i] <= start) {
+        lane = i;
+        break;
+      }
+    }
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(end);
+    } else {
+      laneEnds[lane] = end;
+    }
+    laneByJobId.set(j.id, lane);
+  }
+  return { laneByJobId, laneCount: laneEnds.length };
+}
+
 export function DayCalendar({
   date,
   dateKeyStr,
@@ -374,11 +411,18 @@ export function DayCalendar({
         </div>
 
         {/* Row body */}
-        {rows.map((row, ri) => (
+        {rows.map((row, ri) => {
+          // Lane-pack so overlapping jobs (most common in the Unassigned bucket)
+          // stack vertically instead of piling on top of each other.
+          const { laneByJobId, laneCount } = packLanes(row.jobs);
+          const baseH = density === 'compact' ? 56 : 72;
+          const perLane = density === 'compact' ? 52 : 68;
+          const rowH = laneCount > 1 ? Math.max(baseH, laneCount * perLane + 12) : baseH;
+          return (
           <Fragment key={row.id}>
             <div
               className="daygrid-row-header"
-              style={{ minHeight: density === 'compact' ? 56 : 72 }}
+              style={{ minHeight: rowH }}
             >
               <div className="daygrid-row-color" style={{ background: row.color }} />
               <div className="daygrid-row-label">
@@ -391,7 +435,7 @@ export function DayCalendar({
             <div
               className={'daygrid-row' + (ri % 2 ? ' alt' : '')}
               style={{
-                minHeight: density === 'compact' ? 56 : 72,
+                minHeight: rowH,
                 width: COLS * colW + 'px',
               }}
               onDragOver={(e) => {
@@ -507,6 +551,8 @@ export function DayCalendar({
                   onClick={() => onJobClick(j)}
                   onResize={resizeJob}
                   allRowJobs={row.jobs}
+                  laneIndex={laneByJobId.get(j.id) ?? 0}
+                  laneCount={laneCount}
                 />
               ))}
 
@@ -533,7 +579,8 @@ export function DayCalendar({
               )}
             </div>
           </Fragment>
-        ))}
+          );
+        })}
 
         {rows.length === 0 && (
           <div

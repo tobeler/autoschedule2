@@ -21,6 +21,8 @@ import { TimesheetsView } from './views/timesheets/TimesheetsView';
 import { ReportsView } from './views/reports/ReportsView';
 import { SettingsView } from './views/settings/SettingsView';
 
+import { regionPrefixFromTeamName, useRegionFilter } from './lib/region-filter';
+
 import { JobDetailDrawer } from './modals/JobDetailDrawer';
 import { NewJobWizard } from './modals/NewJobWizard/NewJobWizard';
 import { SmartScheduleModal } from './modals/SmartScheduleModal';
@@ -84,7 +86,24 @@ export default function App() {
     );
   }
 
-  const attentionItems = buildAttentionItems();
+  // Compute attention against the region-scoped job set so the topbar pill
+  // tracks the active region picker — previously it counted across every
+  // region regardless of filter.
+  const { region: activeRegion } = useRegionFilter();
+  const customersStore = useStore((s) => s.customers);
+  const crewsStore = useStore((s) => s.crews);
+  const timeOffStore = useStore((s) => s.timeOff);
+  const scopedJobsForAttention =
+    activeRegion === 'all'
+      ? jobs
+      : jobs.filter((j) => regionPrefixFromTeamName(j.zuperTeamName) === activeRegion);
+  const attentionItems = buildAttentionItems({
+    jobs: scopedJobsForAttention,
+    customers: customersStore,
+    people,
+    crews: crewsStore,
+    timeOff: timeOffStore,
+  });
   const urgentCount = attentionItems.filter((i) => i.sev === 'urgent').length;
   const totalAttention = attentionItems.length;
 
