@@ -198,6 +198,7 @@ export function templatesFromDTOs(rows: JobTemplateDTO[]): Record<string, JobTem
     out[r.id] = {
       label: r.label,
       truckCount: r.truckCount,
+      defaultDurationHrs: r.defaultDurationHrs ?? undefined,
       slots: r.slots.map((s) => ({
         role: s.role,
         level: s.level,
@@ -393,6 +394,7 @@ export function templateToDTOPatch(tpl: JobTemplate): Partial<JobTemplateDTO> {
   return {
     label: tpl.label,
     truckCount: tpl.truckCount,
+    defaultDurationHrs: tpl.defaultDurationHrs ?? null,
     slots: tpl.slots.map((s) => ({
       role: s.role,
       level: s.level,

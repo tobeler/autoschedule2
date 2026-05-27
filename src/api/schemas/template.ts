@@ -20,6 +20,9 @@ export const JobTemplateSchema = z
     label: z.string(),
     slots: z.array(TemplateSlotSchema),
     truckCount: z.number().int().nonnegative(),
+    /** Default job duration in hours. Falls back to max(slot.start + slot.hours)
+     *  when null/undefined. */
+    defaultDurationHrs: z.number().positive().max(24).nullable().optional(),
   })
   .openapi('JobTemplate');
 

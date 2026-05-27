@@ -185,6 +185,10 @@ export interface JobTemplate {
   slots: TemplateSlot[];
   /** How many trucks the job typically needs */
   truckCount: number;
+  /** Default job duration in hours. Used when creating a new job
+   *  from this template. Falls back to max(slot.start + slot.hours)
+   *  when undefined (which is the historical behavior). */
+  defaultDurationHrs?: number;
 }
 
 export interface JobSlot extends TemplateSlot {

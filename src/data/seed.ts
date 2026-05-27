@@ -31,7 +31,7 @@ export const JOB_TYPES: Record<string, JobTypeDef> = {
   service: { label: 'Service · Care Plus', color: 'jt-service', short: 'Service' },
   warranty: { label: 'Service · Warranty', color: 'jt-warranty', short: 'Warranty' },
   callback: { label: 'Service · Callback', color: 'jt-callback', short: 'Callback' },
-  walkthrough: { label: 'Walk-through · Sales', color: 'jt-walkthrough', short: 'Walk-thru' },
+  walkthrough: { label: 'Walkthrough', color: 'jt-walkthrough', short: 'Walk-thru' },
   meeting: { label: 'Meeting / Training', color: 'jt-meeting', short: 'Meeting' },
 };
 
@@ -54,11 +54,13 @@ export const JOB_TEMPLATES: Record<string, JobTemplate> = {
       { role: 'electrician', level: 'L2', hours: 3, start: 4 },
     ],
     truckCount: 1,
+    defaultDurationHrs: 8,
   },
   retrofit: {
     label: 'Smart system retrofit',
     slots: [{ role: 'electrician', level: 'L2', hours: 2, start: 0 }],
     truckCount: 1,
+    defaultDurationHrs: 2,
   },
   water: {
     label: 'HP water heater install',
@@ -68,6 +70,7 @@ export const JOB_TEMPLATES: Record<string, JobTemplate> = {
       { role: 'apprentice', level: 'L1', hours: 5, start: 0 },
     ],
     truckCount: 1,
+    defaultDurationHrs: 5,
   },
   electrical: {
     label: 'Electrical service upgrade',
@@ -76,31 +79,37 @@ export const JOB_TEMPLATES: Record<string, JobTemplate> = {
       { role: 'apprentice', level: 'L1', hours: 6, start: 0 },
     ],
     truckCount: 1,
+    defaultDurationHrs: 6,
   },
   service: {
     label: 'Service · Care Plus',
     slots: [{ role: 'hvac_installer', level: 'L2', hours: 2, start: 0 }],
     truckCount: 1,
+    defaultDurationHrs: 2,
   },
   warranty: {
     label: 'Service · Warranty',
     slots: [{ role: 'hvac_installer', level: 'L2', hours: 2, start: 0 }],
     truckCount: 1,
+    defaultDurationHrs: 2,
   },
   callback: {
     label: 'Service · Callback',
     slots: [{ role: 'hvac_lead', level: 'L2', hours: 1.5, start: 0 }],
     truckCount: 1,
+    defaultDurationHrs: 1.5,
   },
   walkthrough: {
-    label: 'Walk-through · Sales',
+    label: 'Walkthrough',
     slots: [{ role: 'fsm', level: 'L1', hours: 1.5, start: 0 }],
     truckCount: 0,
+    defaultDurationHrs: 1.5,
   },
   meeting: {
     label: 'Meeting / Training',
     slots: [],
     truckCount: 0,
+    defaultDurationHrs: 1,
   },
 };
 

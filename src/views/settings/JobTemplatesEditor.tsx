@@ -4,6 +4,7 @@ import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
 import { JobTypeTag } from '../../components/JobTypeTag';
 import { JOB_TYPES, ROLES } from '../../data/seed';
+import { deriveTemplateDuration } from '../../data/selectors';
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import type { JobTemplate, RoleKey, Level, TemplateSlot } from '../../types';
 
@@ -245,11 +246,26 @@ export function JobTemplatesEditor() {
                   className="input"
                   type="number"
                   step="0.5"
-                  value={Math.max(1, ...editing.slots.map((s) => s.start + s.hours))}
-                  readOnly
-                  tabIndex={-1}
-                  title="Derived from the longest slot — change a slot's start+hours to change this."
-                  style={{ width: 80, background: 'var(--bg-subtle)', cursor: 'not-allowed' }}
+                  min={0.5}
+                  max={24}
+                  value={
+                    editing.defaultDurationHrs ??
+                    deriveTemplateDuration(editing.slots)
+                  }
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === '') {
+                      // Clear → revert to derived fallback.
+                      patchTpl({ defaultDurationHrs: undefined });
+                      return;
+                    }
+                    const n = Number(raw);
+                    if (!Number.isFinite(n)) return;
+                    const clamped = Math.max(0.5, Math.min(24, n));
+                    patchTpl({ defaultDurationHrs: clamped });
+                  }}
+                  title="Default duration in hours for new jobs of this type. Clear to use the longest-slot fallback."
+                  style={{ width: 80 }}
                 />
               </div>
               <div className="field" style={{ flex: 1 }}>
@@ -364,6 +380,18 @@ function NewTemplateModal({
   const [labelEdited, setLabelEdited] = useState(false);
   const [truckCount, setTruckCount] = useState<number>(1);
   const [slots, setSlots] = useState<TemplateSlot[]>([{ ...DEFAULT_NEW_SLOT }]);
+  // Pre-filled with the derived max of the initial slot, but editable.
+  // Tracked as a number so we can clear-to-default at save time if user blanks.
+  const [defaultDurationHrs, setDefaultDurationHrs] = useState<number | undefined>(
+    () => deriveTemplateDuration([{ ...DEFAULT_NEW_SLOT }]),
+  );
+  // If the user hasn't touched the duration field, keep it in sync with the
+  // derived slot total (so editing slots updates the pre-fill).
+  const [durationEdited, setDurationEdited] = useState(false);
+  const derivedDuration = deriveTemplateDuration(slots);
+  const effectiveDuration = durationEdited
+    ? (defaultDurationHrs ?? derivedDuration)
+    : derivedDuration;
 
   function changeType(next: string) {
     setJobType(next);
@@ -393,6 +421,15 @@ function NewTemplateModal({
       label: label.trim(),
       slots,
       truckCount: Number.isFinite(truckCount) ? truckCount : 1,
+      // Persist explicit value only when the user actually edited it; otherwise
+      // leave undefined so it falls back to the derived max-slot-end behavior.
+      defaultDurationHrs:
+        durationEdited &&
+        typeof defaultDurationHrs === 'number' &&
+        Number.isFinite(defaultDurationHrs) &&
+        defaultDurationHrs > 0
+          ? defaultDurationHrs
+          : undefined,
     };
     onCreate(jobType, tpl);
   }
@@ -458,6 +495,31 @@ function NewTemplateModal({
                     min={0}
                     value={truckCount}
                     onChange={(e) => setTruckCount(Number(e.target.value))}
+                    style={{ width: 80 }}
+                  />
+                </div>
+                <div className="field">
+                  <label className="eyebrow-sm">Default duration</label>
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.5"
+                    min={0.5}
+                    max={24}
+                    value={effectiveDuration}
+                    onChange={(e) => {
+                      setDurationEdited(true);
+                      const raw = e.target.value;
+                      if (raw === '') {
+                        setDefaultDurationHrs(undefined);
+                        return;
+                      }
+                      const n = Number(raw);
+                      if (!Number.isFinite(n)) return;
+                      const clamped = Math.max(0.5, Math.min(24, n));
+                      setDefaultDurationHrs(clamped);
+                    }}
+                    title="Hours. Pre-filled from the longest slot; edit to override."
                     style={{ width: 80 }}
                   />
                 </div>

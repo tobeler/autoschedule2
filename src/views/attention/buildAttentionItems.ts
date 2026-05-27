@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import type { IconName } from '../../components/Icon';
 import { useStore } from '../../store';
 import { TODAY, dateKey, fmtDate, fmtTime, hoursToStr } from '../../data/helpers';
-import type { Crew, Customer, Job, Person, TimeOff } from '../../types';
+import type { Crew, Customer, Job, JobSlot, Person, RoleKey, TimeOff } from '../../types';
 import {
   getCrew,
   getCustomer,
@@ -69,55 +69,141 @@ export function buildAttentionItems(input?: AttentionBuildState): AttentionItem[
   const items: AttentionItem[] = [];
   const today = dateKey(TODAY);
 
-  // 1. UNFILLED SLOTS — scan today's jobs
+  // 1. UNFILLED SLOTS — scan today's jobs.
+  //    One attention card per JOB (not per slot). A heat-pump install with 3
+  //    unfilled slots is one decision for the dispatcher, not three rail items.
   jobs
     .filter((j) => j.date === today)
     .forEach((job) => {
       const unfilled = job.slots.filter((s) => !s.assignedTo && !s.optional);
-      unfilled.forEach((s) => {
-        const c = getCustomer(customers, job.customer);
-        const role = ROLES[s.role];
-        if (!role) return;
-        const slotStart = job.startHour != null ? fmtTime(job.startHour + s.start) : '—';
-        items.push({
-          id: 'unf-' + job.id + '-' + s.id,
-          sev: 'urgent',
-          cat: 'coverage',
-          icon: 'user',
-          title: 'Unfilled ' + role.label + ' slot · ' + (c?.name ?? job.title ?? 'Untitled'),
-          desc:
-            'Needs ' +
-            role.label +
-            ' on site by ' +
-            slotStart +
-            ' · ' +
-            hoursToStr(s.hours) +
-            ' · ' +
-            (c?.name || (job.address || '').split('·')[0] || ''),
-          meta: [
-            { kind: 'due', label: 'By ' + slotStart },
-            { kind: 'tag', label: getJobType(job.type)?.short || job.type },
-          ],
-          context: [
-            ['Type', getJobType(job.type)?.label || job.type],
-            ['Customer', c?.name || '—'],
-            ['Address', job.address || '—'],
-            ['Role needed', role.label + ' (' + s.level + ')'],
-            ['Start time', slotStart + ' · ' + hoursToStr(s.hours)],
-          ],
-          resolutions: [
+      if (unfilled.length === 0) return;
+
+      const c = getCustomer(customers, job.customer);
+      const displayName = c?.name ?? job.title ?? 'Untitled';
+      const jobLabel = getJobType(job.type)?.label || job.type;
+      const jobShort = getJobType(job.type)?.short || job.type;
+      const startTime = job.startHour != null ? fmtTime(job.startHour) : '—';
+
+      // Sort slots by their start offset so "earliest needed" reads first.
+      const sortedUnfilled = [...unfilled].sort((a, b) => a.start - b.start);
+
+      // Filter to slots with a known role definition; keep the original slot
+      // for time/level info.
+      const known = sortedUnfilled.filter((s) => ROLES[s.role]);
+      if (known.length === 0) return;
+
+      // Group by role+level for compact phrasing (e.g. "2× HVAC Installer L1").
+      type Group = { role: RoleKey; level: string; count: number; slots: JobSlot[] };
+      const groups: Group[] = [];
+      known.forEach((s) => {
+        const existing = groups.find((g) => g.role === s.role && g.level === s.level);
+        if (existing) {
+          existing.count += 1;
+          existing.slots.push(s);
+        } else {
+          groups.push({ role: s.role, level: s.level, count: 1, slots: [s] });
+        }
+      });
+
+      const earliestSlot = known[0]!;
+      const earliestStart =
+        job.startHour != null ? fmtTime(job.startHour + earliestSlot.start) : '—';
+
+      // Build per-slot lines for the context table — one row per actual slot
+      // so the dispatcher sees the full picture (start time + duration each).
+      const slotLines = known.map((s) => {
+        const role = ROLES[s.role]!;
+        const start =
+          job.startHour != null ? fmtTime(job.startHour + s.start) : '—';
+        return role.label + ' ' + s.level + ' (' + start + ' · ' + hoursToStr(s.hours) + ')';
+      });
+
+      // Phrasing differs for single vs. multi-slot. Single slots keep the
+      // historical wording so the rail doesn't say "Unfilled crew" with one role.
+      const isSingle = known.length === 1;
+      const groupLabels = groups.map((g) => {
+        const role = ROLES[g.role]!;
+        const prefix = g.count > 1 ? g.count + '× ' : '';
+        return prefix + role.label + ' ' + g.level;
+      });
+      const groupedRolesText = groupLabels.join(', ');
+
+      const title = isSingle
+        ? 'Unfilled ' + ROLES[earliestSlot.role]!.label + ' slot · ' + displayName
+        : 'Unfilled crew · ' + displayName;
+
+      const desc = isSingle
+        ? 'Needs ' +
+          ROLES[earliestSlot.role]!.label +
+          ' on site by ' +
+          earliestStart +
+          ' · ' +
+          hoursToStr(earliestSlot.hours) +
+          ' · ' +
+          (c?.name || (job.address || '').split('·')[0] || '')
+        : 'Needs ' + groupedRolesText + ' — starts ' + startTime;
+
+      const context: [string, string][] = [
+        ['Type', jobLabel],
+        ['Customer', c?.name || '—'],
+        ['Address', job.address || '—'],
+        [isSingle ? 'Role needed' : 'Roles', slotLines.join('\n')],
+        [
+          isSingle ? 'Start time' : 'Start',
+          isSingle ? earliestStart + ' · ' + hoursToStr(earliestSlot.hours) : startTime,
+        ],
+      ];
+
+      // Resolutions — job-scoped. The dispatcher fills slots one-by-one in
+      // the side panel after clicking through. For the single-slot degraded
+      // case, keep the role-specific "Suggest an available {role}" wording.
+      const resolutions: AttentionResolution[] = isSingle
+        ? [
             {
               primary: true,
               icon: 'sparkle',
-              title: 'Suggest an available ' + role.label,
+              title: 'Suggest an available ' + ROLES[earliestSlot.role]!.label,
               sub: 'Match level + region + travel window',
               action: 'assign',
             },
             { icon: 'user', title: 'Pick from roster', sub: 'Manually assign a person', action: 'pick' },
             { icon: 'briefcase', title: 'Review external coverage', sub: 'Subcontractor option only; no message sent' },
-          ],
-          jobId: job.id,
-        });
+          ]
+        : [
+            {
+              primary: true,
+              icon: 'sparkle',
+              title: 'Suggest available crew',
+              sub: 'Match level + region + travel window for each open slot',
+              action: 'assign',
+            },
+            {
+              icon: 'user',
+              title: 'Pick from roster',
+              sub: 'Manually assign each of the ' + known.length + ' open slots',
+              action: 'pick',
+            },
+            {
+              icon: 'briefcase',
+              title: 'Review external coverage',
+              sub: 'Subcontractor option only; no message sent',
+            },
+          ];
+
+      items.push({
+        id: 'unf-' + job.id,
+        sev: 'urgent',
+        cat: 'coverage',
+        icon: 'user',
+        title,
+        desc,
+        meta: [
+          { kind: 'due', label: 'By ' + earliestStart },
+          { kind: 'tag', label: jobShort },
+        ],
+        context,
+        resolutions,
+        jobId: job.id,
       });
     });
 

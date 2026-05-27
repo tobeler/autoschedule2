@@ -254,7 +254,15 @@ export function MapView({ date, jobs, onJobClick }: MapViewProps) {
             <div style={{ marginLeft: 'auto' }}>
               <button
                 className="btn btn-primary btn-sm"
-                onClick={() => pushToast('Re-optimized routes')}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'Re-optimize routes for the visible crews? This reorders each crew’s jobs based on travel distance.',
+                    )
+                  ) {
+                    pushToast('Re-optimized routes');
+                  }
+                }}
               >
                 <Icon name="sparkle" size={12} /> Re-optimize
               </button>
