@@ -17,8 +17,31 @@ export function RegionsEditor() {
   const regions = useStore((s) => s.regions);
   const crews = useStore((s) => s.crews);
   const trucks = useStore((s) => s.trucks);
+  const people = useStore((s) => s.people);
   const removeRegion = useStore((s) => s.removeRegion);
   const pushToast = useStore((s) => s.pushToast);
+
+  // Compute real crew + headcount totals from the live store, since the
+  // synced `regions.headcount / crewCount` columns are not populated by the
+  // HubSpot sync. Match crew names by any of the supplied region shorts
+  // (e.g. ["CO"] matches "CO-DE-2"; ["MA","BC","CO","NY","CA"] rolls up
+  // United States + Canada parents).
+  function liveTotalsForShorts(shorts: string[]): { crews: number; headcount: number } {
+    const prefixes = shorts
+      .filter((s) => !!s)
+      .map((s) => s.toUpperCase() + '-');
+    if (prefixes.length === 0) return { crews: 0, headcount: 0 };
+    const matched = crews.filter((c) =>
+      prefixes.some((p) => c.name.toUpperCase().startsWith(p)),
+    );
+    const crewIds = new Set(matched.map((c) => c.id));
+    const memberIds = new Set<string>();
+    matched.forEach((c) => c.members.forEach((m) => memberIds.add(m)));
+    people.forEach((p) => {
+      if (p.defaultCrew && crewIds.has(p.defaultCrew)) memberIds.add(p.id);
+    });
+    return { crews: matched.length, headcount: memberIds.size };
+  }
 
   const [editRegion, setEditRegion] = useState<Region | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -117,9 +140,21 @@ export function RegionsEditor() {
                     {r.name}
                   </div>
                   <div className="muted small" style={{ marginTop: 4 }}>
-                    {r.subs.length} sub-region{r.subs.length === 1 ? '' : 's'} ·{' '}
-                    {r.subs.reduce((a, s) => a + s.crews, 0)} crews ·{' '}
-                    {r.subs.reduce((a, s) => a + s.headcount, 0)} people
+                    {(() => {
+                      // Sum across all sub-region shorts (parent shorts like
+                      // "UN"/"CA" don't appear in crew names — only the state
+                      // codes do). Include the parent's own short as a
+                      // fallback for single-region setups.
+                      const shorts = [r.short, ...r.subs.map((s) => s.short || '')];
+                      const live = liveTotalsForShorts(shorts);
+                      return (
+                        <>
+                          {r.subs.length} sub-region
+                          {r.subs.length === 1 ? '' : 's'} · {live.crews} crews ·{' '}
+                          {live.headcount} people
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div className="row" style={{ gap: 4 }}>
@@ -139,24 +174,27 @@ export function RegionsEditor() {
               <div className="divider" style={{ margin: '4px 0' }} />
 
               <div className="col" style={{ gap: 4 }}>
-                {r.subs.map((s) => (
-                  <div
-                    key={s.id}
-                    className="row"
-                    style={{
-                      gap: 8,
-                      padding: '4px 8px',
-                      borderRadius: 6,
-                      background: 'var(--bg-subtle)',
-                      fontSize: 12,
-                    }}
-                  >
-                    <span style={{ flex: 1, fontWeight: 600 }}>{s.name}</span>
-                    <span className="muted mono small">
-                      {s.crews}c · {s.headcount}p
-                    </span>
-                  </div>
-                ))}
+                {r.subs.map((s) => {
+                  const live = liveTotalsForShorts([s.short || s.name.slice(0, 2)]);
+                  return (
+                    <div
+                      key={s.id}
+                      className="row"
+                      style={{
+                        gap: 8,
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        background: 'var(--bg-subtle)',
+                        fontSize: 12,
+                      }}
+                    >
+                      <span style={{ flex: 1, fontWeight: 600 }}>{s.name}</span>
+                      <span className="muted mono small">
+                        {live.crews}c · {live.headcount}p
+                      </span>
+                    </div>
+                  );
+                })}
                 {r.subs.length === 0 && (
                   <div className="muted small" style={{ padding: 6 }}>
                     No sub-regions defined.
