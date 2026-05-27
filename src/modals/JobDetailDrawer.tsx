@@ -306,9 +306,10 @@ export function JobDetailDrawer() {
             {job.hubspotDealId && (
               <span
                 className="badge"
+                title={`HubSpot deal ${job.hubspotDealId}`}
                 style={{ background: 'rgba(255,122,89,0.15)', color: '#9F3D24' }}
               >
-                <Icon name="hubspot" size={11} /> {job.hubspotDealId}
+                <Icon name="hubspot" size={11} /> HubSpot
               </span>
             )}
             {unfilledCount > 0 && (
@@ -1056,11 +1057,20 @@ function OverviewTab({
               }
             >
               <option value="">— None —</option>
-              {projectOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name || 'Untitled project'}
-                </option>
-              ))}
+              {projectOptions.map((p) => {
+                const isPlaceholder =
+                  !p.name ||
+                  /^Legacy install\b/i.test(p.name) ||
+                  /^hs-[ipd]-/i.test(p.name);
+                const label = isPlaceholder
+                  ? `Untitled project · ${p.type || 'Retrofit'}`
+                  : p.name;
+                return (
+                  <option key={p.id} value={p.id}>
+                    {label}
+                  </option>
+                );
+              })}
             </select>
             {autoMatchedProject && (
               <div
