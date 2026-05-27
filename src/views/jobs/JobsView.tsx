@@ -2,7 +2,7 @@
 // Jobs view — sortable + filterable table.
 // Type chips, status/source/region filters, search, crew composition column.
 // =============================================================
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { PageHeader } from '../../components/PageHeader';
 import { JobTypeTag } from '../../components/JobTypeTag';
@@ -85,6 +85,20 @@ function regionOfJob(job: Job): RegionPrefix | null {
   return regionPrefixFromTeamName(job.zuperTeamName);
 }
 
+function defaultQuickFilterLabel(args: {
+  typeFilter: TypeFilter;
+  statusSet: Set<JobStatus>;
+  regionFilter: RegionPrefix | 'all';
+  activeOnly: boolean;
+}): string {
+  const parts: string[] = [];
+  if (args.typeFilter !== 'all') parts.push(args.typeFilter);
+  if (args.regionFilter !== 'all') parts.push(args.regionFilter);
+  if (args.statusSet.size > 0) parts.push(Array.from(args.statusSet).join('/'));
+  if (parts.length === 0) parts.push(args.activeOnly ? 'Active jobs' : 'All jobs');
+  return parts.join(' · ');
+}
+
 
 
 function sourceOfJob(job: Job, projects: Project[]): SourceKey | null {
@@ -115,6 +129,9 @@ export function JobsView() {
   const people = useStore((s) => s.people);
   const selectJob = useStore((s) => s.selectJob);
   const openWizard = useStore((s) => s.openWizard);
+  const addSavedQuickFilter = useStore((s) => s.addSavedQuickFilter);
+  const pendingJobsFilter = useStore((s) => s.pendingJobsFilter);
+  const clearPendingJobsFilter = useStore((s) => s.clearPendingJobsFilter);
 
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [statusSet, setStatusSet] = useState<Set<JobStatus>>(() => new Set());
@@ -130,6 +147,16 @@ export function JobsView() {
     key: 'date',
     dir: 'desc',
   });
+
+  // Apply any pending quick-filter snapshot (set by sidebar's saved filters).
+  useEffect(() => {
+    if (!pendingJobsFilter) return;
+    if (pendingJobsFilter.types?.length) setTypeFilter(pendingJobsFilter.types[0]);
+    if (pendingJobsFilter.statuses?.length) setStatusSet(new Set(pendingJobsFilter.statuses));
+    if (typeof pendingJobsFilter.activeOnly === 'boolean') setActiveOnly(pendingJobsFilter.activeOnly);
+    // regionPrefixes are already applied to the store by applySavedQuickFilter.
+    clearPendingJobsFilter();
+  }, [pendingJobsFilter, clearPendingJobsFilter]);
 
   // Build lookup maps once per render so the sort comparator doesn't run
   // a linear find() for every comparison (n*log n * n = O(n^2 log n)).
@@ -271,7 +298,7 @@ export function JobsView() {
           reviewUnscheduledCount +
           ' held for review, ' +
           completeCount +
-          ' complete this quarter'
+          ' complete'
         }
       >
         <div className="search" style={{ width: 260 }}>
@@ -284,10 +311,25 @@ export function JobsView() {
         </div>
         <button
           className="btn btn-outline btn-sm"
-          title="HubSpot sync runs from Settings → Integrations. The bottom of that page also runs a Zuper re-bootstrap."
-          disabled
+          title="Snapshot the current filter selection (type, status, region, active-only) into the sidebar Quick filters list."
+          onClick={() => {
+            const label = window.prompt('Name this quick filter:', defaultQuickFilterLabel({
+              typeFilter, statusSet, regionFilter, activeOnly,
+            }));
+            if (!label || !label.trim()) return;
+            const id = 'qf-' + Math.random().toString(36).slice(2, 10);
+            const regionPrefixes = regionFilter === 'all' ? undefined : [regionFilter];
+            addSavedQuickFilter({
+              id,
+              label: label.trim(),
+              types: typeFilter === 'all' ? undefined : [typeFilter],
+              statuses: statusSet.size > 0 ? Array.from(statusSet) : undefined,
+              regionPrefixes,
+              activeOnly,
+            });
+          }}
         >
-          <Icon name="refresh" size={14} /> Sync HubSpot
+          <Icon name="plus" size={14} /> Save as quick filter
         </button>
         <button className="btn btn-primary btn-sm" onClick={openWizard}>
           <Icon name="plus" size={14} /> New job

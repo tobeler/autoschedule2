@@ -77,6 +77,20 @@ export type TabId =
   | 'reports'
   | 'settings';
 
+export interface SavedQuickFilter {
+  id: string;
+  label: string;
+  types?: string[];
+  statuses?: JobStatus[];
+  regionPrefixes?: string[];
+  /**
+   * When true, the saved filter excludes complete + cancelled jobs from the
+   * Jobs-view table. Mirrors the existing `activeOnly` toggle. Defaults to
+   * true since dispatchers almost always want active-only.
+   */
+  activeOnly?: boolean;
+}
+
 export interface RegionSelection {
   regionId: string;
   subId: string;
@@ -108,6 +122,13 @@ interface State {
   // ---- preferences (persisted) ----
   region: RegionSelection;
   tweaks: Tweaks;
+  /**
+   * Dispatcher-saved quick filters — surfaced in the sidebar.
+   * Each entry captures a Jobs-view filter snapshot: a label plus an
+   * optional set of job types, statuses, and region prefixes. Clicking
+   * a saved filter jumps to the Jobs view with that snapshot applied.
+   */
+  savedQuickFilters: SavedQuickFilter[];
 
   // ---- ephemeral UI (not persisted) ----
   tab: TabId;
@@ -157,6 +178,12 @@ interface State {
   setPendingZuperWrite: (p: State['pendingZuperWrite']) => void;
   clearPendingZuperWrite: () => void;
   setRegion: (r: RegionSelection) => void;
+  addSavedQuickFilter: (f: SavedQuickFilter) => void;
+  removeSavedQuickFilter: (id: string) => void;
+  applySavedQuickFilter: (id: string) => void;
+  /** Pending Jobs-view filter to apply on next mount (one-shot). */
+  pendingJobsFilter: Omit<SavedQuickFilter, 'id' | 'label'> | null;
+  clearPendingJobsFilter: () => void;
   setTweak: <K extends keyof Tweaks>(k: K, v: Tweaks[K]) => void;
 
   // ---- hydration helpers (internal, used by hooks) ----
@@ -264,6 +291,8 @@ export const useStore = create<State>()(
 
       region: DEFAULT_REGION,
       tweaks: DEFAULT_TWEAKS,
+      savedQuickFilters: [],
+      pendingJobsFilter: null,
 
       tab: 'dispatch',
       selectedJobId: null,
@@ -302,6 +331,37 @@ export const useStore = create<State>()(
       closeSmartSchedule: () => set({ smartScheduleJobId: null }),
       setRegion: (r) => set({ region: r }),
       setTweak: (k, v) => set((s) => ({ tweaks: { ...s.tweaks, [k]: v } })),
+      addSavedQuickFilter: (f) =>
+        set((s) => ({ savedQuickFilters: [...s.savedQuickFilters.filter((x) => x.id !== f.id), f] })),
+      removeSavedQuickFilter: (id) =>
+        set((s) => ({ savedQuickFilters: s.savedQuickFilters.filter((x) => x.id !== id) })),
+      applySavedQuickFilter: (id) => {
+        const f = get().savedQuickFilters.find((x) => x.id === id);
+        if (!f) return;
+        // Stash the snapshot the Jobs view picks up on its next render; then
+        // route there. The view consumes + clears it so reload doesn't
+        // re-apply.
+        set({
+          tab: 'jobs',
+          pendingJobsFilter: {
+            types: f.types,
+            statuses: f.statuses,
+            regionPrefixes: f.regionPrefixes,
+            activeOnly: f.activeOnly,
+          },
+        });
+        if (f.regionPrefixes?.length) {
+          set((s) => ({
+            region: {
+              ...s.region,
+              regionPrefixes: f.regionPrefixes,
+              regionId: f.regionPrefixes![0].toLowerCase(),
+              subId: '',
+            },
+          }));
+        }
+      },
+      clearPendingJobsFilter: () => set({ pendingJobsFilter: null }),
 
       // ---- hydration helpers ----
       setApiMode: (v) => set({ apiMode: v }),
@@ -953,6 +1013,7 @@ export const useStore = create<State>()(
         region: s.region,
         tweaks: s.tweaks,
         demoDataEnabled: s.demoDataEnabled,
+        savedQuickFilters: s.savedQuickFilters,
       }),
       version: 2,
     },

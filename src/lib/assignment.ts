@@ -42,23 +42,46 @@ function scoreCrew({ crew, job, allPeople, allJobs, timeOff }: ScoreInputs): Cre
   const reasons: string[] = [];
   let score = 0;
 
-  if (!tpl) return { crewId: crew.id, score, reasons: ['no template'] };
-
-  // 1) Skill coverage
+  // 1) Skill coverage. Zuper-sourced job types often have no JOB_TEMPLATES
+  // entry — fall back to a flat "crew is staffed" credit so the ranking
+  // doesn't collapse to all-zeros. Region + continuity + availability still
+  // differentiate crews below.
   const members = allPeople.filter((p) => crew.members.includes(p.id));
-  const requiredSlots = tpl.slots.filter((s) => !s.optional);
-  const covered = requiredSlots.filter((slot) =>
-    members.some(
-      (m) =>
-        m.roles.includes(slot.role) &&
-        (slot.role === 'apprentice' ||
-          LEVEL_ORDER.indexOf(m.level) >= LEVEL_ORDER.indexOf((slot.level as typeof LEVEL_ORDER[number]) || 'L1')),
-    ),
-  ).length;
-  const coverage = requiredSlots.length ? covered / requiredSlots.length : 1;
-  score += coverage * 60;
-  if (coverage === 1) reasons.push('All required roles covered');
-  else if (coverage > 0) reasons.push(`Partial coverage (${covered}/${requiredSlots.length})`);
+  if (!tpl) {
+    if (members.length > 0) {
+      score += 40;
+      reasons.push(`${members.length} member${members.length === 1 ? '' : 's'} on this crew`);
+    } else {
+      reasons.push('Crew has no members yet');
+    }
+  } else {
+    const requiredSlots = tpl.slots.filter((s) => !s.optional);
+    const covered = requiredSlots.filter((slot) =>
+      members.some(
+        (m) =>
+          m.roles.includes(slot.role) &&
+          (slot.role === 'apprentice' ||
+            LEVEL_ORDER.indexOf(m.level) >= LEVEL_ORDER.indexOf((slot.level as typeof LEVEL_ORDER[number]) || 'L1')),
+      ),
+    ).length;
+    const coverage = requiredSlots.length ? covered / requiredSlots.length : 1;
+    score += coverage * 60;
+    if (coverage === 1) reasons.push('All required roles covered');
+    else if (coverage > 0) reasons.push(`Partial coverage (${covered}/${requiredSlots.length})`);
+  }
+
+  // 1b) Region match — strong signal for Zuper crews like "CO-DE-1".
+  if (job.zuperTeamName && crew.name) {
+    const jobRegion = job.zuperTeamName.split('-')[0];
+    const crewRegion = crew.name.split('-')[0];
+    if (jobRegion && jobRegion === crewRegion) {
+      score += 25;
+      reasons.push(`Same region (${jobRegion})`);
+    } else if (jobRegion && crewRegion && jobRegion !== crewRegion) {
+      score -= 20;
+      reasons.push(`Cross-region (${jobRegion} → ${crewRegion})`);
+    }
+  }
 
   // 2) Continuity for callbacks
   if (job.type === 'callback' && job.customer) {

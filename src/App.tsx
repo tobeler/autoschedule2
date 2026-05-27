@@ -14,6 +14,7 @@ import { dateKey, TODAY } from './data/helpers';
 import { DispatchView } from './views/dispatch/DispatchView';
 import { AttentionView, buildAttentionItems } from './views/attention/AttentionView';
 import { JobsView } from './views/jobs/JobsView';
+import { ProjectsView } from './views/projects/ProjectsView';
 import { TechniciansView } from './views/technicians/TechniciansView';
 import { CrewsView } from './views/crews/CrewsView';
 import { FleetView } from './views/fleet/FleetView';
@@ -161,32 +162,7 @@ export default function App() {
           </button>
         ))}
 
-        {!sidebarCollapsed && <div className="sidebar-section">Quick filters</div>}
-        {!sidebarCollapsed && (
-          <>
-            <button className="nav-item" onClick={() => setTab('dispatch')}>
-              <span
-                className="dot"
-                style={{ width: 8, height: 8, background: 'var(--jt-heatpump)', borderRadius: '50%' }}
-              />
-              Heat pumps today<span className="nav-badge">{jobs.filter((j) => j.type === 'heatpump' && j.date === dateKey(TODAY)).length}</span>
-            </button>
-            <button className="nav-item" onClick={() => setTab('attention')}>
-              <span
-                className="dot"
-                style={{ width: 8, height: 8, background: 'var(--jt-callback)', borderRadius: '50%' }}
-              />
-              Callbacks<span className="nav-badge">{jobs.filter((j) => j.type === 'callback' && j.status !== 'complete' && j.status !== 'cancelled').length}</span>
-            </button>
-            <button className="nav-item" onClick={() => setTab('attention')}>
-              <Icon name="user" size={16} className="nav-icon" />
-              Unfilled slots
-              <span className="nav-badge">
-                {jobs.filter((j) => j.slots.some((s) => !s.assignedTo && !s.optional)).length}
-              </span>
-            </button>
-          </>
-        )}
+        {!sidebarCollapsed && <SidebarQuickFilters />}
 
         <SidebarUserFooter collapsed={sidebarCollapsed} />
       </aside>
@@ -245,6 +221,76 @@ export default function App() {
       <Toast />
     </div>
   );
+}
+
+// Customizable + saveable quick filters in the sidebar. Renders the
+// dispatcher's saved filters (from store.savedQuickFilters) plus an
+// inline "+ Save current view" affordance that captures the active
+// JobsView filters (typeFilter / statusSet / regionPrefixes / activeOnly).
+function SidebarQuickFilters() {
+  const setTab = useStore((s) => s.setTab);
+  const filters = useStore((s) => s.savedQuickFilters);
+  const removeFilter = useStore((s) => s.removeSavedQuickFilter);
+  const applyFilter = useStore((s) => s.applySavedQuickFilter);
+  return (
+    <>
+      <div className="sidebar-section">Quick filters</div>
+      {filters.length === 0 && (
+        <div className="muted small" style={{ padding: '6px 12px', fontSize: 11, lineHeight: 1.4 }}>
+          No saved filters yet. Open Jobs, apply a filter, and click
+          "Save as quick filter" to keep it here.
+        </div>
+      )}
+      {filters.map((f) => (
+        <button
+          key={f.id}
+          className="nav-item"
+          onClick={() => applyFilter(f.id)}
+          title={describeFilter(f)}
+          style={{ position: 'relative' }}
+        >
+          <Icon name="briefcase" size={14} className="nav-icon" />
+          <span>{f.label}</span>
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={'Remove filter ' + f.label}
+            onClick={(e) => {
+              e.stopPropagation();
+              removeFilter(f.id);
+            }}
+            style={{
+              marginLeft: 'auto',
+              opacity: 0.5,
+              fontSize: 11,
+              padding: '2px 6px',
+              borderRadius: 4,
+            }}
+          >
+            ×
+          </span>
+        </button>
+      ))}
+      <button
+        className="nav-item"
+        onClick={() => setTab('jobs')}
+        title="Open Jobs, configure filters, then click Save as quick filter."
+        style={{ fontSize: 11, opacity: 0.8 }}
+      >
+        <Icon name="plus" size={14} className="nav-icon" />
+        <span>Save new filter…</span>
+      </button>
+    </>
+  );
+}
+
+function describeFilter(f: import('./store').SavedQuickFilter): string {
+  const parts: string[] = [];
+  if (f.types?.length) parts.push(`types: ${f.types.join(', ')}`);
+  if (f.statuses?.length) parts.push(`status: ${f.statuses.join(', ')}`);
+  if (f.regionPrefixes?.length) parts.push(`region: ${f.regionPrefixes.join(', ')}`);
+  if (f.activeOnly) parts.push('active only');
+  return parts.length === 0 ? f.label : f.label + ' · ' + parts.join(' · ');
 }
 
 // Phase 19 fix: pull dispatcher name + role from the store so once auth

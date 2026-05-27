@@ -30,6 +30,7 @@ import {
   suggestAssignments,
 } from '../data/selectors';
 import { fmtDate, fmtTime, hoursToStr, parseDateKey } from '../data/helpers';
+import { realCustomerName } from '../lib/customer-display';
 import {
   hubspotDealUrl,
   hubspotInstallationUrl,
@@ -375,7 +376,21 @@ export function JobDetailDrawer() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="eyebrow">Part of project</div>
                 <div className="row" style={{ gap: 6 }}>
-                  <div className="name">{project.name}</div>
+                  <div className="name">
+                    {(() => {
+                      // Project names in our DB are largely the synthetic
+                      // "Legacy install <id>" placeholder, which is meaningless
+                      // to a dispatcher. Compose a real label from the
+                      // customer name + project type instead.
+                      const rawName = project.name?.trim() ?? '';
+                      const isPlaceholder =
+                        /^Legacy install\b/i.test(rawName) || /^hs-[ipd]-/i.test(rawName);
+                      if (!isPlaceholder && rawName) return rawName;
+                      const cust = realCustomerName(customer);
+                      const type = project.type?.trim() || 'Install';
+                      return cust ? `${cust} — ${type}` : type;
+                    })()}
+                  </div>
                   {project.hubspotProjectId && (
                     <a
                       href={hubspotProjectUrl(project.hubspotProjectId)}
@@ -391,7 +406,7 @@ export function JobDetailDrawer() {
                   )}
                 </div>
                 <div className="meta">
-                  {project.id} · {projectCompleted}/{projectSiblings.length} jobs ·{' '}
+                  {projectCompleted}/{projectSiblings.length} jobs ·{' '}
                   {projectStatusLabel(project.status)}
                 </div>
               </div>

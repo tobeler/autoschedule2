@@ -14,7 +14,7 @@
 // renderer used across JobBlock, UnscheduledRail, KanbanBoard.
 // =============================================================
 
-import type { Customer, Job, JobTypeDef } from '../types';
+import type { Customer, Job, JobTypeDef, Project } from '../types';
 
 /**
  * Return the customer name when it looks real, otherwise null.
@@ -63,4 +63,25 @@ export function jobDisplayName(
   if (job.title) return job.title;
   if (job.address) return job.address.split('·')[0].trim();
   return 'Untitled';
+}
+
+/**
+ * Project display name. Most synced projects carry placeholder names like
+ * "Legacy install 53101081227" or are tied to synthetic IDs. Resolve to
+ * "Customer Name — Type" when possible.
+ */
+export function projectDisplayName(
+  project: Pick<Project, 'name' | 'type'>,
+  customer: Customer | undefined | null,
+): string {
+  const raw = project.name?.trim() ?? '';
+  const placeholder =
+    !raw ||
+    /^Legacy install\b/i.test(raw) ||
+    /^hs-[ipd]-/i.test(raw) ||
+    /^Unknown project$/i.test(raw);
+  const real = realCustomerName(customer);
+  const type = project.type?.trim() || 'Install';
+  if (!placeholder) return raw;
+  return real ? `${real} — ${type}` : type;
 }
