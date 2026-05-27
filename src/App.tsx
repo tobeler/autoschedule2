@@ -122,6 +122,7 @@ export default function App() {
   const navItems: NavItem[] = [
     { id: 'dispatch', label: 'Dispatch', icon: 'calendar', badge: unscheduledJobs(jobs).length || null },
     { id: 'jobs', label: 'Jobs', icon: 'briefcase', badge: activeJobsCount },
+    { id: 'projects', label: 'Projects', icon: 'home' },
     { id: 'technicians', label: 'Technicians', icon: 'user', badge: people.length },
     { id: 'crews', label: 'Crews', icon: 'users' },
     { id: 'fleet', label: 'Trucks', icon: 'truck' },
@@ -203,6 +204,7 @@ export default function App() {
           {tab === 'dispatch' && <DispatchView />}
           {tab === 'attention' && <AttentionView />}
           {tab === 'jobs' && <JobsView />}
+          {tab === 'projects' && <ProjectsView />}
           {tab === 'technicians' && <TechniciansView />}
           {tab === 'crews' && <CrewsView />}
           {tab === 'fleet' && <FleetView />}
