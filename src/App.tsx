@@ -136,7 +136,26 @@ export default function App() {
       {/* SIDEBAR */}
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <img src="/logos/Jetson-Logo-Off-White.png" alt="Jetson" />
+          {sidebarCollapsed ? (
+            // Minimal mark when the sidebar is narrow — the wordmark PNG
+            // was clipping at the right edge. Match brand green so it reads
+            // against the dark sidebar.
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 64 64"
+              aria-label="Jetson"
+              style={{ flexShrink: 0 }}
+            >
+              <rect width="64" height="64" rx="14" fill="#3CD567" />
+              <path
+                d="M38 13h-4v30c0 4.4-3.6 7-8 7-3.5 0-6.5-1.6-8-4.4l-4.6 3.2C16 53.4 20.5 56 26 56c8.8 0 16-4.7 16-13V13z"
+                fill="#0F1F0D"
+              />
+            </svg>
+          ) : (
+            <img src="/logos/Jetson-Logo-Off-White.png" alt="Jetson" />
+          )}
           {!sidebarCollapsed && (
             <div className="sidebar-brand-text">
               Schedule
