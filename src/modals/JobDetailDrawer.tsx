@@ -1304,32 +1304,65 @@ function CrewTab({
             <div className="small muted" style={{ marginBottom: 6 }}>
               Zuper team roster ({zuperCrewMembers.length})
             </div>
-            <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-              {zuperCrewMembers.map((p) => (
-                <div
-                  key={p.id}
-                  className="row"
-                  style={{
-                    gap: 6,
-                    alignItems: 'center',
-                    padding: '4px 8px',
-                    background: 'var(--bg-2, rgba(0,0,0,0.04))',
-                    borderRadius: 6,
-                    fontSize: 13,
-                  }}
-                  title={`${(p.roles && p.roles[0]) || 'tech'}${p.level ? ` · ${p.level}` : ''}`}
-                >
-                  <span className="mono" style={{ opacity: 0.6, fontSize: 11 }}>
-                    {p.name
-                      .split(/\s+/)
-                      .slice(0, 2)
-                      .map((w) => w[0])
-                      .join('')
-                      .toUpperCase()}
-                  </span>
-                  <span>{p.name}</span>
-                </div>
-              ))}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                gap: 8,
+              }}
+            >
+              {zuperCrewMembers.map((p) => {
+                const primaryRole =
+                  (p.roles && p.roles[0]) || 'tech';
+                const roleText = roleLabel(primaryRole);
+                const initials = p.name
+                  .split(/\s+/)
+                  .slice(0, 2)
+                  .map((w) => w[0])
+                  .join('')
+                  .toUpperCase();
+                return (
+                  <div
+                    key={p.id}
+                    className="row"
+                    style={{
+                      gap: 8,
+                      alignItems: 'center',
+                      padding: '6px 8px',
+                      background: 'var(--bg-2, rgba(0,0,0,0.04))',
+                      borderRadius: 6,
+                    }}
+                  >
+                    <span
+                      className="mono"
+                      style={{
+                        width: 28,
+                        height: 28,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: 6,
+                        background: 'rgba(0,0,0,0.06)',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {initials}
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</span>
+                      <span
+                        className="muted small"
+                        style={{ fontSize: 11, lineHeight: 1.2 }}
+                      >
+                        {roleText}
+                        {p.level ? ` · ${p.level}` : ''}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
