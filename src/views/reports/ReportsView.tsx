@@ -75,6 +75,12 @@ export function ReportsView() {
           utilization.reduce((a, u) => a + u.pct, 0) / utilization.length,
         );
 
+  // Over-capacity crews are the dispatcher's most-actionable signal: they
+  // mean either scheduling drift, double-booking, or an under-staffed crew
+  // taking on too much. Surface them as a callout above the table.
+  const overCapacity = utilization.filter((u) => u.pct > 100);
+  const underUtilized = utilization.filter((u) => u.pct < 30 && u.pct > 0);
+
   // ===== Revenue + jobs per truck (90-day rolling) =====
   const truckStats = useMemo(() => {
     return trucks
@@ -178,6 +184,58 @@ export function ReportsView() {
             <div className="kpi-meta">{utilization.length} crews active</div>
           </div>
         </div>
+
+        {(overCapacity.length > 0 || underUtilized.length > 0) && (
+          <div
+            className="row"
+            style={{ marginTop: 20, gap: 12, flexWrap: 'wrap' }}
+          >
+            {overCapacity.length > 0 && (
+              <div
+                className="card"
+                style={{
+                  padding: '12px 16px',
+                  background: 'rgba(197, 48, 48, 0.08)',
+                  borderLeft: '4px solid #c53030',
+                  flex: 1,
+                  minWidth: 280,
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#c53030' }}>
+                  <Icon name="alert_circle" size={14} /> {overCapacity.length} crew
+                  {overCapacity.length === 1 ? '' : 's'} over capacity
+                </div>
+                <div className="muted small" style={{ marginTop: 4 }}>
+                  {overCapacity
+                    .map((u) => `${u.crew.name} (${u.pct}%)`)
+                    .join(', ')}
+                </div>
+              </div>
+            )}
+            {underUtilized.length > 0 && (
+              <div
+                className="card"
+                style={{
+                  padding: '12px 16px',
+                  background: 'rgba(180, 130, 0, 0.08)',
+                  borderLeft: '4px solid #b48200',
+                  flex: 1,
+                  minWidth: 280,
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#7a5800' }}>
+                  <Icon name="alert_circle" size={14} /> {underUtilized.length} crew
+                  {underUtilized.length === 1 ? '' : 's'} under 30% this week
+                </div>
+                <div className="muted small" style={{ marginTop: 4 }}>
+                  {underUtilized
+                    .map((u) => `${u.crew.name} (${u.pct}%)`)
+                    .join(', ')}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <h3
           style={{
