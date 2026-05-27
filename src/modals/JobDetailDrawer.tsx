@@ -272,14 +272,36 @@ export function JobDetailDrawer() {
          * empty so the Zuper title can take over.
          */}
         <div style={{ padding: '14px 20px 0', background: 'var(--surface-card)' }}>
-          <h2 className="page-title">
-            {(customer?.name && !customer.name.startsWith('Legacy install')
-              ? customer.name
-              : null) ||
-              job.title ||
-              job.address ||
-              'Job'}
-          </h2>
+          {(() => {
+            // Title parsing: prefer the real customer name; else parse the
+            // Zuper title into "<Name> — <scope>" by splitting on " | " or
+            // " - ". Falls through to the verbatim title / address.
+            const realName =
+              customer?.name && !/^Legacy install\b/i.test(customer.name)
+                ? customer.name
+                : null;
+            const rawTitle = job.title?.trim() ?? '';
+            const delimMatch = rawTitle.match(/^(.+?)\s+[|-]\s+(.+)$/);
+            const parsedName = delimMatch ? delimMatch[1].trim() : null;
+            const parsedScope = delimMatch ? delimMatch[2].trim() : null;
+            const primary =
+              realName || parsedName || rawTitle || job.address || 'Job';
+            const scope = realName && rawTitle ? rawTitle : parsedScope;
+            return (
+              <>
+                <h2 className="page-title">{primary}</h2>
+                {scope && scope !== primary && (
+                  <div
+                    className="small muted"
+                    style={{ marginTop: 2, lineHeight: 1.35 }}
+                    title={scope}
+                  >
+                    {scope}
+                  </div>
+                )}
+              </>
+            );
+          })()}
           <div className="row small muted" style={{ marginTop: 6 }}>
             {job.address ? (
               <>
