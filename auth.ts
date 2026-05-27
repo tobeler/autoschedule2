@@ -15,7 +15,13 @@ import type { JWT } from 'next-auth/jwt';
 import Google from 'next-auth/providers/google';
 
 import { db } from '@/lib/db';
-import { profiles } from '@/db/schema';
+import {
+  accounts,
+  profiles,
+  sessions,
+  users,
+  verificationTokens,
+} from '@/db/schema';
 
 // Optional allow-list for Google sign-ins. Defaults to Jetson's domain;
 // override via AUTH_GOOGLE_ALLOWED_DOMAINS (comma-separated). Pass an empty
@@ -44,7 +50,16 @@ declare module 'next-auth/jwt' {
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: DrizzleAdapter(db),
+  // Pass our table refs explicitly. Without these the adapter defaults
+  // to its own singular table names ("user", "account", "session",
+  // "verificationToken") and fails with 42P01 "relation does not exist"
+  // on the first OAuth callback against our plural-named tables.
+  adapter: DrizzleAdapter(db, {
+    usersTable: users,
+    accountsTable: accounts,
+    sessionsTable: sessions,
+    verificationTokensTable: verificationTokens,
+  }),
   session: { strategy: 'jwt' },
   pages: {
     signIn: '/login',
