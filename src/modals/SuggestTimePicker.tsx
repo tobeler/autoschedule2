@@ -16,6 +16,7 @@ import { Icon } from '../components/Icon';
 import { IconButton } from '../components/IconButton';
 
 import {
+  effectiveTemplateDuration,
   getCrew,
   getCustomer,
   getJobType,
@@ -1200,10 +1201,7 @@ export function SuggestTimeOverlay({ onClose, onSchedule, job, defaultDate }: Ov
   const templates = useStore((s) => s.templates);
   const duration =
     job.durationHrs ??
-    Math.max(
-      ...((templates[job.type]?.slots ?? []).map((s) => (s.start || 0) + s.hours)),
-      2,
-    );
+    Math.max(2, effectiveTemplateDuration(templates[job.type]));
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

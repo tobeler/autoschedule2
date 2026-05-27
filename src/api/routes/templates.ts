@@ -33,6 +33,8 @@ function templateToDTO(
     id: row.id,
     label: row.label,
     truckCount: row.truckCount,
+    defaultDurationHrs:
+      row.defaultDurationHrs == null ? null : Number(row.defaultDurationHrs),
     slots: slots
       .slice()
       .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -145,6 +147,8 @@ export function registerTemplateRoutes(app: OpenAPIHono<ApiEnv>): void {
       id,
       label: body.label,
       truckCount: body.truckCount,
+      defaultDurationHrs:
+        body.defaultDurationHrs == null ? null : String(body.defaultDurationHrs),
     });
     if (body.slots?.length) {
       await db.insert(templateSlots).values(
@@ -177,6 +181,12 @@ export function registerTemplateRoutes(app: OpenAPIHono<ApiEnv>): void {
       .set({
         ...(body.label !== undefined && { label: body.label }),
         ...(body.truckCount !== undefined && { truckCount: body.truckCount }),
+        ...(body.defaultDurationHrs !== undefined && {
+          defaultDurationHrs:
+            body.defaultDurationHrs == null
+              ? null
+              : String(body.defaultDurationHrs),
+        }),
         updatedAt: new Date(),
       })
       .where(eq(jobTemplates.id, id));

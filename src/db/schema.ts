@@ -405,6 +405,8 @@ export const jobTemplates = pgTable('job_templates', {
   id: text('id').primaryKey(),
   label: text('label').notNull(),
   truckCount: integer('truckCount').notNull().default(1),
+  /** Default duration in hours; null means "fall back to max(slot.start + slot.hours)". */
+  defaultDurationHrs: numeric('defaultDurationHrs', { precision: 6, scale: 2 }),
   createdAt: timestamp('createdAt', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull().defaultNow(),
 });

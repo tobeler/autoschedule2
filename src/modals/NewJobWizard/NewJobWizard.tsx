@@ -10,7 +10,7 @@ import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
 
 import { addDays, dateKey, fmtTime, TODAY } from '../../data/helpers';
-import { getCrew, getPerson } from '../../data/selectors';
+import { effectiveTemplateDuration, getCrew, getPerson } from '../../data/selectors';
 import { ROLES } from '../../data/seed';
 import { useStore } from '../../store';
 import type { Customer, Job, JobSlot, VehicleMode } from '../../types';
@@ -127,7 +127,10 @@ export function NewJobWizard() {
       startHour: slot.startHour,
       durationHrs:
         slot.daysSpanned > 1
-          ? Math.max(...filledSlots.map((s) => (s.start || 0) + s.hours), 1)
+          ? effectiveTemplateDuration({
+              slots: filledSlots,
+              defaultDurationHrs: type ? templates[type]?.defaultDurationHrs : undefined,
+            })
           : slot.endHour - slot.startHour,
       crewId: slot.crewId,
       extraCrewIds: extraCrews,

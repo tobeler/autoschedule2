@@ -7,8 +7,10 @@ import type {
   Customer,
   Job,
   JobSlot,
+  JobTemplate,
   Person,
   Project,
+  TemplateSlot,
   Truck,
   JobTypeDef,
   ChecklistItem,
@@ -191,6 +193,37 @@ export const projectsForCustomer = (projects: Project[], customerId: string) =>
   projects.filter((p) => p.customer === customerId);
 export const jobsForProject = (jobs: Job[], projectId: string) =>
   jobs.filter((j) => j.projectId === projectId);
+
+// ---- Template duration helpers ---------------------------------------------
+/**
+ * Derived duration of a template, computed as max(slot.start + slot.hours).
+ * Returns at least 1 so the editor never shows a 0-hour default.
+ */
+export function deriveTemplateDuration(
+  slots: ReadonlyArray<Pick<TemplateSlot, 'start' | 'hours'>>,
+): number {
+  if (!slots.length) return 1;
+  return Math.max(1, ...slots.map((s) => (s.start || 0) + s.hours));
+}
+
+/**
+ * Effective default duration for a template: prefers the explicit
+ * `defaultDurationHrs` field (set via Settings → Job templates) and falls
+ * back to the derived max-slot-end value for templates that pre-date this
+ * field, or for code paths that pass only the slot list.
+ */
+export function effectiveTemplateDuration(
+  tpl:
+    | Pick<JobTemplate, 'slots' | 'defaultDurationHrs'>
+    | { slots: ReadonlyArray<Pick<TemplateSlot, 'start' | 'hours'>>; defaultDurationHrs?: number | null }
+    | null
+    | undefined,
+): number {
+  if (!tpl) return 1;
+  const explicit = tpl.defaultDurationHrs;
+  if (typeof explicit === 'number' && explicit > 0) return explicit;
+  return deriveTemplateDuration(tpl.slots ?? []);
+}
 
 // ---- Auto-assignment --------------------------------------------------------
 /** Fill unfilled slots with a candidate matching role + minimum level. */

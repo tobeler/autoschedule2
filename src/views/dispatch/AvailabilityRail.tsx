@@ -40,9 +40,10 @@ const FIELD_ROLES: ReadonlySet<RoleKey> = new Set<RoleKey>([
   'apprentice',
   'electrician',
   'plumber',
-  // 'fsm' = field-service manager. Erik wanted only field-dispatchable
-  // techs here; FSMs aren't booked into job slots in this app's model,
-  // so they stay out of the availability list.
+  'fsm',
+  // FSMs (field-service managers) are included here per Erik's
+  // direction — they get dispatched on emergencies / walkthroughs
+  // ad-hoc even though they aren't required by any standard template.
 ]);
 
 interface AvailabilityRailProps {

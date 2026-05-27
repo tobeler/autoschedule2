@@ -6,7 +6,7 @@ import { useMemo } from 'react';
 import type { Job } from '../../types';
 import { Icon } from '../../components/Icon';
 import { IconButton } from '../../components/IconButton';
-import { dateKey } from '../../data/helpers';
+import { dateKey, fmtDate } from '../../data/helpers';
 import { unscheduledJobs, unscheduledNeedsReviewJobs } from '../../data/selectors';
 import { useStore } from '../../store';
 import { optimizeRouteForCrew } from '../../lib/routing';
@@ -90,6 +90,20 @@ export function DispatchBrief({ date, jobs, onNewJob, onHide }: DispatchBriefPro
   }, [jobs]);
 
   function optimizeAll() {
+    // Confirmation gate — this rewrites every crew's job-order for today.
+    // Cheap to undo per-job but expensive to undo across all crews.
+    const todaysCrewJobCount = jobs.filter(
+      (j) => j.date === todayKey && j.startHour != null && j.crewId,
+    ).length;
+    if (
+      !window.confirm(
+        `Re-optimize routes for ${todaysCrewJobCount} job${todaysCrewJobCount === 1 ? '' : 's'} across ` +
+          `${crews.length} crew${crews.length === 1 ? '' : 's'} for ${fmtDate(date)}? ` +
+          `This will reorder and re-time each crew's jobs based on travel distance.`,
+      )
+    ) {
+      return;
+    }
     let changes = 0;
     crews.forEach((c) => {
       const crewJobs = jobs.filter(

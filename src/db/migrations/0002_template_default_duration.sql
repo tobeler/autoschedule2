@@ -1,0 +1,1 @@
+ALTER TABLE "job_templates" ADD COLUMN "defaultDurationHrs" numeric(6, 2);
