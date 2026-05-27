@@ -12,6 +12,19 @@ import { estimateDriveTime, optimizeRouteForCrew } from '../../lib/routing';
 
 const STD_DAY_HOURS = 8;
 
+// Crews synced from Zuper for traceability (admin pool, office back-office,
+// floating coverage, sub-contractor pools, dispatcher group). Real install
+// jobs never roll up to these in any healthy state — exclude from utilization,
+// FTF, drive-time, and revenue rollups so they don't drag KPIs down with 0s.
+function isAdminOrSupportCrewName(name: string): boolean {
+  if (/\b(office|float|admin|dispatch|technicians - all|fe team)\b/i.test(name)) {
+    return true;
+  }
+  // -sub or sub- (e.g. CO-DE-sub, MA-BO-Sub-Electricians)
+  if (/-sub(-|$)/i.test(name)) return true;
+  return false;
+}
+
 export function ReportsView() {
   const jobs = useStore((s) => s.jobs);
   const crews = useStore((s) => s.crews);
@@ -29,6 +42,10 @@ export function ReportsView() {
   const utilization = useMemo(() => {
     return crews
       .filter((c) => c.type !== 'sales')
+      // Exclude admin / office / float / dispatcher / sub-* crews that are
+      // synced from Zuper for traceability but aren't real dispatchable units.
+      // These otherwise show up as 0%-utilization noise that drags the avg down.
+      .filter((c) => !isAdminOrSupportCrewName(c.name))
       .map((c) => {
         const dayHours = weekKeys.map((dk) =>
           jobs
