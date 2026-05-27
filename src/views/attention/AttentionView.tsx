@@ -436,11 +436,8 @@ function AttentionRow({ item, isResolved, selected, onSelect, onResolve, onJump 
               {m.label}
             </span>
           ))}
-          {item.jobId && (
-            <span className="pill" style={{ fontFamily: 'var(--font-mono)' }}>
-              {item.jobId}
-            </span>
-          )}
+          {/* Job ID intentionally hidden — dispatchers don't read the synthetic
+              zup-… string. The "Open job" button below carries the navigation. */}
         </div>
       </div>
       <div className="att-item-actions" onClick={(e) => e.stopPropagation()}>

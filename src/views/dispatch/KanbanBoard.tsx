@@ -138,12 +138,6 @@ export function KanbanBoard({ jobs, selectedJobId, onJobClick }: KanbanBoardProp
                     <div style={{ paddingLeft: 6 }}>
                       <div className="row" style={{ marginBottom: 6 }}>
                         <JobTypeTag type={j.type} />
-                        <span
-                          className="mono small muted"
-                          style={{ marginLeft: 'auto' }}
-                        >
-                          {j.id}
-                        </span>
                       </div>
                       <div
                         style={{

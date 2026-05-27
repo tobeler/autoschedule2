@@ -683,8 +683,8 @@ export function TechniciansView() {
                   </div>
                   <ul style={{ marginTop: 8, paddingLeft: 18, fontSize: 12 }}>
                     {blockers.slice(0, 5).map((j) => (
-                      <li key={j.id} className="mono">
-                        {j.id} · {j.date ?? 'unscheduled'} · {j.status}
+                      <li key={j.id}>
+                        {j.title ? j.title.split(/\s[-|]\s/)[0].trim() : 'Untitled'} · {j.date ?? 'unscheduled'} · {j.status}
                       </li>
                     ))}
                     {blockers.length > 5 && (

@@ -168,7 +168,6 @@ export function JobDetailDrawer() {
       <div className="drawer-backdrop" onClick={close}></div>
       <aside className="drawer" role="dialog" aria-label={`Job ${job.id}`}>
         <div className="drawer-header">
-          <span className="mono small muted">{job.id}</span>
           <JobTypeTag type={job.type} size="lg" />
           <div className="topbar-spacer"></div>
           {job.status !== 'unscheduled' && (
@@ -609,19 +608,18 @@ export function JobDetailDrawer() {
 
       {confirmDelete && (
         <ConfirmDeleteModal
-          entityLabel={'Job ' + job.id}
+          entityLabel={customer?.name ?? job.title ?? 'this job'}
           body={
             <div className="muted small">
-              Removes <span className="mono">{job.id}</span> from the schedule
-              and all rollups. Past records linked to this job stay in audit
-              history.
+              Removes this job from the schedule and all rollups. Past records
+              linked to this job stay in audit history.
             </div>
           }
-          confirmText={'Delete ' + job.id}
+          confirmText="Delete job"
           onCancel={() => setConfirmDelete(false)}
           onConfirm={() => {
             removeJob(job.id);
-            pushToast('Deleted ' + job.id);
+            pushToast('Deleted ' + (customer?.name ?? job.title ?? 'job'));
             setConfirmDelete(false);
             close();
           }}

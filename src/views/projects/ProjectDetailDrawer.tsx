@@ -415,9 +415,6 @@ function ProjectJobRow({ job, onClick, crewLookup }: ProjectJobRowProps) {
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="row" style={{ gap: 6 }}>
-          <span className="mono" style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
-            {job.id}
-          </span>
           <span className="jt-tag" style={{ fontSize: 9 }}>
             {jtShort}
           </span>

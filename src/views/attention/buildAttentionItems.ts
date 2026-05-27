@@ -83,7 +83,7 @@ export function buildAttentionItems(input?: AttentionBuildState): AttentionItem[
           sev: 'urgent',
           cat: 'coverage',
           icon: 'user',
-          title: 'Unfilled ' + role.label + ' slot on ' + job.id,
+          title: 'Unfilled ' + role.label + ' slot · ' + (c?.name ?? job.title ?? 'Untitled'),
           desc:
             'Needs ' +
             role.label +
@@ -98,7 +98,7 @@ export function buildAttentionItems(input?: AttentionBuildState): AttentionItem[
             { kind: 'tag', label: getJobType(job.type)?.short || job.type },
           ],
           context: [
-            ['Job', job.id + ' · ' + (getJobType(job.type)?.label || job.type)],
+            ['Type', getJobType(job.type)?.label || job.type],
             ['Customer', c?.name || '—'],
             ['Address', job.address || '—'],
             ['Role needed', role.label + ' (' + s.level + ')'],
@@ -131,17 +131,16 @@ export function buildAttentionItems(input?: AttentionBuildState): AttentionItem[
         sev: 'urgent',
         cat: 'schedule',
         icon: 'refresh',
-        title: 'Callback · ' + (c?.name || job.id),
+        title: 'Callback · ' + (c?.name || (job.title?.split(/\s[-|]\s/)[0]?.trim()) || 'Unknown'),
         desc: (job.notes || 'Callback from Zuper; review job details') + ' · ' + (isToday ? 'same-day' : 'unscheduled'),
         meta: [
           { kind: isToday ? 'due' : 'soft', label: isToday ? 'Today' : 'Unscheduled' },
           { kind: 'tag', label: 'Callback' },
         ],
         context: [
-          ['Job', job.id],
           ['Customer', c?.name || '—'],
           ['Address', job.address || '—'],
-          ['Source', job.zuperJobUid ? 'Zuper ' + job.zuperJobUid : job.hubspotDealId ? 'HubSpot deal ' + job.hubspotDealId : '—'],
+          ['Type', getJobType(job.type)?.label || job.type],
           ['Issue', job.notes || '—'],
         ],
         resolutions: [
