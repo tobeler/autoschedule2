@@ -15,11 +15,25 @@ import { jobDisplayName } from '../../lib/customer-display';
 interface UnscheduledRailProps {
   jobs: Job[];
   reviewCount?: number;
+  /**
+   * When set, the rail header shows a small badge identifying the
+   * external source the canonical job list was pulled from
+   * (currently always 'rebate-dashboard'). When null, the rail is
+   * sourced from the local `readyToScheduleJobs` selector and no
+   * badge renders.
+   */
+  liveSource?: string | null;
   onJobClick: (job: Job) => void;
   onCollapse: () => void;
 }
 
-export function UnscheduledRail({ jobs, reviewCount = 0, onJobClick, onCollapse }: UnscheduledRailProps) {
+export function UnscheduledRail({
+  jobs,
+  reviewCount = 0,
+  liveSource = null,
+  onJobClick,
+  onCollapse,
+}: UnscheduledRailProps) {
   const customers = useStore((s) => s.customers);
   const moveJob = useStore((s) => s.moveJob);
   const pushToast = useStore((s) => s.pushToast);
@@ -55,7 +69,28 @@ export function UnscheduledRail({ jobs, reviewCount = 0, onJobClick, onCollapse 
     >
       <div className="rail-header">
         <div>
-          <div className="rail-title">Unscheduled</div>
+          <div
+            className="rail-title"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <span>Unscheduled</span>
+            {liveSource && (
+              <span
+                title={`Source: ${liveSource}`}
+                style={{
+                  fontSize: 10,
+                  fontWeight: 500,
+                  padding: '1px 6px',
+                  borderRadius: 999,
+                  background: 'rgba(80,160,255,0.14)',
+                  color: '#1F5BB1',
+                  border: '1px solid rgba(80,160,255,0.32)',
+                }}
+              >
+                via {liveSource}
+              </span>
+            )}
+          </div>
           <div className="muted" style={{ fontSize: 11 }}>
             {jobs.length} dispatch-ready
             {reviewCount > 0 ? ' · ' + reviewCount + ' need review' : ' · clean queue'}

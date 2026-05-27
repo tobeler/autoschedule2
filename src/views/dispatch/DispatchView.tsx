@@ -14,6 +14,7 @@ import {
 } from '../../data/selectors';
 import { Icon } from '../../components/Icon';
 import { useRegionFilter } from '../../lib/region-filter';
+import { useToScheduleFromRebateDashboard } from '../../hooks/useToScheduleFromRebateDashboard';
 
 import { DispatchBrief } from './DispatchBrief';
 import {
@@ -101,12 +102,50 @@ export function DispatchView() {
     return base;
   }, [filteredJobs, date, range]);
 
+  // Phase 16 — rebate-dashboard becomes the canonical source-of-truth
+  // for "to be scheduled" when its env vars are configured. We pass the
+  // currently-selected region (when exactly one is active) to the
+  // server proxy, which calls the sibling rebate-dashboard app. The
+  // returned `zuperJobUids` / `hubspotDealIds` set drives the rail.
+  //
+  // If env vars are missing OR the upstream fetch fails, the hook
+  // reports `status: 'unavailable'` and we transparently fall back to
+  // the local `readyToScheduleJobs` predicate — same behavior as
+  // before this integration landed.
+  const activeRegionPrefix = useMemo<string | null>(() => {
+    if (regionSet.size !== 1) return null;
+    const [only] = regionSet;
+    return only ?? null;
+  }, [regionSet]);
+
+  const rebateLive = useToScheduleFromRebateDashboard(activeRegionPrefix);
+
+  const localReady = useMemo(
+    () => readyToScheduleJobs(filteredJobs, projects, customers),
+    [filteredJobs, projects, customers],
+  );
+
   const unsched = useMemo(() => {
-    // Source-of-truth gate ported from rebate-dashboard's "To Be Scheduled"
-    // tab. Falls back to the old looser predicate via the legacy
-    // unscheduledNeedsReviewJobs selector for the "needs review" rail.
-    return readyToScheduleJobs(filteredJobs, projects, customers);
-  }, [filteredJobs, projects, customers]);
+    if (rebateLive.status !== 'configured') return localReady;
+    // Filter local jobs by the canonical id set. Match on zuperJobUid
+    // first (1:1 with rebate-dashboard), then fall back to
+    // hubspotDealId (either directly on the job or via its project).
+    const projectIdToDealId = new Map<string, string>();
+    for (const p of projects) {
+      if (p.hubspotDealId) projectIdToDealId.set(p.id, p.hubspotDealId);
+    }
+    return filteredJobs.filter((j) => {
+      if (j.zuperJobUid && rebateLive.zuperJobUids.has(j.zuperJobUid)) {
+        return true;
+      }
+      if (j.hubspotDealId && rebateLive.hubspotDealIds.has(j.hubspotDealId)) {
+        return true;
+      }
+      const dealId = j.projectId ? projectIdToDealId.get(j.projectId) : null;
+      if (dealId && rebateLive.hubspotDealIds.has(dealId)) return true;
+      return false;
+    });
+  }, [rebateLive, localReady, filteredJobs, projects]);
 
   const unschedReview = useMemo(() => {
     return unscheduledNeedsReviewJobs(filteredJobs);
@@ -161,6 +200,7 @@ export function DispatchView() {
           <UnscheduledRail
             jobs={unsched}
             reviewCount={unschedReview.length}
+            liveSource={rebateLive.status === 'configured' ? 'rebate-dashboard' : null}
             onJobClick={(j) => selectJob(j.id)}
             onCollapse={() => setShowRail(false)}
           />
