@@ -9,7 +9,11 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 import { auth } from './auth';
 
-const PUBLIC_PREFIXES = ['/login', '/api/auth'];
+// `/api/cron` is public at the middleware layer because Vercel Cron's
+// `Authorization: Bearer <CRON_SECRET>` header doesn't carry a NextAuth
+// session — the route handlers under /api/cron/* validate CRON_SECRET
+// themselves and 401 anything else.
+const PUBLIC_PREFIXES = ['/login', '/api/auth', '/api/cron'];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some(
