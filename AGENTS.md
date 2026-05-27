@@ -32,7 +32,7 @@ For HubSpot work, also: `src/integrations/hubspot/schema-snapshot.json` + `src/i
 - NextAuth v5 (not Supabase Auth — chosen for AWS-portability)
 - Hono REST API at `/api/v1/*` + OpenAPI 3.x doc at `/api/docs`
 - Zustand store with optimistic + API write-through + rollback toast — the established mutation pattern
-- Outbox table is the SNS bridge for the eventual Jetson AWS migration; don't simplify it away
+- Outbox table is **dormant** (2026-05-26): triggers disabled, table truncated. The original SNS-bridge rationale was forward-looking for an AWS migration that isn't on the near roadmap. Integrations now call HubSpot/Zuper directly from API mutation handlers with try/catch + toast on failure. If you re-enable the outbox later, fix the schema mismatch first (DB trigger writes `payload.id`; drainer reads `payload.jobId`).
 
 ## Demo + dev
 

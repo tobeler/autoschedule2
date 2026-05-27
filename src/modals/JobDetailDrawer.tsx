@@ -1240,7 +1240,25 @@ function CrewTab({
           />
         ))}
 
-        <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} disabled>
+        <button
+          className="btn btn-ghost btn-sm"
+          style={{ marginTop: 8 }}
+          onClick={() => {
+            // Append an empty slot to the job's roster. The dispatcher then
+            // edits the role/level inline (the existing SlotRow editor).
+            const newSlot: import('../types').JobSlot = {
+              id: 'slot-' + Math.random().toString(36).slice(2, 8),
+              role: 'hvac_installer',
+              level: 'L1',
+              hours: job.durationHrs,
+              start: 0,
+              optional: false,
+              assignedTo: null,
+            };
+            updateJob({ ...job, slots: [...job.slots, newSlot] });
+            setEditingSlot(newSlot.id);
+          }}
+        >
           <Icon name="plus" size={12} /> Add custom slot
         </button>
       </div>
