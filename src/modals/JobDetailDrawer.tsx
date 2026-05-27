@@ -1148,37 +1148,38 @@ function OverviewTab({
             {job.driveTimeMin > 0 ? `${job.driveTimeMin} min from prior stop` : ''}
           </span>
         </div>
-        {!job.address ? (
+        {!job.address && (
           <div className="muted small" style={{ padding: '12px 0' }}>
             <Icon name="map_pin" size={12} /> No address synced from Zuper yet.
             The map will populate once the address is filled in above.
           </div>
-        ) : (
-        <div className="map-stub" style={{ height: 200, position: 'relative' }}>
-          <div className="map-pin" style={{ top: '58%', left: '52%' }}>
+        )}
+        {job.address && (
+          <div className="map-stub" style={{ height: 200, position: 'relative' }}>
+            <div className="map-pin" style={{ top: '58%', left: '52%' }}>
+              <div
+                className="pin-dot"
+                style={{ background: 'var(--jetson-green)', color: 'var(--forest)' }}
+              >
+                <Icon name="home" size={12} />
+              </div>
+            </div>
             <div
-              className="pin-dot"
-              style={{ background: 'var(--jetson-green)', color: 'var(--forest)' }}
+              style={{
+                position: 'absolute',
+                left: 8,
+                top: 8,
+                background: 'var(--surface-card)',
+                padding: '4px 10px',
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 700,
+                boxShadow: 'var(--shadow-sm)',
+              }}
             >
-              <Icon name="home" size={12} />
+              {job.address}
             </div>
           </div>
-          <div
-            style={{
-              position: 'absolute',
-              left: 8,
-              top: 8,
-              background: 'var(--surface-card)',
-              padding: '4px 10px',
-              borderRadius: 999,
-              fontSize: 11,
-              fontWeight: 700,
-              boxShadow: 'var(--shadow-sm)',
-            }}
-          >
-            {job.address}
-          </div>
-        </div>
         )}
       </div>
 
