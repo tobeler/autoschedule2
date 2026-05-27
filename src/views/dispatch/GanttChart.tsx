@@ -13,6 +13,7 @@ import { addDays, dateKey, TODAY } from '../../data/helpers';
 import { getCrew, getCustomer, getJobType } from '../../data/selectors';
 import { JobTypeTag } from '../../components/JobTypeTag';
 import { useStore } from '../../store';
+import { jobDisplayName } from '../../lib/customer-display';
 
 type GroupKind = 'crew' | 'truck' | 'tech';
 
@@ -171,7 +172,7 @@ export function GanttChart({
                 // Phase 19 fix: short blocks (< 60px) drop the customer
                 // name and only show the job-type tag. Full info on hover.
                 const compact = width < 60;
-                const customerLabel = c ? c.name : j.address?.split('·')[0] || 'Untitled';
+                const customerLabel = jobDisplayName(j, c, jt, { prefer: 'short' });
                 const title = `${jt?.label ?? j.type} · ${customerLabel} · ${j.durationHrs}h`;
                 return (
                   <div

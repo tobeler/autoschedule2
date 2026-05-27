@@ -14,6 +14,7 @@ import { JOB_TYPES, ROLES } from '../../data/seed';
 import { getCrew, getCustomer, getPerson } from '../../data/selectors';
 import { Avatar } from '../../components/Avatar';
 import { useStore } from '../../store';
+import { realCustomerName } from '../../lib/customer-display';
 
 type GroupKind = 'crew' | 'truck' | 'tech';
 
@@ -594,9 +595,14 @@ export function MonthCalendar({
                         >
                           {j.startHour != null ? fmtTime(j.startHour) : ''}
                         </span>
-                        {c
-                          ? c.name.split(' ')[0]
-                          : j.address?.split('·')[0].trim() || '—'}
+                        {(() => {
+                          // realCustomerName drops "Legacy install xxx" placeholders.
+                          const real = realCustomerName(c);
+                          if (real) return real.split(' ')[0];
+                          const titleHead = j.title?.split(/\s[-|]\s/)[0]?.trim();
+                          if (titleHead) return titleHead.split(' ')[0];
+                          return j.address?.split('·')[0].trim() || '—';
+                        })()}
                       </div>
                     </Fragment>
                   );

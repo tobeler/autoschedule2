@@ -22,6 +22,7 @@ import {
 } from '../../data/helpers';
 import { getCrew, getCustomer, getJobType, getPerson } from '../../data/selectors';
 import { useStore } from '../../store';
+import { jobDisplayName } from '../../lib/customer-display';
 
 type GroupKind = 'crew' | 'truck' | 'tech';
 
@@ -412,9 +413,7 @@ export function WeekCalendar({
                             lineHeight: 1.1,
                           }}
                         >
-                          {c
-                            ? c.name
-                            : j.address?.split('·')[0].trim() || 'Untitled'}
+                          {jobDisplayName(j, c, getJobType(j.type), { prefer: 'short' })}
                         </div>
                       </div>
                     );
