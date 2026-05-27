@@ -1148,6 +1148,12 @@ function OverviewTab({
             {job.driveTimeMin > 0 ? `${job.driveTimeMin} min from prior stop` : ''}
           </span>
         </div>
+        {!job.address ? (
+          <div className="muted small" style={{ padding: '12px 0' }}>
+            <Icon name="map_pin" size={12} /> No address synced from Zuper yet.
+            The map will populate once the address is filled in above.
+          </div>
+        ) : (
         <div className="map-stub" style={{ height: 200, position: 'relative' }}>
           <div className="map-pin" style={{ top: '58%', left: '52%' }}>
             <div
@@ -1173,6 +1179,7 @@ function OverviewTab({
             {job.address}
           </div>
         </div>
+        )}
       </div>
 
       {unfilledCount > 0 && (
