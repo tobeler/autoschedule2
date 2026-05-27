@@ -434,6 +434,7 @@ export function DayCalendar({
           <Fragment key={row.id}>
             <div
               className="daygrid-row-header"
+              data-row-id={row.id}
               style={{ minHeight: rowH }}
             >
               <div className="daygrid-row-color" style={{ background: row.color }} />

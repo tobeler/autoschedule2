@@ -11,15 +11,20 @@
 //
 // Source predicates (read-only reference):
 //   samuellegge/rebate-dashboard/public/pc-dashboard.js
-//     rowIsScheduledOrLater(row)
-//     isZuperNeedsReschedule(status)
-//     rowHasScheduledSibling(row)
-//     isZuperCompleted / isZuperScheduledOrLater
+//     rowIsScheduledOrLater(row), categorizeRow(inst), classifyJob(job)
+//     isZuperNeedsReschedule(status), rowHasScheduledSibling(row)
+//   samuellegge/rebate-dashboard/lib/ready-to-schedule.js (server port)
 //
 // The port is pure: no I/O, no React, no store. Two exported
 // predicates over local typed entities — `isReadyToSchedule` for the
 // boolean gate and `whyNotReady` for surfacing blocker reasons in
 // the UI.
+//
+// 2026-05-27 — replaced the static `DISPATCHABLE_TYPES` Set with a
+// `categorizeJob()` function modeled on rebate-dashboard's
+// `categorizeRow()` + server `classifyJob()`. The big behavior change:
+// jobs with `type === 'estimate'` are now EXCLUDED (sales estimates
+// have their own surface in rebate-dashboard, not the dispatch queue).
 // =============================================================
 
 import type { Customer, Job, Project } from '../types';
@@ -53,6 +58,134 @@ export function isJobCompleted(job: Pick<Job, 'status'>): boolean {
 
 export function isJobScheduledOrLater(job: Pick<Job, 'status'>): boolean {
   return SCHEDULED_OR_LATER_STATUSES.has(job.status);
+}
+
+// ---- Category model (port of rebate-dashboard `categorizeRow`) ----
+
+/**
+ * Categories that SHOULD appear on the dispatch "to be scheduled" surface.
+ * Mirrors rebate-dashboard's `categorizeRow()` buckets that flow into the
+ * To Be Scheduled tab: installation work-phase rows (heat-pump / electrical
+ * / EV / water heater), service+repair, sub-contractor work, follow-ups,
+ * and walkthroughs.
+ */
+export type ReadyCategory =
+  | 'installation'
+  | 'service'
+  | 'repair'
+  | 'followup'
+  | 'walkthrough'
+  | 'sub';
+
+/**
+ * Categories that are tracked in our system but should NOT land on the
+ * dispatch queue. Estimates have their own sales surface; inspections /
+ * permits are bookkeeping; meeting+training are internal admin.
+ */
+export type ExcludedCategory =
+  | 'estimate'
+  | 'inspection'
+  | 'permit'
+  | 'admin'
+  | 'other';
+
+export type JobCategory = ReadyCategory | ExcludedCategory;
+
+const SCHEDULABLE_CATEGORIES: ReadonlySet<ReadyCategory> = new Set<ReadyCategory>([
+  'installation',
+  'service',
+  'repair',
+  'followup',
+  'walkthrough',
+  'sub',
+]);
+
+/**
+ * Map our `Job.type` slug → category bucket.
+ *
+ * Port of rebate-dashboard `categorizeRow()` (public/pc-dashboard.js:166) +
+ * server `classifyJob()` (pc-dashboard.js:747). Our Job.type values come
+ * out of `integrations/zuper/field-map-defaults.ts::mapZuperCategory()`, so
+ * the mapping below mirrors how rebate-dashboard's `categorizeRow` would
+ * bucket the same Zuper categories.
+ *
+ * Mapping rationale (see README at bottom of file):
+ *   heatpump, water_heater, electrical, ev, retrofit → installation
+ *   walkthrough → walkthrough
+ *   callback, followup → followup
+ *   repair-*, additional → repair (regex `/^repair/i` on the slug)
+ *   sub → sub
+ *   service, warranty → service
+ *   estimate → estimate (EXCLUDED — sales surface)
+ *   inspection → inspection (EXCLUDED — bookkeeping)
+ *   *-permit, *-inspection (Zuper permit/inspection categories) → permit/inspection
+ *   meeting, training, jetson-* internal categories → admin
+ *   anything else → other
+ */
+export function categorizeJob(job: Pick<Job, 'type'>): JobCategory {
+  const t = (job.type || '').toLowerCase();
+
+  // Walkthrough — only real-work walkthroughs, not internal "walkthrough"
+  // training meetings.
+  if (t === 'walkthrough') return 'walkthrough';
+
+  // Follow-up bucket (rebate-dashboard: jobType === 'followup' OR
+  // category matches /follow.?up/). We map both `followup` and `callback`
+  // here — our `callback` enum is how the Zuper FOLLOW_UP_SAME_JOB status
+  // surfaces (see field-map-defaults.ts mapZuperStatus).
+  if (t === 'callback' || t === 'followup' || /follow.?up/.test(t)) {
+    return 'followup';
+  }
+
+  // Sub-contractor work — first-class dispatch bucket.
+  if (t === 'sub') return 'sub';
+
+  // Estimates — explicit exclusion. Rebate-dashboard doesn't surface
+  // sales estimates in the "To Be Scheduled" tab; they have their own
+  // sales-side flow.
+  if (t === 'estimate') return 'estimate';
+
+  // Inspections — Zuper "In Person Inspection" + the various permit
+  // inspection types (gas-inspection, heating-or-mech-inspection, etc).
+  if (t === 'inspection' || /inspection$/.test(t)) return 'inspection';
+
+  // Permits — bookkeeping rows that don't reflect a field visit.
+  if (/permit$/.test(t)) return 'permit';
+
+  // Admin / internal — meetings, training, board items, internal-process rows.
+  if (t === 'meeting' || t === 'training' || /^jetson-/.test(t)) {
+    return 'admin';
+  }
+
+  // Repair — rebate-dashboard uses /^repair/i on the slug; we follow the
+  // same regex shape so `repair-general-legacy`, `repair-service-care`,
+  // `repair-customer-pay`, `repair-install-warranty`, and the bare `repair`
+  // category all bucket together.
+  if (/^repair/.test(t)) return 'repair';
+
+  // Service — "Additional Work" (the Zuper category) is service-style
+  // follow-on work that needs dispatch. Plus our `service` + `warranty`
+  // enum values for legacy / care-plus jobs.
+  if (t === 'additional' || t === 'service' || t === 'warranty') {
+    return 'service';
+  }
+
+  // Installation work-phase buckets (rebate-dashboard splits this into
+  // heat-pump / electrical / retrofit based on SKU/category — we already
+  // store the granular slug as Job.type. For the To Be Scheduled gate
+  // they all just need to flow into "installation").
+  if (
+    t === 'heatpump' ||
+    t === 'water_heater' ||
+    t === 'water' ||
+    t === 'electrical' ||
+    t === 'ev' ||
+    t === 'retrofit'
+  ) {
+    return 'installation';
+  }
+
+  return 'other';
 }
 
 /**
@@ -111,15 +244,24 @@ const ACTIVE_QUEUE_PROJECT_STATUSES = new Set<Project['status']>([
   'in_progress',
 ]);
 
-// Job types that *can* land on the dispatch queue. Mirrors the categories
-// rebate-dashboard surfaces; excludes admin/internal types (meeting,
-// training, board items) and the various permit/inspection bookkeeping
-// types that aren't a real field visit.
-const DISPATCHABLE_TYPES = new Set<string>([
+/**
+ * @deprecated Use `categorizeJob(job)` + `SCHEDULABLE_CATEGORIES` instead.
+ *
+ * Retained as a thin shim because external scripts or tests may still import
+ * it. The set is now derived from the category mapping: a Job.type is
+ * "dispatchable" iff it buckets to a SCHEDULABLE category.
+ *
+ * NOTE: this is a static SLUG set — for new code prefer the dynamic
+ * `categorizeJob()` so newly-added Zuper categories route correctly without
+ * a code edit here.
+ */
+export const DISPATCHABLE_TYPES: ReadonlySet<string> = new Set([
   'heatpump',
   'water_heater',
+  'water',
   'electrical',
   'ev',
+  'retrofit',
   'repair-general-legacy',
   'repair-service-care',
   'repair-customer-pay',
@@ -128,8 +270,6 @@ const DISPATCHABLE_TYPES = new Set<string>([
   'callback',
   'followup',
   'walkthrough',
-  'estimate',
-  'inspection',
   'sub',
 ]);
 
@@ -151,6 +291,10 @@ export interface ReadyContext {
  * Port of the readyCount predicate in rebate-dashboard public/pc-dashboard.js:
  *   !isZuperCompleted && !rowIsScheduledOrLater &&
  *   (installation_stage IN active queue || rowType === 'zuper')
+ *
+ * The type-gate is now category-based: `categorizeJob(job)` must fall in
+ * `SCHEDULABLE_CATEGORIES`. This excludes estimates (sales surface),
+ * inspections / permits (bookkeeping), and admin rows.
  */
 export function isReadyToSchedule(ctx: ReadyContext): boolean {
   const { job, project, siblingJobs } = ctx;
@@ -161,9 +305,10 @@ export function isReadyToSchedule(ctx: ReadyContext): boolean {
   // Already booked in Zuper (or carrying a future scheduled date)?
   if (isAlreadyScheduledOrLater(job, siblingJobs)) return false;
 
-  // Type gate: only dispatchable categories. Permits / training / board
-  // items are tracked but not surfaced here.
-  if (!DISPATCHABLE_TYPES.has(job.type)) return false;
+  // Category gate: only schedulable buckets (installations, service, repair,
+  // followups, walkthroughs, sub work). Estimates / inspections / permits /
+  // admin are tracked but not surfaced here.
+  if (!SCHEDULABLE_CATEGORIES.has(categorizeJob(job) as ReadyCategory)) return false;
 
   // If we have a linked project, gate on its lifecycle status. Without a
   // project link (common for Zuper-only repair/callback jobs) we accept
@@ -183,7 +328,7 @@ export interface ReadyReason {
     | 'date-already-set'
     | 'project-closed'
     | 'project-on-hold'
-    | 'non-dispatchable-type';
+    | 'non-dispatchable-category';
   /** Short label safe to render as a chip */
   label: string;
 }
@@ -211,8 +356,12 @@ export function whyNotReady(ctx: ReadyContext): ReadyReason[] {
     }
   }
 
-  if (!DISPATCHABLE_TYPES.has(job.type)) {
-    out.push({ code: 'non-dispatchable-type', label: `Type: ${job.type}` });
+  const category = categorizeJob(job);
+  if (!SCHEDULABLE_CATEGORIES.has(category as ReadyCategory)) {
+    out.push({
+      code: 'non-dispatchable-category',
+      label: `Category: ${category}`,
+    });
   }
 
   if (project) {

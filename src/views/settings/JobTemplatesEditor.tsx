@@ -245,8 +245,11 @@ export function JobTemplatesEditor() {
                   className="input"
                   type="number"
                   step="0.5"
-                  defaultValue={Math.max(1, ...editing.slots.map((s) => s.start + s.hours))}
-                  style={{ width: 80 }}
+                  value={Math.max(1, ...editing.slots.map((s) => s.start + s.hours))}
+                  readOnly
+                  tabIndex={-1}
+                  title="Derived from the longest slot — change a slot's start+hours to change this."
+                  style={{ width: 80, background: 'var(--bg-subtle)', cursor: 'not-allowed' }}
                 />
               </div>
               <div className="field" style={{ flex: 1 }}>

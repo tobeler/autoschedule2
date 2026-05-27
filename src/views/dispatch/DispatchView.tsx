@@ -26,6 +26,7 @@ import {
 } from './DispatchToolbar';
 import { AttentionCTA } from './AttentionCTA';
 import { UnscheduledRail } from './UnscheduledRail';
+import { AvailabilityRail } from './AvailabilityRail';
 import { DayCalendar } from './DayCalendar';
 import { WeekCalendar } from './WeekCalendar';
 import { MonthCalendar } from './MonthCalendar';
@@ -37,6 +38,8 @@ export function DispatchView() {
   const jobs = useStore((s) => s.jobs);
   const projects = useStore((s) => s.projects);
   const customers = useStore((s) => s.customers);
+  const people = useStore((s) => s.people);
+  const crews = useStore((s) => s.crews);
   const { regionSet, matchesRegion: matchesRegionFn } = useRegionFilter();
   const selectJob = useStore((s) => s.selectJob);
   const selectedJobId = useStore((s) => s.selectedJobId);
@@ -50,6 +53,7 @@ export function DispatchView() {
   const [density, setDensity] = useState<Density>(tweakDensity);
   const [showRail, setShowRail] = useState(true);
   const [showBrief, setShowBrief] = useState(true);
+  const [showAvailability, setShowAvailability] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string[]>([]);
   const [sourceFilter, setSourceFilter] = useState<'all' | 'v1' | 'v2'>('all');
 
@@ -197,13 +201,50 @@ export function DispatchView() {
 
       <div className={mainClass}>
         {railVisible && (
-          <UnscheduledRail
-            jobs={unsched}
-            reviewCount={unschedReview.length}
-            liveSource={rebateLive.status === 'configured' ? 'rebate-dashboard' : null}
-            onJobClick={(j) => selectJob(j.id)}
-            onCollapse={() => setShowRail(false)}
-          />
+          <div className="dispatch-left-rail">
+            <UnscheduledRail
+              jobs={unsched}
+              reviewCount={unschedReview.length}
+              liveSource={rebateLive.status === 'configured' ? 'rebate-dashboard' : null}
+              onJobClick={(j) => selectJob(j.id)}
+              onCollapse={() => setShowRail(false)}
+            />
+            <AvailabilityRail
+              date={dateKey(date)}
+              dayMode={dayMode}
+              people={people}
+              crews={crews}
+              jobs={filteredJobs}
+              open={showAvailability}
+              setOpen={setShowAvailability}
+              onPersonClick={(personId) => {
+                // Scroll the matching tech row into view if Day calendar
+                // is in tech group-by mode. DayCalendar tags row
+                // headers with `data-row-id="tech-${personId}"`.
+                // In other group modes the person doesn't have a
+                // dedicated row, so the click is a no-op — keeping
+                // v1 scope tight per the task brief ("scrolling to
+                // that person's row is sufficient").
+                if (dayMode && groupBy === 'tech') {
+                  requestAnimationFrame(() => {
+                    const el = document.querySelector(
+                      `[data-row-id="tech-${personId}"]`,
+                    );
+                    if (el && 'scrollIntoView' in el) {
+                      (el as HTMLElement).scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'center',
+                      });
+                      el.classList.add('row-flash');
+                      window.setTimeout(() => {
+                        el.classList.remove('row-flash');
+                      }, 1600);
+                    }
+                  });
+                }
+              }}
+            />
+          </div>
         )}
         {stubVisible && (
           <CollapsedRailStub

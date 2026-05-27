@@ -45,7 +45,11 @@ type SortKey =
   | 'status'
   | 'zuperPrimaryTeam';
 
-type StatusValue = 'available' | 'out_today' | 'on_loan' | 'on_vacation';
+type StatusValue = 'available' | 'out_today' | 'underbooked' | 'on_vacation';
+// Below 60% of the 40h weekly capacity (i.e. <24h booked) trips the
+// Underbooked flag — replaces the older "On loan" status which only
+// signaled cross-crew work and wasn't actionable for dispatch.
+const UNDERBOOKED_HOURS_THRESHOLD = 24;
 
 const LEVEL_FILTERS: Level[] = ['L1', 'L2', 'L3'];
 const LEVEL_RANK: Record<Level, number> = { L1: 1, L2: 2, L3: 3 };
@@ -54,7 +58,7 @@ type Region = RegionPrefix;
 const STATUS_FILTERS: StatusValue[] = [
   'available',
   'out_today',
-  'on_loan',
+  'underbooked',
   'on_vacation',
 ];
 
@@ -85,7 +89,7 @@ const ROLE_FILTERS: RoleKey[] = [
 const STATUS_META: Record<StatusValue, { label: string; bg: string; fg: string }> = {
   available: { label: 'Available', bg: 'rgba(60,213,103,0.12)', fg: '#1A6F2E' },
   out_today: { label: 'Out today', bg: 'rgba(197,48,48,0.10)', fg: '#781E1E' },
-  on_loan: { label: 'On loan', bg: 'rgba(255,182,39,0.18)', fg: '#8A5500' },
+  underbooked: { label: 'Underbooked', bg: 'rgba(255,182,39,0.18)', fg: '#8A5500' },
   on_vacation: { label: 'On vacation', bg: 'rgba(127,90,200,0.12)', fg: '#3A2E80' },
 };
 
@@ -168,21 +172,6 @@ export function TechniciansView() {
           });
         });
     });
-    // On-loan: a person whose week trail crosses crews other than their defaultCrew
-    const loanedThisWeek = new Set<string>();
-    people.forEach((p) => {
-      const trailCrews = new Set<string>();
-      weekDks.forEach((dk) => {
-        jobs
-          .filter((j) => j.date === dk)
-          .forEach((j) => {
-            if (!j.crewId) return;
-            if (j.slots.some((s) => s.assignedTo === p.id)) trailCrews.add(j.crewId);
-          });
-      });
-      const others = Array.from(trailCrews).filter((c) => c !== p.defaultCrew);
-      if (others.length > 0) loanedThisWeek.add(p.id);
-    });
     const capacity = 40; // 5 days × 8 hours
     return people.map((p) => {
       const hours = hoursByPerson[p.id] ?? 0;
@@ -196,7 +185,7 @@ export function TechniciansView() {
       let status: StatusValue = 'available';
       if (outTodayIds.has(p.id)) status = 'out_today';
       else if (onVacationIds.has(p.id)) status = 'on_vacation';
-      else if (loanedThisWeek.has(p.id)) status = 'on_loan';
+      else if (hours < UNDERBOOKED_HOURS_THRESHOLD) status = 'underbooked';
       return {
         person: p,
         crew: getCrew(crews, p.defaultCrew),
