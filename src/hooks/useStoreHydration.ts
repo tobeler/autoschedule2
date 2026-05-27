@@ -123,6 +123,14 @@ export function useStoreHydration(): HydrationStatus {
       });
       setApiMode(true);
       setHydrated(true, null);
+      // Self-heal: pre-existing localStorage may carry demoDataEnabled=true
+      // from the prior default. After a real API hydration, the in-memory
+      // store no longer holds the seed — so the toggle MUST read false to
+      // match reality. Users who want demo mode can flip it back on
+      // explicitly from Settings → Integrations.
+      if (useStore.getState().demoDataEnabled) {
+        useStore.setState({ demoDataEnabled: false });
+      }
       // Resolve the actor's role + display name in the background.
       // Failure is non-fatal — UI falls back to "no role known".
       void client.me
