@@ -15,6 +15,7 @@ import type {
   Person,
   Project,
   Region,
+  TimeEntry,
   TimeOff,
   Truck,
   JobTemplate,
@@ -31,6 +32,7 @@ import type { JobSlotDTO } from './schemas/slot';
 import type { PersonDTO } from './schemas/person';
 import type { ProjectDTO } from './schemas/project';
 import type { RegionDTO } from './schemas/region';
+import type { TimeEntryDTO } from './schemas/timeEntry';
 import type { TimeOffDTO } from './schemas/timeoff';
 import type { TruckDTO } from './schemas/truck';
 import type { JobTemplateDTO } from './schemas/template';
@@ -127,6 +129,18 @@ export function timeOffFromDTO(d: TimeOffDTO): TimeOff {
     date: d.date,
     type: d.type,
     label: d.label,
+  };
+}
+
+export function timeEntryFromDTO(d: TimeEntryDTO): TimeEntry {
+  return {
+    id: d.id,
+    personId: d.personId,
+    jobId: d.jobId,
+    clockIn: d.clockIn,
+    clockOut: d.clockOut,
+    source: d.source,
+    zuperLogId: d.zuperLogId ?? null,
   };
 }
 
@@ -399,6 +413,7 @@ export type {
   CustomerDTO,
   ProjectDTO,
   RegionDTO,
+  TimeEntryDTO,
   TimeOffDTO,
   JobTemplateDTO,
   ChecklistDTO,

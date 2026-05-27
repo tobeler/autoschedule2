@@ -48,6 +48,8 @@ const ZuperBootstrapResultSchema = z
     upserted: z.number(),
     withProject: z.number(),
     withCustomer: z.number(),
+    slotsAssigned: z.number(),
+    assignmentsUnmatched: z.number(),
     errors: z.array(z.string()),
   })
   .openapi('ZuperBootstrapResult');

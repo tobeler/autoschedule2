@@ -27,8 +27,17 @@ interface MonthCalendarProps {
 
 type HeatLevel = 'low' | 'med' | 'high' | 'full' | 'over';
 
-function techCellLevel(personJobs: Job[]): HeatLevel | null {
-  const hrs = personJobs.reduce((a, j) => a + (j.durationHrs || 0), 0);
+function techCellLevel(
+  personJobs: Job[],
+  personId?: string,
+): HeatLevel | null {
+  const hrs = personJobs.reduce((a, j) => {
+    if (personId) {
+      const slot = j.slots.find((s) => s.assignedTo === personId);
+      if (slot) return a + slot.hours;
+    }
+    return a + (j.durationHrs || 0);
+  }, 0);
   if (hrs === 0) return null;
   if (hrs <= 2) return 'low';
   if (hrs <= 5) return 'med';
@@ -236,10 +245,13 @@ export function MonthCalendar({
                 monthKeys.includes(j.date) &&
                 j.slots.some((s) => s.assignedTo === p.id),
             );
-            const totalHrs = personMonthJobs.reduce(
-              (a, j) => a + (j.durationHrs || 0),
-              0,
-            );
+            const totalHrs = personMonthJobs.reduce((a, j) => {
+              // Per-tech slot hours when available (e.g. electrician on
+              // for 3h of a 9h install); falls back to full job duration
+              // when this person has no explicit slot.
+              const slot = j.slots.find((s) => s.assignedTo === p.id);
+              return a + (slot ? slot.hours : j.durationHrs || 0);
+            }, 0);
             const totalDays = new Set(
               personMonthJobs.map((j) => j.date),
             ).size;
@@ -299,7 +311,7 @@ export function MonthCalendar({
                 {monthDays.map((d) => {
                   const dk = dateKey(d);
                   const dayJobs = personMonthJobs.filter((j) => j.date === dk);
-                  const level = techCellLevel(dayJobs);
+                  const level = techCellLevel(dayJobs, p.id);
                   const isToday = dk === todayKey;
                   const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                   const tooltip = dayJobs.length

@@ -19,9 +19,12 @@
 // - zuperTeamName is set as reference text only (no crew row).
 // =============================================================
 
+import { eq } from 'drizzle-orm';
+
 import { db } from '@/lib/db';
-import { customers, jobs as jobsTable, jobSlots, projects } from '@/db/schema';
+import { customers, jobs as jobsTable, jobSlots, people as peopleTable, personRoles, projects } from '@/db/schema';
 import { buildJobSlotsForJob } from './job-slot-templates';
+import { matchAssignedUsersToSlots, type PersonLite } from './assigned-users';
 import type { JobStatus } from '@/types';
 
 import {
@@ -45,6 +48,10 @@ export interface BootstrapResult {
   upserted: number;
   withProject: number;
   withCustomer: number;
+  /** Total slot rows we bound to a person during this sync. */
+  slotsAssigned: number;
+  /** Total Zuper assignees we couldn't bind (no local person OR no role-matching slot). */
+  assignmentsUnmatched: number;
   errors: string[];
 }
 
@@ -136,6 +143,29 @@ async function buildLookupMaps(): Promise<LookupMaps> {
   return { projectByDealId, projectByInstallationId, customerByContactId };
 }
 
+/**
+ * Builds a `personId → { id, role }` map by joining `people` + `person_roles`.
+ * For multi-role people we keep the first row encountered — `bootstrap-
+ * technicians` writes exactly one role per person today, so the first-wins
+ * rule is harmless. The map is used by the slot-assignment matcher.
+ */
+async function buildPeopleRoleMap(): Promise<Map<string, PersonLite>> {
+  const rows = await db
+    .select({
+      id: peopleTable.id,
+      role: personRoles.role,
+    })
+    .from(peopleTable)
+    .leftJoin(personRoles, eq(personRoles.personId, peopleTable.id));
+  const out = new Map<string, PersonLite>();
+  for (const row of rows) {
+    if (out.has(row.id)) continue;
+    if (!row.role) continue;
+    out.set(row.id, { id: row.id, role: row.role });
+  }
+  return out;
+}
+
 function projectAndCustomerFor(
   zJob: ZuperJob,
   maps: LookupMaps,
@@ -180,6 +210,8 @@ export async function bootstrapActiveJobsFromZuper(
     upserted: 0,
     withProject: 0,
     withCustomer: 0,
+    slotsAssigned: 0,
+    assignmentsUnmatched: 0,
     errors: [],
   };
 
@@ -209,6 +241,7 @@ export async function bootstrapActiveJobsFromZuper(
   result.activeKept = activeJobs.length;
 
   const maps = await buildLookupMaps();
+  const peopleById = await buildPeopleRoleMap();
 
   try {
     await db.transaction(async (tx) => {
@@ -299,6 +332,35 @@ export async function bootstrapActiveJobsFromZuper(
                 target: jobSlots.id,
               });
             }
+
+            // ---- Slot ↔ Zuper assignee binding -------------------
+            // Match each Zuper assignee to a slot whose role is compatible.
+            // Persisted only for slots where we have a real local person row
+            // (FK on job_slots.assignedTo → people.id). We don't WIPE
+            // existing assignments — only set when our match overlaps; the
+            // dispatcher's manual edits on already-bound slots are preserved
+            // unless the Zuper data picks the same slot, in which case the
+            // write is a no-op (same value) or a re-bind (Zuper wins). This
+            // matches the "Zuper is source-of-truth for crew on synced jobs"
+            // posture in §0.4 of HANDOFF.md.
+            const slotInputs = templateSlots.map((s) => ({
+              id: s.id,
+              role: s.role,
+              sortOrder: s.sortOrder ?? 0,
+            }));
+            const { assignments, unmatched } = matchAssignedUsersToSlots(
+              zJob,
+              slotInputs,
+              peopleById,
+            );
+            for (const a of assignments) {
+              await tx
+                .update(jobSlots)
+                .set({ assignedTo: a.personId, suggested: false })
+                .where(eq(jobSlots.id, a.slotId));
+            }
+            result.slotsAssigned += assignments.length;
+            result.assignmentsUnmatched += unmatched.length;
           }
         } catch (err) {
           result.errors.push(`Job ${zJob.job_uid}: ${(err as Error).message}`);

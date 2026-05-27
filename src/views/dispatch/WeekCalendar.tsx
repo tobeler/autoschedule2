@@ -383,6 +383,20 @@ export function WeekCalendar({
                   {primaryJobs.map((j) => {
                     const c = getCustomer(allCustomers, j.customer);
                     const jt = getJobType(j.type);
+                    // On tech rows, crop the displayed time/duration to the
+                    // tech's slot window inside the job (mirrors JobBlock's
+                    // `techContext` behaviour). Falls back to the full job
+                    // duration when the person has no slot binding (e.g.
+                    // crew-membership fallback path).
+                    let cardStart = j.startHour ?? null;
+                    let cardHours = j.durationHrs;
+                    if (row.kind === 'tech') {
+                      const ts = j.slots.find((s) => s.assignedTo === row.id);
+                      if (ts && j.startHour != null) {
+                        cardStart = j.startHour + (ts.start ?? 0);
+                        cardHours = ts.hours;
+                      }
+                    }
                     return (
                       <div
                         key={j.id}
@@ -406,9 +420,9 @@ export function WeekCalendar({
                             opacity: 0.8,
                           }}
                         >
-                          {j.startHour != null
-                            ? fmtTime(j.startHour) + ' · ' + hoursToStr(j.durationHrs)
-                            : hoursToStr(j.durationHrs)}
+                          {cardStart != null
+                            ? fmtTime(cardStart) + ' · ' + hoursToStr(cardHours)
+                            : hoursToStr(cardHours)}
                         </div>
                         <div
                           style={{

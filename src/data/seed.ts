@@ -13,6 +13,7 @@ import type {
   Customer,
   Project,
   Region,
+  TimeEntry,
   TimeOff,
   ChecklistSection,
   ChecklistResponses,
@@ -508,6 +509,89 @@ Object.entries(_PROJECT_JOB_MAP).forEach(([projectId, jobIds]) => {
     if (j) j.projectId = projectId;
   });
 });
+
+// ============ TIME ENTRIES (synthetic clock-in/out for demo) ============
+//
+// For each PERSON × dated JOB with an assigned slot, generate a plausible
+// clock-in / clock-out pair anchored at the job's startHour. We split jobs
+// longer than 6h into two entries to fake a lunch break — that way the
+// "expanded per-job breakdown" UI has interesting things to show.
+//
+// Real data path: scripts/backfill-clock-events.mjs populates the same shape
+// from Zuper's time-tracking endpoint. Demo data only kicks in when there is
+// no DB hydration (i.e. localStorage / NEXTAUTH_SECRET unset).
+function buildTimeEntriesSeed(): TimeEntry[] {
+  const entries: TimeEntry[] = [];
+  let seq = 0;
+  // Deterministic but varied skew so the demo doesn't show identical clock
+  // times for every tech. Hash a string to a small integer.
+  function hashSkew(key: string, range: number): number {
+    let h = 0;
+    for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) | 0;
+    // Range: integer minutes in [0, range)
+    return Math.abs(h) % range;
+  }
+
+  for (const job of JOBS_SEED) {
+    if (!job.date || job.startHour == null) continue;
+    // Only complete / onsite / enroute / scheduled history is interesting for
+    // clock data. Unscheduled jobs by definition have no clock.
+    if (job.status === 'unscheduled' || job.status === 'cancelled') continue;
+    for (const slot of job.slots) {
+      if (!slot.assignedTo) continue;
+      const [y, m, d] = job.date.split('-').map(Number) as [number, number, number];
+      const startMin = Math.round(((job.startHour ?? 0) + slot.start) * 60);
+      const slotMin = Math.max(15, Math.round(slot.hours * 60));
+      const personKey = `${slot.assignedTo}-${job.id}-${slot.id}`;
+      // Skew clock-in by -5 .. +15 minutes (early arrival → just-on-time).
+      const inSkew = hashSkew(personKey + ':in', 21) - 5;
+      // Skew clock-out by +0 .. +20 minutes (cleanup / drive prep).
+      const outSkew = hashSkew(personKey + ':out', 21);
+
+      const clockInMs = new Date(y, m - 1, d, 0, startMin + inSkew, 0).getTime();
+      const clockOutMs = new Date(y, m - 1, d, 0, startMin + slotMin + outSkew, 0).getTime();
+
+      if (slot.hours > 6) {
+        // Split with a ~30-minute lunch around the 4-hour mark for richer
+        // per-job breakdown.
+        const lunchMin = Math.round(slot.hours * 30); // ~half-way (in minutes from start)
+        const lunchStartMs = new Date(y, m - 1, d, 0, startMin + lunchMin, 0).getTime();
+        const lunchEndMs = new Date(y, m - 1, d, 0, startMin + lunchMin + 30, 0).getTime();
+        entries.push({
+          id: `TE-${++seq}`,
+          personId: slot.assignedTo,
+          jobId: job.id,
+          clockIn: new Date(clockInMs).toISOString(),
+          clockOut: new Date(lunchStartMs).toISOString(),
+          source: 'native',
+          zuperLogId: null,
+        });
+        entries.push({
+          id: `TE-${++seq}`,
+          personId: slot.assignedTo,
+          jobId: job.id,
+          clockIn: new Date(lunchEndMs).toISOString(),
+          clockOut: new Date(clockOutMs).toISOString(),
+          source: 'native',
+          zuperLogId: null,
+        });
+      } else {
+        entries.push({
+          id: `TE-${++seq}`,
+          personId: slot.assignedTo,
+          jobId: job.id,
+          clockIn: new Date(clockInMs).toISOString(),
+          clockOut: new Date(clockOutMs).toISOString(),
+          source: 'native',
+          zuperLogId: null,
+        });
+      }
+    }
+  }
+  return entries;
+}
+
+export const TIME_ENTRIES_SEED: TimeEntry[] = buildTimeEntriesSeed();
 
 // ============ TIME OFF ============
 export const TIME_OFF: TimeOff[] = [

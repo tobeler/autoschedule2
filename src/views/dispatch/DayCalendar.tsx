@@ -565,6 +565,11 @@ export function DayCalendar({
                   allRowJobs={row.jobs}
                   laneIndex={laneByJobId.get(j.id) ?? 0}
                   laneCount={laneCount}
+                  techContext={
+                    row.id.startsWith('tech-')
+                      ? { personId: row.id.slice('tech-'.length) }
+                      : undefined
+                  }
                 />
               ))}
 

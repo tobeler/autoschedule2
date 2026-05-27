@@ -29,6 +29,7 @@ import type { PersonDTO } from '../schemas/person';
 import type { ProjectDTO } from '../schemas/project';
 import type { RegionDTO } from '../schemas/region';
 import type { JobTemplateDTO } from '../schemas/template';
+import type { TimeEntryDTO } from '../schemas/timeEntry';
 import type { TimeOffDTO } from '../schemas/timeoff';
 import type { TruckDTO } from '../schemas/truck';
 import type { paths } from './types';
@@ -282,6 +283,22 @@ export function createApiClient(opts: ClientOptions = {}) {
           `/jobs/${encodeURIComponent(jobId)}/checklist-responses`,
           { body },
         ),
+    },
+
+    timeEntries: {
+      list: (
+        f: { personId?: string; from?: string; to?: string } & ListFilters = {},
+      ) =>
+        request<PagedResponse<TimeEntryDTO>>('GET', '/time-entries', {
+          ...f,
+          query: {
+            personId: f.personId,
+            from: f.from,
+            to: f.to,
+            limit: f.limit?.toString(),
+            offset: f.offset?.toString(),
+          },
+        }),
     },
 
     timeOff: {
