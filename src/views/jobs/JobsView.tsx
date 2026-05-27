@@ -37,6 +37,7 @@ import {
   useRegionFilter,
   type RegionPrefix,
 } from '../../lib/region-filter';
+import { resolveJobRegion } from '../../lib/region-resolve';
 import type { Crew, Customer, Job, JobStatus, Project, Truck } from '../../types';
 import { PROJECT_STATUS_META } from '../projects/ProjectsView';
 
@@ -81,8 +82,18 @@ const SOURCE_CHIPS: { key: SourceKey; label: string }[] = [
 // shared region store exactly.
 const REGION_CHIPS: RegionPrefix[] = [...REGION_PREFIXES];
 
-function regionOfJob(job: Job): RegionPrefix | null {
-  return regionPrefixFromTeamName(job.zuperTeamName);
+function regionOfJob(
+  job: Job,
+  customer?: import('../../types').Customer | null,
+  project?: import('../../types').Project | null,
+): RegionPrefix | null {
+  // Try the Zuper team prefix first (cheap, definitive when set). Fall back
+  // to the multi-signal resolver (customer.address state, job.title city,
+  // project.name parsing) so unscheduled rows that lack a team name still
+  // get region-tagged from any available HubSpot data.
+  const fromTeam = regionPrefixFromTeamName(job.zuperTeamName);
+  if (fromTeam) return fromTeam;
+  return resolveJobRegion(job, customer ?? undefined, project ?? undefined);
 }
 
 function defaultQuickFilterLabel(args: {
@@ -204,7 +215,9 @@ export function JobsView() {
         if (!chipMatches(sourceSet, src)) return false;
       }
       if (regionFilter !== 'all') {
-        const reg = regionOfJob(j);
+        const cust = j.customer ? customerById.get(j.customer) : null;
+        const proj = j.projectId ? projectById.get(j.projectId) : null;
+        const reg = regionOfJob(j, cust, proj);
         if (reg !== regionFilter) return false;
       }
       if (tokens.length > 0) {
@@ -443,6 +456,7 @@ export function JobsView() {
                   state={sort}
                   onClick={toggleSort}
                 />
+                <th>Region</th>
                 <SortableHeader<JobSortKey>
                   label="Crew"
                   sortKey="crew"
@@ -521,6 +535,33 @@ export function JobsView() {
                       ) : (
                         <span className="muted small">Unscheduled</span>
                       )}
+                    </td>
+                    <td>
+                      {(() => {
+                        const reg = regionOfJob(j, c, project);
+                        return reg ? (
+                          <span
+                            className="badge"
+                            style={{
+                              background: 'rgba(60,213,103,0.12)',
+                              color: 'var(--forest, #1F8A5B)',
+                              fontWeight: 600,
+                              fontSize: 11,
+                            }}
+                            title={`Region inferred from ${
+                              j.zuperTeamName
+                                ? 'Zuper team ' + j.zuperTeamName
+                                : c?.address
+                                  ? 'customer address'
+                                  : 'job title'
+                            }`}
+                          >
+                            {reg}
+                          </span>
+                        ) : (
+                          <span className="muted small">—</span>
+                        );
+                      })()}
                     </td>
                     <td>
                       {crew ? crew.name : <span className="muted">—</span>}

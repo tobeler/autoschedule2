@@ -11,6 +11,7 @@ import { useStore } from '../../store';
 import { TODAY, fmtDate, fmtTime } from '../../data/helpers';
 import { getCustomer, jobsForProject } from '../../data/selectors';
 import type { Customer, Job, Project, ProjectStatus } from '../../types';
+import { resolveJobRegion } from '../../lib/region-resolve';
 import { ProjectDetailDrawer } from './ProjectDetailDrawer';
 import {
   makeSorter,
@@ -121,7 +122,12 @@ function regionFromCustomerAddress(customer: Customer | undefined): ProjectRegio
   return VALID_REGIONS.has(code) ? code : null;
 }
 
-function regionForProject(customer: Customer | undefined, projectJobs: Job[]): ProjectRegion | null {
+function regionForProject(
+  customer: Customer | undefined,
+  projectJobs: Job[],
+  project?: Pick<Project, 'name' | 'id'>,
+): ProjectRegion | null {
+  // 1. Pick the most-common Zuper team prefix across linked jobs.
   const byJobTeam = new Map<ProjectRegion, number>();
   for (const job of projectJobs) {
     const region = regionPrefixFromTeamName(job.zuperTeamName);
@@ -130,7 +136,21 @@ function regionForProject(customer: Customer | undefined, projectJobs: Job[]): P
   }
   const [topRegion] =
     Array.from(byJobTeam.entries()).sort((a, b) => b[1] - a[1])[0] ?? [];
-  return topRegion ?? regionFromCustomerAddress(customer);
+  if (topRegion) return topRegion;
+
+  // 2. Customer address state.
+  const fromCust = regionFromCustomerAddress(customer);
+  if (fromCust) return fromCust;
+
+  // 3. Multi-signal resolver across each linked job (title parsing,
+  // project name parsing). First match wins.
+  if (project) {
+    for (const j of projectJobs) {
+      const r = resolveJobRegion(j, customer ?? null, project);
+      if (r && VALID_REGIONS.has(r as ProjectRegion)) return r as ProjectRegion;
+    }
+  }
+  return null;
 }
 
 function sourceBucket(p: Project): 'v1' | 'v2' {
@@ -177,7 +197,7 @@ export function ProjectsView() {
         .sort((a, b) => (a.date || '').localeCompare(b.date || ''))[0];
       const isStale = !nextJob && p.status === 'in_progress';
       const customer = customerById.get(p.customer);
-      const region = regionForProject(customer, projJobs);
+      const region = regionForProject(customer, projJobs, p);
       return {
         ...p,
         projJobs,

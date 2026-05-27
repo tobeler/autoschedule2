@@ -15,7 +15,8 @@
 import { useMemo } from 'react';
 
 import { useStore } from '@/store';
-import type { Region } from '@/types';
+import type { Customer, Job, Project, Region } from '@/types';
+import { resolveJobRegion } from './region-resolve';
 export {
   REGION_LABELS,
   REGION_PREFIXES,
@@ -81,6 +82,14 @@ export function useRegionFilter(): {
   toggleRegion: (prefix: RegionPrefix) => void;
   clearRegions: () => void;
   matchesRegion: (teamName: string | null | undefined) => boolean;
+  /** Full-job resolver: tries zuperTeamName first, then customer.address state,
+   *  title parsing, etc. Use this instead of `matchesRegion` when you have
+   *  the full job + linked customer/project available. */
+  matchesJobRegion: (
+    job: Pick<Job, 'zuperTeamName' | 'address' | 'title'>,
+    customer?: Customer | null,
+    project?: Pick<Project, 'name' | 'id'> | null,
+  ) => boolean;
 } {
   const regionSel = useStore((s) => s.region);
   const regions = useStore((s) => s.regions);
@@ -147,5 +156,23 @@ export function useRegionFilter(): {
     return prefix != null && regionSet.has(prefix);
   }
 
-  return { region, regionSet, setRegion, toggleRegion, clearRegions, matchesRegion };
+  function matchesJobRegion(
+    job: Pick<Job, 'zuperTeamName' | 'address' | 'title'>,
+    customer?: Customer | null,
+    project?: Pick<Project, 'name' | 'id'> | null,
+  ): boolean {
+    if (regionSet.size === 0) return true;
+    const prefix = resolveJobRegion(job, customer, project);
+    return prefix != null && regionSet.has(prefix);
+  }
+
+  return {
+    region,
+    regionSet,
+    setRegion,
+    toggleRegion,
+    clearRegions,
+    matchesRegion,
+    matchesJobRegion,
+  };
 }
