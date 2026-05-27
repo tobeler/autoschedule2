@@ -86,14 +86,15 @@ function regionOfJob(
   job: Job,
   customer?: import('../../types').Customer | null,
   project?: import('../../types').Project | null,
+  siblings?: Job[],
 ): RegionPrefix | null {
   // Try the Zuper team prefix first (cheap, definitive when set). Fall back
   // to the multi-signal resolver (customer.address state, job.title city,
-  // project.name parsing) so unscheduled rows that lack a team name still
-  // get region-tagged from any available HubSpot data.
+  // project.name parsing, sibling-job majority vote) so unscheduled rows
+  // still get region-tagged from any available HubSpot data.
   const fromTeam = regionPrefixFromTeamName(job.zuperTeamName);
   if (fromTeam) return fromTeam;
-  return resolveJobRegion(job, customer ?? undefined, project ?? undefined);
+  return resolveJobRegion(job, customer ?? undefined, project ?? undefined, siblings);
 }
 
 function defaultQuickFilterLabel(args: {
@@ -217,7 +218,10 @@ export function JobsView() {
       if (regionFilter !== 'all') {
         const cust = j.customer ? customerById.get(j.customer) : null;
         const proj = j.projectId ? projectById.get(j.projectId) : null;
-        const reg = regionOfJob(j, cust, proj);
+        const siblings = j.projectId
+          ? jobs.filter((s) => s.projectId === j.projectId && s.id !== j.id)
+          : undefined;
+        const reg = regionOfJob(j, cust, proj, siblings);
         if (reg !== regionFilter) return false;
       }
       if (tokens.length > 0) {
@@ -538,7 +542,12 @@ export function JobsView() {
                     </td>
                     <td>
                       {(() => {
-                        const reg = regionOfJob(j, c, project);
+                        const siblings = j.projectId
+                          ? jobs.filter(
+                              (s) => s.projectId === j.projectId && s.id !== j.id,
+                            )
+                          : undefined;
+                        const reg = regionOfJob(j, c, project, siblings);
                         return reg ? (
                           <span
                             className="badge"

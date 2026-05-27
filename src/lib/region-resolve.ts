@@ -76,13 +76,16 @@ function fromAddress(addr: string | null | undefined): RegionPrefix | null {
 /**
  * Resolve a region prefix for a job by trying every available signal.
  * `customer` and `project` are optional context lookups the caller passes
- * when they already have those rows handy. When all signals fail, returns
+ * when they already have those rows handy. `siblingJobs` are other jobs
+ * linked to the same project — used as a majority-vote fallback when this
+ * job itself lacks a direct region signal. When all signals fail, returns
  * null and the UI should label this as "Region unknown".
  */
 export function resolveJobRegion(
-  job: Pick<Job, 'zuperTeamName' | 'address' | 'title'>,
+  job: Pick<Job, 'zuperTeamName' | 'address' | 'title' | 'projectId'>,
   customer?: Customer | null,
   project?: Pick<Project, 'name' | 'id'> | null,
+  siblingJobs?: Array<Pick<Job, 'zuperTeamName' | 'projectId'>>,
 ): RegionPrefix | null {
   // 1. Zuper team name carries the canonical region prefix.
   const fromTeam = normalizeRegionPrefix(job.zuperTeamName);
@@ -104,6 +107,22 @@ export function resolveJobRegion(
   // 5. Project name parsing — V2 projects may carry a city in their name.
   const fromProject = fromAddress(project?.name);
   if (fromProject) return fromProject;
+
+  // 6. Sibling-job majority vote — when other jobs in the same project
+  // do carry a Zuper team, the region almost always cascades. Picks up
+  // unscheduled rows whose team hasn't been set yet but a scheduled
+  // sibling tells us the work is in (e.g.) Colorado.
+  if (job.projectId && siblingJobs && siblingJobs.length > 0) {
+    const counts = new Map<RegionPrefix, number>();
+    for (const sib of siblingJobs) {
+      if (sib.projectId !== job.projectId) continue;
+      const p = normalizeRegionPrefix(sib.zuperTeamName);
+      if (!p) continue;
+      counts.set(p, (counts.get(p) ?? 0) + 1);
+    }
+    const top = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0];
+    if (top) return top[0];
+  }
 
   return null;
 }
