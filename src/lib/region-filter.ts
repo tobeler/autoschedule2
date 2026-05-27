@@ -69,34 +69,83 @@ export function resolveRegionPrefix(
 /**
  * Hook: returns the active region prefix (or 'all') and a setter that
  * updates the global store. Use in any view that needs region filtering.
+ *
+ * `region` is the legacy single-region API — returns the first selected
+ * prefix when exactly one is selected, or 'all' otherwise. New consumers
+ * should prefer `regionSet` (multi-select).
  */
 export function useRegionFilter(): {
   region: RegionFilterValue;
+  regionSet: Set<RegionPrefix>;
   setRegion: (next: RegionFilterValue) => void;
+  toggleRegion: (prefix: RegionPrefix) => void;
+  clearRegions: () => void;
+  matchesRegion: (teamName: string | null | undefined) => boolean;
 } {
   const regionSel = useStore((s) => s.region);
   const regions = useStore((s) => s.regions);
   const setRegionSel = useStore((s) => s.setRegion);
 
-  const region: RegionFilterValue = useMemo(() => {
-    return resolveRegionPrefix(regionSel, regions) ?? 'all';
+  const regionSet = useMemo<Set<RegionPrefix>>(() => {
+    const out = new Set<RegionPrefix>();
+    if (regionSel?.regionPrefixes?.length) {
+      for (const raw of regionSel.regionPrefixes) {
+        const norm = normalizeRegionPrefix(raw);
+        if (norm) out.add(norm);
+      }
+      return out;
+    }
+    const single = resolveRegionPrefix(regionSel, regions);
+    if (single) out.add(single);
+    return out;
   }, [regionSel, regions]);
+
+  const region: RegionFilterValue = useMemo(() => {
+    if (regionSet.size === 1) {
+      const [first] = regionSet;
+      return first;
+    }
+    return 'all';
+  }, [regionSet]);
 
   function setRegion(next: RegionFilterValue) {
     if (next === 'all') {
-      setRegionSel({ regionId: '', subId: '' });
+      setRegionSel({ regionId: '', subId: '', regionPrefixes: [] });
       return;
     }
-    // Prefer a real top-level region row whose short matches. HubSpot may
-    // instead send one parent with service-area children, so the stored seed
-    // id remains the most honest representation of an all-region bucket.
     const match = regions.find((r) => normalizeRegionPrefix(r.short) === next);
-    if (match) {
-      setRegionSel({ regionId: match.id, subId: '' });
-    } else {
-      setRegionSel({ regionId: next.toLowerCase(), subId: '' });
-    }
+    setRegionSel({
+      regionId: match ? match.id : next.toLowerCase(),
+      subId: '',
+      regionPrefixes: [next],
+    });
   }
 
-  return { region, setRegion };
+  function toggleRegion(prefix: RegionPrefix) {
+    const norm = normalizeRegionPrefix(prefix);
+    if (!norm) return;
+    const next = new Set(regionSet);
+    if (next.has(norm)) next.delete(norm);
+    else next.add(norm);
+    const list = Array.from(next);
+    setRegionSel({
+      regionId: list[0]
+        ? regions.find((r) => normalizeRegionPrefix(r.short) === list[0])?.id ?? list[0].toLowerCase()
+        : '',
+      subId: '',
+      regionPrefixes: list,
+    });
+  }
+
+  function clearRegions() {
+    setRegionSel({ regionId: '', subId: '', regionPrefixes: [] });
+  }
+
+  function matchesRegion(teamName: string | null | undefined): boolean {
+    if (regionSet.size === 0) return true;
+    const prefix = normalizeRegionPrefix(teamName);
+    return prefix != null && regionSet.has(prefix);
+  }
+
+  return { region, regionSet, setRegion, toggleRegion, clearRegions, matchesRegion };
 }

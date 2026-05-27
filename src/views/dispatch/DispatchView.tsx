@@ -10,7 +10,7 @@ import { useStore } from '../../store';
 import { addDays, dateKey, startOfWeek, TODAY } from '../../data/helpers';
 import { unscheduledJobs, unscheduledNeedsReviewJobs } from '../../data/selectors';
 import { Icon } from '../../components/Icon';
-import { regionPrefixFromTeamName, useRegionFilter } from '../../lib/region-filter';
+import { useRegionFilter } from '../../lib/region-filter';
 
 import { DispatchBrief } from './DispatchBrief';
 import {
@@ -32,7 +32,7 @@ import { MapView } from './MapView';
 export function DispatchView() {
   const jobs = useStore((s) => s.jobs);
   const projects = useStore((s) => s.projects);
-  const { region: activeRegion } = useRegionFilter();
+  const { regionSet, matchesRegion: matchesRegionFn } = useRegionFilter();
   const selectJob = useStore((s) => s.selectJob);
   const selectedJobId = useStore((s) => s.selectedJobId);
   const openWizard = useStore((s) => s.openWizard);
@@ -65,23 +65,18 @@ export function DispatchView() {
     return src === 'native_project' || src === 'deal_fallback';
   }
 
-  // Region filter is now centralized in src/lib/region-filter.ts — all
-  // list views read/write the same store selection.
-  const regionPrefix = activeRegion === 'all' ? null : activeRegion;
-
-  function matchesRegion(j: { zuperTeamName?: string | null }): boolean {
-    if (!regionPrefix) return true;
-    return regionPrefixFromTeamName(j.zuperTeamName) === regionPrefix;
-  }
+  // Region filter is now multi-select — `regionSet` is the set of selected
+  // 2-letter prefixes; empty set means "all regions".
+  const regionActive = regionSet.size > 0;
 
   const filteredJobs = useMemo(() => {
     let base = jobs;
     if (typeFilter.length > 0) base = base.filter((j) => typeFilter.includes(j.type));
     if (sourceFilter !== 'all') base = base.filter((j) => matchesSourceFilter(j.projectId));
-    if (regionPrefix) base = base.filter(matchesRegion);
+    if (regionActive) base = base.filter((j) => matchesRegionFn(j.zuperTeamName));
     return base;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobs, typeFilter, sourceFilter, projectSourceById, regionPrefix]);
+  }, [jobs, typeFilter, sourceFilter, projectSourceById, regionActive, regionSet]);
 
   const visibleJobs = useMemo(() => {
     let base = filteredJobs;

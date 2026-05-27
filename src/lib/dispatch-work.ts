@@ -87,7 +87,10 @@ export function unscheduledReviewReason(job: Job): string | null {
   if (NON_DISPATCH_TYPES.has(type)) return 'Non-dispatch category';
   if (!isDispatchReadyJobType(type)) return 'Unknown job type';
   if (job.date || job.startHour != null || job.endHour != null) return 'Has schedule date/time from source';
-  if (!job.address) return 'Missing address';
+  // Missing-address is no longer a hard gate — Zuper bootstrap rows ship
+  // without addresses (enrich runs separately) and dispatchers are happy to
+  // schedule by customer name + region. The job-detail drawer shows an
+  // "Address not synced" badge so the gap is still visible per-row.
   if (!job.customer && !job.title && !job.hubspotDealId) return 'Missing customer/deal';
   return null;
 }

@@ -80,6 +80,14 @@ export type TabId =
 export interface RegionSelection {
   regionId: string;
   subId: string;
+  /**
+   * Multi-region selection (2-letter prefixes like 'CO', 'MA', 'BC').
+   * Empty / undefined means "all regions" — matches the legacy single-region
+   * behaviour. When non-empty, a job matches if its region prefix is in the
+   * set. `regionId` continues to mirror the first entry for legacy callers
+   * that read a single value.
+   */
+  regionPrefixes?: string[];
 }
 
 interface State {
@@ -682,6 +690,14 @@ export const useStore = create<State>()(
         const prev = get().jobs;
         const target = prev.find((j) => j.id === id);
         if (!target) return;
+        // P1 guard: don't allow a second Zuper move while a confirmation modal
+        // is open. If we did, setPendingZuperWrite would overwrite the first
+        // pending entry and the first move would be orphaned (applied locally,
+        // no DB write, no way to cancel).
+        if (target.zuperJobUid && get().apiMode && get().pendingZuperWrite != null) {
+          get().pushToast('Confirm the open Zuper change before moving another job');
+          return;
+        }
         // Moving back to unscheduled: null out scheduling fields and flip status.
         const movingToUnscheduled = updates.date === null;
         const liftingToScheduled =
@@ -730,7 +746,12 @@ export const useStore = create<State>()(
               slots: next.slots,
             })
             .catch((err) => {
-              set({ jobs: prev });
+              // Narrow rollback to JUST this job — using `prev` for the whole
+              // array could wipe unrelated realtime updates that landed during
+              // the in-flight write.
+              set((s) => ({
+                jobs: s.jobs.map((j) => (j.id === id ? target : j)),
+              }));
               get().pushToast('Move failed — restored');
               logApiError('moveJob', err);
             });
@@ -762,10 +783,10 @@ export const useStore = create<State>()(
             summary,
             action: isUnschedule ? 'cancel' : 'reschedule',
             onConfirm: () => {
-              get().clearPendingZuperWrite();
               // Persist the local change FIRST (now that the dispatcher has
-              // confirmed) so Undo had something real to revert.
-              void persistLocal();
+              // confirmed) and only clear the modal once persistLocal resolves
+              // so a failure has a retry path.
+              void persistLocal().finally(() => get().clearPendingZuperWrite());
               if (!isReschedule || !next.date || next.startHour == null) return;
               void (async () => {
                 try {

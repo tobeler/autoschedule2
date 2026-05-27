@@ -21,7 +21,7 @@ import { TimesheetsView } from './views/timesheets/TimesheetsView';
 import { ReportsView } from './views/reports/ReportsView';
 import { SettingsView } from './views/settings/SettingsView';
 
-import { regionPrefixFromTeamName, useRegionFilter } from './lib/region-filter';
+import { useRegionFilter } from './lib/region-filter';
 
 import { JobDetailDrawer } from './modals/JobDetailDrawer';
 import { NewJobWizard } from './modals/NewJobWizard/NewJobWizard';
@@ -52,8 +52,8 @@ export default function App() {
   const selectJob = useStore((s) => s.selectJob);
   const showWizard = useStore((s) => s.showWizard);
   const smartScheduleJobId = useStore((s) => s.smartScheduleJobId);
-  const region = useStore((s) => s.region);
-  const setRegion = useStore((s) => s.setRegion);
+  // RegionPicker reads + writes region state directly via useRegionFilter,
+  // so App.tsx no longer needs to thread region/setRegion through props.
 
   const jobs = useStore((s) => s.jobs);
   const people = useStore((s) => s.people);
@@ -61,7 +61,7 @@ export default function App() {
   // Hook order matters — every useStore / useRegionFilter call has to run
   // unconditionally on every render. Pull all subscriptions BEFORE any
   // early-return so the loading/error branches don't change the hook count.
-  const { region: activeRegion } = useRegionFilter();
+  const { regionSet, matchesRegion } = useRegionFilter();
   const customersStore = useStore((s) => s.customers);
   const crewsStore = useStore((s) => s.crews);
   const timeOffStore = useStore((s) => s.timeOff);
@@ -98,9 +98,7 @@ export default function App() {
   // tracks the active region picker — previously it counted across every
   // region regardless of filter.
   const scopedJobsForAttention =
-    activeRegion === 'all'
-      ? jobs
-      : jobs.filter((j) => regionPrefixFromTeamName(j.zuperTeamName) === activeRegion);
+    regionSet.size === 0 ? jobs : jobs.filter((j) => matchesRegion(j.zuperTeamName));
   const attentionItems = buildAttentionItems({
     jobs: scopedJobsForAttention,
     customers: customersStore,
@@ -206,10 +204,8 @@ export default function App() {
           <span className="muted small" style={{ marginLeft: 4, marginRight: 4 }}>
             ·
           </span>
-          <RegionPicker
-            value={region}
-            onChange={(r) => setRegion(r ?? { regionId: '', subId: '' })}
-          />
+          {/* RegionPicker now reads + writes the store directly; legacy props omitted. */}
+          <RegionPicker />
 
           <div className="topbar-spacer" />
 

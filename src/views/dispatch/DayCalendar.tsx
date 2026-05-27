@@ -14,6 +14,7 @@ import { fmtTime } from '../../data/helpers';
 import { ROLES } from '../../data/seed';
 import { useStore } from '../../store';
 import { estimateDriveTime } from '../../lib/routing';
+import { useRegionFilter, regionPrefixFromTeamName } from '../../lib/region-filter';
 import { JobBlock } from './JobBlock';
 import { LoanBlock } from './LoanBlock';
 
@@ -104,6 +105,7 @@ export function DayCalendar({
   const allCrews = useStore((s) => s.crews);
   const allTrucks = useStore((s) => s.trucks);
   const allPeople = useStore((s) => s.people);
+  const { regionSet } = useRegionFilter();
   const allJobs = useStore((s) => s.jobs);
   const moveJob = useStore((s) => s.moveJob);
   const resizeJob = useStore((s) => s.resizeJob);
@@ -171,7 +173,17 @@ export function DayCalendar({
       // real install teams. They still exist in `crews` and surface in a
       // Pool view; we just don't clutter the dispatcher grid with 13 empty
       // lanes for groups that never actually own a job.
-      const dispatchableCrews = allCrews.filter((c) => c.type !== 'ad_hoc');
+      const dispatchableCrews = allCrews.filter((c) => {
+        if (c.type === 'ad_hoc') return false;
+        // When the user has selected one or more regions, only show crew lanes
+        // whose team prefix matches. We resolve the prefix from the crew's
+        // Zuper team name (e.g. "CO-DE-1" → "CO"). Crews with no resolvable
+        // prefix are hidden when a region filter is active.
+        if (regionSet.size === 0) return true;
+        // Crew.name is the materialized team name from Zuper (e.g. "CO-DE-1").
+        const crewPrefix = regionPrefixFromTeamName(c.name);
+        return crewPrefix != null && regionSet.has(crewPrefix);
+      });
       const crewRows = dispatchableCrews.map((c) => {
         const truck = allTrucks.find((t) => t.id === c.truck) ?? null;
         const rowJobs = jobs.filter((j) => j.crewId === c.id);

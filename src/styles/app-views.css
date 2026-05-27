@@ -125,6 +125,12 @@
 }
 .rail-title { font-family: var(--font-subhead); font-weight: 700; font-size: 14px; }
 .rail-list { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+/* Off-screen cards defer paint/layout — keeps scroll smooth when the unscheduled
+   queue blows up (~500+ rows after a Zuper bootstrap with full history). */
+.rail-list .unsched-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 110px;
+}
 
 /* ============= UNSCHEDULED JOB CARD ============= */
 .unsched-card {

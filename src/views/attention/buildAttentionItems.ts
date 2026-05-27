@@ -16,6 +16,7 @@ import {
   unscheduledNeedsReviewJobs,
 } from '../../data/selectors';
 import { summarizeUnscheduledReviewReasons } from '../../lib/dispatch-work';
+import { realCustomerName } from '../../lib/customer-display';
 import { ROLES } from '../../data/seed';
 
 export type AttentionSev = 'urgent' | 'warn' | 'info';
@@ -131,14 +132,18 @@ export function buildAttentionItems(input?: AttentionBuildState): AttentionItem[
         sev: 'urgent',
         cat: 'schedule',
         icon: 'refresh',
-        title: 'Callback · ' + (c?.name || (job.title?.split(/\s[-|]\s/)[0]?.trim()) || 'Unknown'),
+        title:
+          'Callback · ' +
+          (realCustomerName(c) ||
+            job.title?.split(/\s[-|]\s/)[0]?.trim() ||
+            'Unknown'),
         desc: (job.notes || 'Callback from Zuper; review job details') + ' · ' + (isToday ? 'same-day' : 'unscheduled'),
         meta: [
           { kind: isToday ? 'due' : 'soft', label: isToday ? 'Today' : 'Unscheduled' },
           { kind: 'tag', label: 'Callback' },
         ],
         context: [
-          ['Customer', c?.name || '—'],
+          ['Customer', realCustomerName(c) || job.title?.split(/\s[-|]\s/)[0]?.trim() || '—'],
           ['Address', job.address || '—'],
           ['Type', getJobType(job.type)?.label || job.type],
           ['Issue', job.notes || '—'],
@@ -195,19 +200,19 @@ export function buildAttentionItems(input?: AttentionBuildState): AttentionItem[
       desc:
         'Clean queue only: installs, service, repairs, and add-on field work awaiting slots. ' +
         'Callbacks are listed as individual urgent items. ' +
-        'Known non-dispatch rows are held for data review. Total $' +
-        total.toLocaleString() +
-        '.',
-      meta: [
-        { kind: 'soft', label: 'Dispatch-ready non-callback' },
-        { kind: 'deal', label: 'HubSpot' },
-      ],
+        'Known non-dispatch rows are held for data review.',
+      meta: [{ kind: 'soft', label: 'Dispatch-ready non-callback' }],
       context: unsched.map((j) => {
         const c = getCustomer(customers, j.customer);
-        const head = c?.name || (j.address || '').split('·')[0] || '—';
-        const tail =
-          (getJobType(j.type)?.short || j.type) + (j.price ? ' · $' + j.price.toLocaleString() : '');
-        return [j.id, head + ' · ' + tail];
+        // realCustomerName strips synthetic "Legacy install xxx" stand-ins;
+        // we then fall through to the Zuper title (most begin "{First Last} - …").
+        const name =
+          realCustomerName(c) ||
+          j.title?.split(/\s[-|]\s/)[0]?.trim() ||
+          (j.address || '').split('·')[0]?.trim() ||
+          'Unknown';
+        const typeLabel = getJobType(j.type)?.label || j.type;
+        return [name, typeLabel];
       }),
       resolutions: [
         { primary: true, icon: 'calendar', title: 'Open dispatch rail', sub: 'Schedule from the clean queue; callbacks stay separate', action: 'open_dispatch' },

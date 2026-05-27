@@ -215,9 +215,7 @@ export function DispatchBrief({ date, jobs, onNewJob, onHide }: DispatchBriefPro
             <button key={item.id} type="button" onClick={() => setTab('attention')}>
               <span className="brief-impact-score">{item.impact.score}</span>
               <span className="brief-impact-title">{item.title}</span>
-              <span className="brief-impact-money">
-                ${Math.round(item.impact.revenueAtRisk).toLocaleString()}
-              </span>
+              {/* Revenue-at-risk hidden — dispatch decisions don't ride on deal $. */}
             </button>
           ))}
         </div>

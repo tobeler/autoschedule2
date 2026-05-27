@@ -413,9 +413,7 @@ function AttentionRow({ item, isResolved, selected, onSelect, onResolve, onJump 
                 <Icon name="bar_chart" size={10} />
                 {item.impact.score}
               </span>
-              <span className="pill impact-money">
-                ${Math.round(item.impact.revenueAtRisk).toLocaleString()}
-              </span>
+              {/* Revenue-at-risk pill hidden — dispatch decisions don't ride on deal $. */}
               <span className={'pill impact-confidence ' + item.impact.confidence}>
                 {item.impact.confidence}
               </span>
@@ -524,21 +522,20 @@ function DetailPane({ item, onResolve, onSnooze, onJump, onAction }: DetailProps
               <span className="v">{item.impact.score}</span>
             </div>
             <div>
-              <span className="k">Revenue risk</span>
-              <span className="v">${Math.round(item.impact.revenueAtRisk).toLocaleString()}</span>
-            </div>
-            <div>
               <span className="k">Confidence</span>
               <span className="v">{item.impact.confidence}</span>
             </div>
           </div>
           <div className="att-impact-reasons">
-            {item.impact.reasons.map((reason) => (
-              <span key={reason} className="reason-chip good">
-                <Icon name="info" size={10} />
-                {reason}
-              </span>
-            ))}
+            {item.impact.reasons
+              // Hide dollar/value reasons — those leak deal $ into the dispatch view.
+              .filter((r) => !/\$|at risk|modeled value/i.test(r))
+              .map((reason) => (
+                <span key={reason} className="reason-chip good">
+                  <Icon name="info" size={10} />
+                  {reason}
+                </span>
+              ))}
           </div>
         </div>
       )}

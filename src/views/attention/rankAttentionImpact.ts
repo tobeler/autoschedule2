@@ -187,10 +187,9 @@ function impactForItem(item: AttentionItem, state: AttentionImpactState): Attent
   const reasons: string[] = [
     affectedJobs.length + ' affected job' + (affectedJobs.length === 1 ? '' : 's'),
   ];
-  if (revenueAtRisk > 0) reasons.push('$' + Math.round(revenueAtRisk).toLocaleString() + ' at risk');
+  // Dollar reasons removed — dispatch decisions don't surface deal $.
   if (affectedJobs.some((job) => job.status === 'unscheduled')) reasons.push('unscheduled capacity');
   if (affectedJobs.some((job) => !job.address || !job.customer)) reasons.push('data gaps slow dispatch');
-  if (modeledCount > 0) reasons.push('uses modeled value for ' + modeledCount);
   if (affectedJobs.length === 1) {
     const jt = getJobType(affectedJobs[0].type);
     if (jt) reasons.push(jt.label);

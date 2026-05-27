@@ -62,7 +62,13 @@ export function hubspotInstallationUrl(
   );
 }
 
-/** Zuper deep-link — works against the Jetson tenant. */
+/**
+ * Zuper deep-link — opens the job in the Zuper Pro web app.
+ *
+ * The Zuper Pro UI mounts at `/dispatch/jobs/details/{job_uid}` for the
+ * Jetson tenant (us-east-1.zuperpro.com). Prior URL (`/jobs/details/{uid}`)
+ * 404'd; the dispatch prefix is required.
+ */
 export function zuperJobUrl(jobUid: string): string {
-  return 'https://us-east-1.zuperpro.com/jobs/details/' + jobUid;
+  return 'https://us-east-1.zuperpro.com/dispatch/jobs/details/' + jobUid;
 }
