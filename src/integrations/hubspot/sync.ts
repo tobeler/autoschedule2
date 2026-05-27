@@ -179,6 +179,18 @@ function makeRegionShort(name: string): string {
     .toUpperCase() || 'XX';
 }
 
+// Heuristic for service areas whose HubSpot `countries` field is empty.
+// Jetson operates in US (CO, MA, NY, CA) and Canada (BC). Recognize BC/AB
+// and a few common Canadian city names so they don't get parented to
+// "United States" by default.
+function inferCountryFromServiceAreaName(name: string, code: string): string | null {
+  const haystack = (name + ' ' + code).toUpperCase();
+  if (/\b(BC|AB|ON|QC|VANCOUVER|TORONTO|MONTREAL|CALGARY)\b/.test(haystack)) {
+    return 'Canada';
+  }
+  return null;
+}
+
 function legacyInstallationDescription(inst: HubspotInstallation): string {
   const stage = inst.properties.pipeline_stage_sync ?? null;
   const addressParts = [
@@ -444,7 +456,18 @@ export async function syncFromHubspot(opts: SyncOptions = {}): Promise<SyncResul
       // 1) Service areas → regions (parent country + sub regions).
       const byCountry = new Map<string, HubspotServiceArea[]>();
       for (const sa of serviceAreaRecords) {
-        const country = (sa.properties.countries ?? 'United States').split(';')[0].trim() || 'United States';
+        const rawCountry = (sa.properties.countries ?? '').split(';')[0].trim();
+        // HubSpot's `countries` field is often empty on service areas, so
+        // we'd default everything to US. That's wrong for BC, AB, etc.
+        // Infer from the name/short-code as a fallback so non-US regions
+        // don't get parented to "United States".
+        const country =
+          rawCountry ||
+          inferCountryFromServiceAreaName(
+            sa.properties.name ?? '',
+            sa.properties.service_area_code ?? '',
+          ) ||
+          'United States';
         if (!byCountry.has(country)) byCountry.set(country, []);
         byCountry.get(country)!.push(sa);
       }
