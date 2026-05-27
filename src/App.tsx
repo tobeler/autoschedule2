@@ -58,6 +58,14 @@ export default function App() {
   const jobs = useStore((s) => s.jobs);
   const people = useStore((s) => s.people);
 
+  // Hook order matters — every useStore / useRegionFilter call has to run
+  // unconditionally on every render. Pull all subscriptions BEFORE any
+  // early-return so the loading/error branches don't change the hook count.
+  const { region: activeRegion } = useRegionFilter();
+  const customersStore = useStore((s) => s.customers);
+  const crewsStore = useStore((s) => s.crews);
+  const timeOffStore = useStore((s) => s.timeOff);
+
   // Keyboard: Escape closes drawer
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -89,10 +97,6 @@ export default function App() {
   // Compute attention against the region-scoped job set so the topbar pill
   // tracks the active region picker — previously it counted across every
   // region regardless of filter.
-  const { region: activeRegion } = useRegionFilter();
-  const customersStore = useStore((s) => s.customers);
-  const crewsStore = useStore((s) => s.crews);
-  const timeOffStore = useStore((s) => s.timeOff);
   const scopedJobsForAttention =
     activeRegion === 'all'
       ? jobs
