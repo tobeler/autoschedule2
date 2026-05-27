@@ -107,8 +107,18 @@ export function NewJobWizard() {
     const truckId =
       vehicleMode === 'fleet' ? (crew?.truck ?? null) : null;
 
+    // Use a UUID for the local id. The DB-side handler may overwrite this
+    // with its own canonical id on POST, but locally we need uniqueness for
+    // the optimistic insert. The prior random-pool generator collided fast.
+    // hubspotDealId is left null — writeback creates the deal via the
+    // Associations API, never a fabricated DEAL- prefix.
+    const localId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? 'J-' + crypto.randomUUID().slice(0, 8)
+        : 'J-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+
     const newJob: Job = {
-      id: 'J-' + (2700 + Math.floor(Math.random() * 99)),
+      id: localId,
       type,
       status: 'scheduled',
       customer: customer.id,
@@ -124,7 +134,7 @@ export function NewJobWizard() {
       truckId,
       slots: filledSlots,
       notes: '',
-      hubspotDealId: 'DEAL-' + (44300 + Math.floor(Math.random() * 99)),
+      hubspotDealId: null,
       driveTimeMin: 18,
       vehicleMode,
       personalDriverId: vehicleMode === 'personal' ? vehicle.personalDriverId : null,

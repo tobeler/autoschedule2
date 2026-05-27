@@ -1195,6 +1195,7 @@ function CrewTab({
 }) {
   const people = useStore((s) => s.people);
   const crews = useStore((s) => s.crews);
+  const updateJob = useStore((s) => s.updateJob);
 
   const suggestions = useMemo(() => {
     return suggestAssignments(job, people)
@@ -1286,7 +1287,7 @@ function CrewTab({
                     borderRadius: 6,
                     fontSize: 13,
                   }}
-                  title={`${p.role}${p.level ? ` · ${p.level}` : ''}`}
+                  title={`${(p.roles && p.roles[0]) || 'tech'}${p.level ? ` · ${p.level}` : ''}`}
                 >
                   <span className="mono" style={{ opacity: 0.6, fontSize: 11 }}>
                     {p.name
