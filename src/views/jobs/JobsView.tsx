@@ -11,7 +11,7 @@
 //   - Saved quick filters keep flowing through the existing sidebar list +
 //     the unchanged "Save as quick filter" button.
 // =============================================================
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { PageHeader } from '../../components/PageHeader';
 import { JobTypeTag } from '../../components/JobTypeTag';
@@ -20,6 +20,7 @@ import { RoleChip } from '../../components/RoleChip';
 import { SortableHeader } from '../../components/SortableHeader';
 import { useStore } from '../../store';
 import { fmtTime } from '../../data/helpers';
+import { ROLES } from '../../data/seed';
 import {
   getCrew,
   getCustomer,
@@ -123,6 +124,36 @@ function sourceOfJob(job: Job, projects: Project[]): SourceKey | null {
   return 'v2';
 }
 
+// One-line crew summary used in the collapsed row. Picks the first 2 names
+// (assigned tech name when present, else role short-code), then a "+N"
+// overflow count, and an "Unfilled: M" tag when applicable. Kept text-only
+// so it stays on a single line at the table's narrow column width.
+function crewSummary(
+  job: Job,
+  people: import('../../types').Person[],
+): { items: string[]; overflow: number; unfilled: number } {
+  const items: string[] = [];
+  let total = 0;
+  if (job.assignedTechIds?.length) {
+    total = job.assignedTechIds.length;
+    for (const id of job.assignedTechIds.slice(0, 2)) {
+      const p = people.find((x) => x.id === id);
+      items.push(p?.name.split(' ')[0] ?? id);
+    }
+  } else {
+    total = job.slots.length;
+    for (const s of job.slots.slice(0, 2)) {
+      const r = ROLES[s.role];
+      const label = r?.short ?? s.role;
+      const lvl = s.level ? ' ' + s.level : '';
+      items.push(s.assignedTo ? label + lvl : 'Unfilled ' + label);
+    }
+  }
+  const overflow = Math.max(0, total - items.length);
+  const unfilled = job.slots.filter((s) => !s.assignedTo && !s.optional).length;
+  return { items, overflow, unfilled };
+}
+
 // Combine date (ISO YYYY-MM-DD) and startHour into a sortable number.
 // Unscheduled (no date) → null, which compareBy will sink to the end.
 function jobTimestamp(job: Job): number | null {
@@ -163,6 +194,19 @@ export function JobsView() {
 
   // Type-popover open/close (mirrors DispatchToolbar's pattern).
   const [typePopOpen, setTypePopOpen] = useState(false);
+
+  // Per-row expand state — session-only, deliberately not persisted. Default
+  // is collapsed everywhere; expanding reveals the full crew-composition
+  // stack inline beneath the row's main one-liner.
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
+  function toggleRow(id: string) {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   // Apply any pending quick-filter snapshot (set by sidebar's saved filters).
   useEffect(() => {
@@ -636,6 +680,42 @@ export function JobsView() {
           <table className="table">
             <thead>
               <tr>
+                <th style={{ width: 28, padding: '0 4px' }}>
+                  {/* Expand-all / collapse-all toggle. Caret reflects the
+                      majority state: down when any rows are expanded
+                      (clicking collapses all), right otherwise (clicking
+                      expands every currently filtered row). */}
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{
+                      padding: 2,
+                      width: 22,
+                      height: 22,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    title={
+                      expandedRows.size > 0
+                        ? 'Collapse all rows'
+                        : 'Expand all rows'
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (expandedRows.size > 0) {
+                        setExpandedRows(new Set());
+                      } else {
+                        setExpandedRows(new Set(filtered.map((j) => j.id)));
+                      }
+                    }}
+                  >
+                    <Icon
+                      name={expandedRows.size > 0 ? 'chevron_down' : 'chevron_right'}
+                      size={12}
+                    />
+                  </button>
+                </th>
                 <SortableHeader<JobSortKey>
                   label="Customer"
                   sortKey="customer"
@@ -696,161 +776,348 @@ export function JobsView() {
                   ? PROJECT_STATUS_META[project.status]
                   : null;
                 const reviewReason = unscheduledReviewReason(j);
+                const isExpanded = expandedRows.has(j.id);
+                const summary = crewSummary(j, people);
+                const summaryText =
+                  summary.items.join(', ') +
+                  (summary.overflow > 0 ? ', +' + summary.overflow : '');
+                // Tight, single-line cell style for the collapsed view.
+                const tightCell: React.CSSProperties = {
+                  paddingTop: 6,
+                  paddingBottom: 6,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                };
                 return (
-                  <tr
-                    key={j.id}
-                    className="clickable"
-                    onClick={() => selectJob(j.id)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <td>
-                      {/* Job label: "{Customer} — {Job type}" per Erik's
-                          spec. Address subtitle when present. Internal id
-                          is no longer surfaced in the list. */}
-                      <div style={{ fontWeight: 600 }}>
-                        {c ? c.name : j.title || 'Unknown customer'}
-                        {jobType?.label ? ' — ' + jobType.label : ''}
-                      </div>
-                      {j.address ? (
-                        <div className="muted small">{j.address}</div>
-                      ) : null}
-                    </td>
-                    <td>
-                      <JobTypeTag type={j.type} />
-                    </td>
-                    <td>
-                      {j.date ? (
-                        <>
-                          <div style={{ fontWeight: 600 }}>{j.date}</div>
-                          <div className="muted small mono">
+                  <Fragment key={j.id}>
+                    <tr
+                      className="clickable"
+                      onClick={() => selectJob(j.id)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <td
+                        style={{ padding: '0 4px', width: 28 }}
+                        onClick={(e) => {
+                          // Don't open the drawer when the user just wants
+                          // to expand/collapse the row.
+                          e.stopPropagation();
+                          toggleRow(j.id);
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          aria-label={isExpanded ? 'Collapse row' : 'Expand row'}
+                          aria-expanded={isExpanded}
+                          title={isExpanded ? 'Collapse row' : 'Expand row'}
+                          style={{
+                            padding: 2,
+                            width: 22,
+                            height: 22,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleRow(j.id);
+                          }}
+                        >
+                          <Icon
+                            name={isExpanded ? 'chevron_down' : 'chevron_right'}
+                            size={12}
+                          />
+                        </button>
+                      </td>
+                      <td style={{ ...tightCell, maxWidth: 280 }}>
+                        {/* Single-line label: "{Customer} — {Job type}".
+                            Address moves into the expanded sub-row to keep
+                            collapsed rows tight. */}
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {c ? c.name : j.title || 'Unknown customer'}
+                          {jobType?.label ? ' — ' + jobType.label : ''}
+                        </div>
+                      </td>
+                      <td style={tightCell}>
+                        <JobTypeTag type={j.type} />
+                      </td>
+                      <td style={tightCell}>
+                        {j.date ? (
+                          <span className="mono small">
+                            {j.date}
                             {j.startHour != null
-                              ? fmtTime(j.startHour) +
-                                '–' +
-                                fmtTime(j.startHour + j.durationHrs)
-                              : '—'}
-                          </div>
-                        </>
-                      ) : (
-                        <span className="muted small">Unscheduled</span>
-                      )}
-                    </td>
-                    <td>
-                      {(() => {
-                        const siblings = j.projectId
-                          ? jobs.filter(
-                              (s) => s.projectId === j.projectId && s.id !== j.id,
-                            )
-                          : undefined;
-                        const reg = regionOfJob(j, c, project, siblings);
-                        return reg ? (
+                              ? ' · ' + fmtTime(j.startHour)
+                              : ''}
+                          </span>
+                        ) : (
+                          <span className="muted small">Unscheduled</span>
+                        )}
+                      </td>
+                      <td style={tightCell}>
+                        {(() => {
+                          const siblings = j.projectId
+                            ? jobs.filter(
+                                (s) => s.projectId === j.projectId && s.id !== j.id,
+                              )
+                            : undefined;
+                          const reg = regionOfJob(j, c, project, siblings);
+                          return reg ? (
+                            <span
+                              className="badge"
+                              style={{
+                                background: 'rgba(60,213,103,0.12)',
+                                color: 'var(--forest, #1F8A5B)',
+                                fontWeight: 600,
+                                fontSize: 11,
+                              }}
+                              title={`Region inferred from ${
+                                j.zuperTeamName
+                                  ? 'Zuper team ' + j.zuperTeamName
+                                  : c?.address
+                                    ? 'customer address'
+                                    : 'job title'
+                              }`}
+                            >
+                              {reg}
+                            </span>
+                          ) : (
+                            <span className="muted small">—</span>
+                          );
+                        })()}
+                      </td>
+                      <td style={tightCell}>
+                        {crew ? crew.name : <span className="muted">—</span>}
+                      </td>
+                      <td style={tightCell}>
+                        {truck ? (
+                          <span className="mono small">{truck.name}</span>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td style={{ ...tightCell, maxWidth: 240 }}>
+                        {/* Collapsed crew summary: one line of names/roles,
+                            "+N" overflow, and the unfilled count badge. */}
+                        <span
+                          className="small"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          <span
+                            style={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              maxWidth: 170,
+                            }}
+                            title={summaryText}
+                          >
+                            {summary.items.length === 0 ? (
+                              <span className="muted">—</span>
+                            ) : (
+                              summaryText
+                            )}
+                          </span>
+                          {unfilled > 0 && (
+                            <span
+                              className="unfilled-pill"
+                              title={unfilled + ' unfilled slot(s)'}
+                            >
+                              <Icon name="user" size={10} /> {unfilled}
+                            </span>
+                          )}
+                        </span>
+                      </td>
+                      <td style={tightCell}>
+                        <StatusBadge status={j.status} />
+                      </td>
+                      <td style={{ ...tightCell, maxWidth: 240 }}>
+                        {project && projectMeta ? (
+                          <span
+                            style={{
+                              fontWeight: 600,
+                              fontSize: 12,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              display: 'inline-block',
+                              maxWidth: 220,
+                              verticalAlign: 'middle',
+                            }}
+                            title={project.name}
+                          >
+                            {project.name}
+                          </span>
+                        ) : j.hubspotDealId ? (
                           <span
                             className="badge"
                             style={{
-                              background: 'rgba(60,213,103,0.12)',
-                              color: 'var(--forest, #1F8A5B)',
-                              fontWeight: 600,
-                              fontSize: 11,
+                              background: 'rgba(255,122,89,0.12)',
+                              color: '#9F3D24',
+                              fontSize: 10,
+                              fontFamily: 'var(--font-mono)',
                             }}
-                            title={`Region inferred from ${
-                              j.zuperTeamName
-                                ? 'Zuper team ' + j.zuperTeamName
-                                : c?.address
-                                  ? 'customer address'
-                                  : 'job title'
-                            }`}
                           >
-                            {reg}
+                            <Icon name="hubspot" size={10} /> Deal {j.hubspotDealId}
                           </span>
                         ) : (
                           <span className="muted small">—</span>
-                        );
-                      })()}
-                    </td>
-                    <td>
-                      {crew ? crew.name : <span className="muted">—</span>}
-                    </td>
-                    <td>
-                      {truck ? (
-                        <span className="mono small">{truck.name}</span>
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
-                        {j.assignedTechIds?.length
-                          ? j.assignedTechIds.slice(0, 4).map((id) => {
-                              const tech = getPerson(people, id);
-                              return (
-                                <span key={id} className="tag" style={{ fontSize: 11 }}>
-                                  <Icon name="user" size={10} />
-                                  {tech?.name ?? id}
-                                </span>
-                              );
-                            })
-                          : j.slots.slice(0, 4).map((s) => (
-                              <RoleChip
-                                key={s.id}
-                                role={s.role}
-                                level={s.level}
-                                assignedTo={s.assignedTo}
-                                optional={s.optional}
-                                compact
-                              />
-                            ))}
-                        {j.assignedTechIds && j.assignedTechIds.length > 4 && (
-                          <span className="muted small">+{j.assignedTechIds.length - 4}</span>
                         )}
-                        {unfilled > 0 && (
-                          <span className="unfilled-pill">
-                            <Icon name="user" size={10} /> {unfilled}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <StatusBadge status={j.status} />
-                      {reviewReason ? (
-                        <div className="muted small" style={{ marginTop: 4 }}>
-                          Review: {reviewReason}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td>
-                      {project && projectMeta ? (
-                        <div style={{ maxWidth: 240 }}>
-                          <div style={{ fontWeight: 600, fontSize: 12 }}>
-                            {project.name}
-                          </div>
-                          <div className="row muted" style={{ gap: 6, fontSize: 11 }}>
-                            <span>{project.type || PROJECT_STATUS_META[project.status]?.label}</span>
-                            {project.hubspotDealId && (
-                              <span className="mono">Deal {project.hubspotDealId}</span>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr
+                        // Detail row: not clickable; clicking inside it
+                        // shouldn't open the drawer (the chevron / main row
+                        // already handles that intent).
+                        style={{ background: 'var(--bg-soft, rgba(0,0,0,0.02))' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <td />
+                        <td colSpan={9} style={{ padding: '8px 12px 12px' }}>
+                          <div
+                            className="row"
+                            style={{
+                              gap: 16,
+                              flexWrap: 'wrap',
+                              alignItems: 'flex-start',
+                            }}
+                          >
+                            {/* Crew composition — the original stacked
+                                pills, restored only on expand. */}
+                            <div style={{ minWidth: 260 }}>
+                              <div
+                                className="eyebrow-sm"
+                                style={{ marginBottom: 4 }}
+                              >
+                                Crew composition
+                              </div>
+                              <div
+                                className="row"
+                                style={{ gap: 4, flexWrap: 'wrap' }}
+                              >
+                                {j.assignedTechIds?.length
+                                  ? j.assignedTechIds.map((id) => {
+                                      const tech = getPerson(people, id);
+                                      return (
+                                        <span
+                                          key={id}
+                                          className="tag"
+                                          style={{ fontSize: 11 }}
+                                        >
+                                          <Icon name="user" size={10} />
+                                          {tech?.name ?? id}
+                                        </span>
+                                      );
+                                    })
+                                  : j.slots.map((s) => (
+                                      <RoleChip
+                                        key={s.id}
+                                        role={s.role}
+                                        level={s.level}
+                                        assignedTo={s.assignedTo}
+                                        optional={s.optional}
+                                        compact
+                                      />
+                                    ))}
+                                {unfilled > 0 && (
+                                  <span className="unfilled-pill">
+                                    <Icon name="user" size={10} /> {unfilled}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Time window — full range only when expanded. */}
+                            {j.date && j.startHour != null && (
+                              <div style={{ minWidth: 140 }}>
+                                <div
+                                  className="eyebrow-sm"
+                                  style={{ marginBottom: 4 }}
+                                >
+                                  Time
+                                </div>
+                                <div className="mono small">
+                                  {fmtTime(j.startHour)}
+                                  {'–'}
+                                  {fmtTime(j.startHour + j.durationHrs)}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Address — moved out of the customer cell. */}
+                            {j.address && (
+                              <div style={{ minWidth: 200, flex: 1 }}>
+                                <div
+                                  className="eyebrow-sm"
+                                  style={{ marginBottom: 4 }}
+                                >
+                                  Address
+                                </div>
+                                <div className="muted small">{j.address}</div>
+                              </div>
+                            )}
+
+                            {/* Project / deal detail block — full form. */}
+                            {project && projectMeta ? (
+                              <div style={{ minWidth: 220 }}>
+                                <div
+                                  className="eyebrow-sm"
+                                  style={{ marginBottom: 4 }}
+                                >
+                                  Deal / scope
+                                </div>
+                                <div
+                                  style={{ fontWeight: 600, fontSize: 12 }}
+                                >
+                                  {project.name}
+                                </div>
+                                <div
+                                  className="row muted"
+                                  style={{ gap: 6, fontSize: 11 }}
+                                >
+                                  <span>
+                                    {project.type ||
+                                      PROJECT_STATUS_META[project.status]?.label}
+                                  </span>
+                                  {project.hubspotDealId && (
+                                    <span className="mono">
+                                      Deal {project.hubspotDealId}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {reviewReason && (
+                              <div style={{ minWidth: 200 }}>
+                                <div
+                                  className="eyebrow-sm"
+                                  style={{ marginBottom: 4 }}
+                                >
+                                  Review reason
+                                </div>
+                                <div className="muted small">{reviewReason}</div>
+                              </div>
                             )}
                           </div>
-                        </div>
-                      ) : j.hubspotDealId ? (
-                        <span
-                          className="badge"
-                          style={{
-                            background: 'rgba(255,122,89,0.12)',
-                            color: '#9F3D24',
-                            fontSize: 10,
-                            fontFamily: 'var(--font-mono)',
-                          }}
-                        >
-                          <Icon name="hubspot" size={10} /> Deal {j.hubspotDealId}
-                        </span>
-                      ) : (
-                        <span className="muted small">—</span>
-                      )}
-                    </td>
-                  </tr>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: 40 }}>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: 40 }}>
                     <Icon name="briefcase" size={28} stroke="var(--mid-gray)" />
                     <div
                       style={{

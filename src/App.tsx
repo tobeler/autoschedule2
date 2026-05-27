@@ -122,7 +122,9 @@ export default function App() {
   const navItems: NavItem[] = [
     { id: 'dispatch', label: 'Dispatch', icon: 'calendar', badge: unscheduledJobs(jobs).length || null },
     { id: 'jobs', label: 'Jobs', icon: 'briefcase', badge: activeJobsCount },
-    { id: 'projects', label: 'Projects', icon: 'home' },
+    // Projects tab hidden — Jobs view is now the dispatcher's source of
+    // truth for the work surface. ProjectsView still mounted at /projects
+    // for deep links.
     { id: 'technicians', label: 'Technicians', icon: 'user', badge: people.length },
     { id: 'crews', label: 'Crews', icon: 'users' },
     { id: 'fleet', label: 'Trucks', icon: 'truck' },
