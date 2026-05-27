@@ -205,17 +205,56 @@ export function DispatchBrief({ date, jobs, onNewJob, onHide }: DispatchBriefPro
       </div>
       <div className="brief-risk-row">
         <div className="brief-risk-summary">
-          <span>{kpi.readyUnscheduled} ready to schedule</span>
-          <span>{kpi.reviewUnscheduled} held for review</span>
-          <span>{kpi.scheduledNoCrew} active without crew</span>
-          <span>{kpi.missingAddress} missing address</span>
+          {/* Count chips: severity color is derived from the count itself
+              so "1,219 missing address" reads catastrophic while
+              "107 ready to schedule" reads healthy without a number race. */}
+          <span
+            style={{
+              color: kpi.readyUnscheduled > 0 ? 'var(--jetson-green, #3CD567)' : undefined,
+            }}
+          >
+            {kpi.readyUnscheduled.toLocaleString()} ready to schedule
+          </span>
+          <span
+            style={{
+              color: kpi.reviewUnscheduled > 50 ? '#FFB627' : undefined,
+            }}
+          >
+            {kpi.reviewUnscheduled.toLocaleString()} held for review
+          </span>
+          <span
+            style={{
+              color: kpi.scheduledNoCrew > 0 ? '#FFB627' : undefined,
+            }}
+          >
+            {kpi.scheduledNoCrew.toLocaleString()} active without crew
+          </span>
+          <span
+            style={{
+              color:
+                kpi.missingAddress > 500
+                  ? '#C53030'
+                  : kpi.missingAddress > 50
+                    ? '#FFB627'
+                    : undefined,
+              fontWeight: kpi.missingAddress > 500 ? 700 : undefined,
+            }}
+            title={`${kpi.missingAddress} jobs have no address synced — driver can't navigate.`}
+          >
+            {kpi.missingAddress.toLocaleString()} missing address
+          </span>
         </div>
         <div className="brief-impact-list">
+          {/* Action queue: title only, no mystery leading number. Hover for
+              impact-score detail. */}
           {topImpact.map((item) => (
-            <button key={item.id} type="button" onClick={() => setTab('attention')}>
-              <span className="brief-impact-score">{item.impact.score}</span>
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTab('attention')}
+              title={`Impact score ${item.impact.score}`}
+            >
               <span className="brief-impact-title">{item.title}</span>
-              {/* Revenue-at-risk hidden — dispatch decisions don't ride on deal $. */}
             </button>
           ))}
         </div>
