@@ -1194,6 +1194,7 @@ function CrewTab({
   truckCapacity: string | undefined;
 }) {
   const people = useStore((s) => s.people);
+  const crews = useStore((s) => s.crews);
 
   const suggestions = useMemo(() => {
     return suggestAssignments(job, people)
@@ -1203,6 +1204,30 @@ function CrewTab({
         return acc;
       }, {});
   }, [job, people]);
+
+  // When the job has no local job_slots populated, surface the assigned
+  // crew's members so the dispatcher can see who's on the job. Match priority:
+  //   1. job.crewId (direct local FK — set when bootstrap-crews ran)
+  //   2. crew whose name matches the source-of-truth Zuper team name
+  // This is the dispatcher answer to "who's actually on this job right now".
+  const zuperCrew = useMemo(() => {
+    if (job.crewId) {
+      const direct = crews.find((c) => c.id === job.crewId);
+      if (direct) return direct;
+    }
+    if (job.zuperTeamName) {
+      return crews.find((c) => c.name === job.zuperTeamName) ?? null;
+    }
+    return null;
+  }, [crews, job.crewId, job.zuperTeamName]);
+
+  const zuperCrewMembers = useMemo(() => {
+    if (!zuperCrew) return [];
+    return zuperCrew.members
+      .map((id) => people.find((p) => p.id === id))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p));
+  }, [zuperCrew, people]);
+
 
   return (
     <>
@@ -1236,6 +1261,45 @@ function CrewTab({
             ) : (
               'No required slots for this job type.'
             )}
+          </div>
+        )}
+
+        {/* Zuper-team member roster — when we have no local slots but the
+            job carries a Zuper team name, surface the people on that team
+            from the locally-mirrored crews so the dispatcher can see who
+            Zuper has on it without leaving the drawer. */}
+        {job.slots.length === 0 && zuperCrewMembers.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div className="small muted" style={{ marginBottom: 6 }}>
+              Zuper team roster ({zuperCrewMembers.length})
+            </div>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+              {zuperCrewMembers.map((p) => (
+                <div
+                  key={p.id}
+                  className="row"
+                  style={{
+                    gap: 6,
+                    alignItems: 'center',
+                    padding: '4px 8px',
+                    background: 'var(--bg-2, rgba(0,0,0,0.04))',
+                    borderRadius: 6,
+                    fontSize: 13,
+                  }}
+                  title={`${p.role}${p.level ? ` · ${p.level}` : ''}`}
+                >
+                  <span className="mono" style={{ opacity: 0.6, fontSize: 11 }}>
+                    {p.name
+                      .split(/\s+/)
+                      .slice(0, 2)
+                      .map((w) => w[0])
+                      .join('')
+                      .toUpperCase()}
+                  </span>
+                  <span>{p.name}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
